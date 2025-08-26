@@ -14,9 +14,11 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
@@ -40,6 +42,11 @@ class TestEliminationPersistenceRecovery(TestBase):
         
         # Initialize components
         self.mock_metagraph = MockMetagraph(self.all_miners)
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        
         self.position_locks = PositionLocks()
         
         # Create managers
@@ -48,18 +55,23 @@ class TestEliminationPersistenceRecovery(TestBase):
             running_unit_tests=True
         )
         
-        self.elimination_manager = EliminationManager(
-            self.mock_metagraph,
-            None,
-            None,
-            running_unit_tests=True
-        )
-        
+        # Create position manager first (needed by elimination manager)
         self.position_manager = MockPositionManager(
             self.mock_metagraph,
             perf_ledger_manager=self.perf_ledger_manager,
-            elimination_manager=self.elimination_manager
+            elimination_manager=None,  # Will set circular reference later
+            live_price_fetcher=self.live_price_fetcher
         )
+        
+        self.elimination_manager = EliminationManager(
+            self.mock_metagraph,
+            self.position_manager,
+            None,  # challengeperiod_manager set later
+            running_unit_tests=True
+        )
+        
+        # Set circular reference
+        self.position_manager.elimination_manager = self.elimination_manager
         
         self.challengeperiod_manager = ChallengePeriodManager(
             self.mock_metagraph,

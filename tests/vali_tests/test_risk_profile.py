@@ -3,6 +3,7 @@ import unittest
 from copy import deepcopy
 
 import numpy as np
+from tests.shared_objects.mock_classes import MockLivePriceFetcher
 
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -12,7 +13,8 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
-
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
 
 class TestRiskProfile(TestBase):
     """
@@ -48,6 +50,8 @@ class TestRiskProfile(TestBase):
             processed_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
         self.position_manager.clear_all_miner_positions()
@@ -76,7 +80,7 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = 1000
-        position1.add_order(order1)
+        position1.add_order(order1, self.live_price_fetcher)
         result = RiskProfiling.monotonic_positions(position1)
         self.assertEqual(len(result.orders), 0, "Position with single order should result in empty monotonic position")
 
@@ -89,21 +93,21 @@ class TestRiskProfile(TestBase):
         order2.leverage = 0.1
         order2.price = 150
         order2.processed_ms = 1000 + (1000 * 60 * 60 * 24)
-        position2.add_order(order2)
+        position2.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_uuid = "order3"
         order3.leverage = 0.1
         order3.price = 200
         order3.processed_ms = 1000 + (1000 * 60 * 60 * 24 * 2)
-        position2.add_order(order3)
+        position2.add_order(order3, self.live_price_fetcher)
 
         order4 = copy.deepcopy(self.default_order)
         order4.order_uuid = "order4"
         order4.leverage = 0.1
         order4.price = 250
         order4.processed_ms = 1000 + (1000 * 60 * 60 * 24 * 3)
-        position2.add_order(order4)
+        position2.add_order(order4, self.live_price_fetcher)
 
         result = RiskProfiling.monotonic_positions(position2)
         self.assertEqual(len(result.orders), 0, "Winning positions should not be flagged")
@@ -117,19 +121,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.3
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.2
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.monotonic_positions(position)
         self.assertEqual(len(result.orders), 2, "Losing positions with increasing total leverage should be flagged")
@@ -142,19 +146,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.3
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = -0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = -0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.monotonic_positions(position)
         self.assertEqual(len(result.orders), 0, "Losing positions with decreasing leverage should not be flagged")
@@ -169,21 +173,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.monotonic_positions(position)
         self.assertEqual(len(result.orders), 0, "Winning SHORT positions should not be flagged")
@@ -198,21 +202,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.monotonic_positions(position)
         self.assertEqual(len(result.orders), 2, "Losing SHORT positions with increasing leverage should be flagged")
@@ -225,26 +229,26 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.15
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.5
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         order4 = copy.deepcopy(self.default_order)
         order4.order_type = OrderType.FLAT
         order4.leverage = 0.0
         order4.price = 70
         order4.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 4)
-        position.add_order(order4)
+        position.add_order(order4, self.live_price_fetcher)
         position.is_closed_position = True
 
         result = RiskProfiling.monotonic_positions(position)
@@ -265,7 +269,7 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_steps_utilization(position)
         self.assertEqual(result, 0, "Position with single order should have 0 steps")
@@ -277,19 +281,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_steps_utilization(position)
         self.assertEqual(result, 0, "Winning positions should have 0 steps")
@@ -301,19 +305,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.3
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = -0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = -0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_steps_utilization(position)
         self.assertEqual(result, 0, "Losing positions with decreasing leverage should have 0 steps")
@@ -325,19 +329,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_steps_utilization(position)
         self.assertEqual(result, 2, "Losing positions with increasing leverage should have 2 steps")
@@ -352,21 +356,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         self.assertEqual(len(position.orders), 3, "Position should have 3 orders")
         result = RiskProfiling.risk_assessment_steps_utilization(position)
@@ -381,26 +385,26 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         order4 = copy.deepcopy(self.default_order)
         order4.order_type = OrderType.FLAT
         order4.leverage = 0.0
         order4.price = 70
         order4.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 3)
-        position.add_order(order4)
+        position.add_order(order4, self.live_price_fetcher)
 
         position.is_closed_position = True
         result = RiskProfiling.risk_assessment_steps_utilization(position)
@@ -419,7 +423,7 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_monotonic_utilization(position)
         self.assertEqual(result, 0, "Position with single order should have 0 monotonic utilization")
@@ -433,19 +437,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.11
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.12
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_monotonic_utilization(position)
         self.assertEqual(result, 0, "Winning positions should have 0 monotonic utilization")
@@ -457,19 +461,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.2
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_monotonic_utilization(position)
         self.assertEqual(result, 2, "Losing positions with increasing leverage should have 2 monotonic utilization")
@@ -482,19 +486,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.01
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.01
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_margin_utilization(position)
         self.assertLess(result, 0.1, "Low leverage should result in low margin utilization")
@@ -506,19 +510,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.4
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.05
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.02
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_margin_utilization(position)
         self.assertGreater(result, 0.8, "High leverage should result in high margin utilization")
@@ -533,21 +537,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.4
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.05
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.02
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_margin_utilization(position)
         self.assertGreater(result, 0.8, "High leverage SHORT position should result in high margin utilization")
@@ -560,19 +564,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.01
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
         self.assertLess(result, 1.5, "Position with small leverage advancement should have low utilization")
@@ -584,19 +588,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.05
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.15
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
         self.assertGreaterEqual(result, 1.0, "Position with zero initial leverage should return at least 1.0")
@@ -608,19 +612,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.2
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.3
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_leverage_advancement_utilization(position)
         self.assertGreaterEqual(result, 6.0, "Position with large leverage advancement should have high utilization")
@@ -633,13 +637,13 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_time_utilization(position)
         self.assertEqual(result, 0.0, "Position with fewer than 3 orders should have 0 time utilization")
@@ -656,19 +660,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_time_utilization(position)
         self.assertEqual(result, 0.0, "Position with even time intervals should have 0 time utilization")
@@ -680,19 +684,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 12) # Half a day
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_time_utilization(position)
         self.assertGreater(result, 0.0, "Position with uneven time intervals should have positive time utilization")
@@ -704,19 +708,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_assessment_time_utilization(position)
         self.assertEqual(result, 0.0, "Position with zero time intervals should handle the edge case")
@@ -729,25 +733,25 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.2
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.3
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         order4 = copy.deepcopy(self.default_order)
         order4.leverage = 0.4
         order4.price = 70
         order4.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 3)
-        position.add_order(order4)
+        position.add_order(order4, self.live_price_fetcher)
 
         position.return_at_close = 0.9  # 10% loss
 
@@ -784,19 +788,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position.add_order(order1)
+        position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position.add_order(order2)
+        position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position.add_order(order3)
+        position.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_profile_reporting([position])
         self.assertEqual(len(result), 1, "Should contain one entry for one position")
@@ -812,21 +816,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        position2.add_order(order1)
+        position2.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        position2.add_order(order2)
+        position2.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.1
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        position2.add_order(order3)
+        position2.add_order(order3, self.live_price_fetcher)
 
         result = RiskProfiling.risk_profile_reporting([position, position2])
         self.assertEqual(len(result), 2, "Should contain two entries for two positions")
@@ -845,19 +849,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        small_return_position.add_order(order1)
+        small_return_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        small_return_position.add_order(order2)
+        small_return_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        small_return_position.add_order(order3)
+        small_return_position.add_order(order3, self.live_price_fetcher)
 
         # Set a very small return value to test numerical stability
         small_return_position.return_at_close = 0.0001  # 99.99% loss
@@ -883,19 +887,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.05
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        safe_position.add_order(order1)
+        safe_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.03
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        safe_position.add_order(order2)
+        safe_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        safe_position.add_order(order3)
+        safe_position.add_order(order3, self.live_price_fetcher)
 
         safe_position.return_at_close = 1.1  # 10% gain
 
@@ -921,19 +925,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        risky_position.add_order(order1)
+        risky_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 12) # Half a day
-        risky_position.add_order(order2)
+        risky_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.2
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        risky_position.add_order(order3)
+        risky_position.add_order(order3, self.live_price_fetcher)
 
         risky_position.return_at_close = 0.9  # 10% loss
 
@@ -966,19 +970,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.05
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        safe_position.add_order(order1)
+        safe_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.03
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        safe_position.add_order(order2)
+        safe_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        safe_position.add_order(order3)
+        safe_position.add_order(order3, self.live_price_fetcher)
 
         safe_position.return_at_close = 1.1  # 10% gain
 
@@ -989,19 +993,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        risky_position.add_order(order1)
+        risky_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 12) # Half a day
-        risky_position.add_order(order2)
+        risky_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.2
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        risky_position.add_order(order3)
+        risky_position.add_order(order3, self.live_price_fetcher)
 
         risky_position.return_at_close = 0.9  # 10% loss
 
@@ -1050,19 +1054,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.05
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        safe_position.add_order(order1)
+        safe_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.03
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        safe_position.add_order(order2)
+        safe_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        safe_position.add_order(order3)
+        safe_position.add_order(order3, self.live_price_fetcher)
 
         safe_position.return_at_close = 1.1  # 10% gain
 
@@ -1073,19 +1077,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        risky_position.add_order(order1)
+        risky_position.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 12) # Half a day
-        risky_position.add_order(order2)
+        risky_position.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.2
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        risky_position.add_order(order3)
+        risky_position.add_order(order3, self.live_price_fetcher)
 
         risky_position.return_at_close = 0.9  # 10% loss
 
@@ -1138,19 +1142,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.05
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        pos1.add_order(order1)
+        pos1.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.03
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        pos1.add_order(order2)
+        pos1.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.01
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        pos1.add_order(order3)
+        pos1.add_order(order3, self.live_price_fetcher)
 
         pos1.return_at_close = 1.2  # 20% gain
         positions.append(pos1)
@@ -1163,19 +1167,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        pos2.add_order(order1)
+        pos2.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 90
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 12) # Half a day
-        pos2.add_order(order2)
+        pos2.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.2
         order3.price = 80
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        pos2.add_order(order3)
+        pos2.add_order(order3, self.live_price_fetcher)
 
         pos2.return_at_close = 0.8  # 20% loss
         positions.append(pos2)
@@ -1190,21 +1194,21 @@ class TestRiskProfile(TestBase):
         order1.leverage = -0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        pos3.add_order(order1)
+        pos3.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.order_type = OrderType.SHORT
         order2.leverage = -0.1
         order2.price = 110
         order2.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24)
-        pos3.add_order(order2)
+        pos3.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.order_type = OrderType.SHORT
         order3.leverage = -0.3
         order3.price = 120
         order3.processed_ms = self.DEFAULT_ORDER_MS + (1000 * 60 * 60 * 24 * 2)
-        pos3.add_order(order3)
+        pos3.add_order(order3, self.live_price_fetcher)
 
         pos3.return_at_close = 0.9  # 10% loss
         positions.append(pos3)
@@ -1217,19 +1221,19 @@ class TestRiskProfile(TestBase):
         order1.leverage = 0.1
         order1.price = 100
         order1.processed_ms = self.DEFAULT_ORDER_MS
-        pos4.add_order(order1)
+        pos4.add_order(order1, self.live_price_fetcher)
 
         order2 = copy.deepcopy(self.default_order)
         order2.leverage = 0.1
         order2.price = 100
         order2.processed_ms = self.DEFAULT_ORDER_MS
-        pos4.add_order(order2)
+        pos4.add_order(order2, self.live_price_fetcher)
 
         order3 = copy.deepcopy(self.default_order)
         order3.leverage = 0.1
         order3.price = 100
         order3.processed_ms = self.DEFAULT_ORDER_MS
-        pos4.add_order(order3)
+        pos4.add_order(order3, self.live_price_fetcher)
 
         pos4.return_at_close = 1.0  # 0% gain/loss
         positions.append(pos4)
@@ -1329,7 +1333,7 @@ class TestRiskProfile(TestBase):
                 order.price = price
                 order.processed_ms = timestamp
                 order.order_uuid = f"{pos.position_uuid}_{j}"
-                pos.add_order(order)
+                pos.add_order(order, self.live_price_fetcher)
 
             # Set a reasonable return
             pos.return_at_close = 1.0 + np.random.uniform(-0.1, 0.2)  # -10% to +20%

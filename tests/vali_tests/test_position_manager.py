@@ -4,12 +4,14 @@ import random
 from copy import deepcopy
 
 from shared_objects.mock_metagraph import MockMetagraph
+from tests.shared_objects.mock_classes import MockLivePriceFetcher
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.exceptions.vali_records_misalignment_exception import (
     ValiRecordsMisalignmentException,
 )
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 
 
@@ -27,7 +29,9 @@ class TestPositionManager(TestBase):
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True)
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, live_price_fetcher=self.live_price_fetcher)
         self.position_manager.clear_all_miner_positions()
 
     def add_order_to_position_and_save_to_disk(self, position, order):
@@ -59,7 +63,7 @@ class TestPositionManager(TestBase):
                 position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}_{j}"
                 position.open_ms = self.DEFAULT_OPEN_MS + 100 * i + j
                 position.trade_pair = trade_pair
-                position.rebuild_position_with_updated_orders()
+                position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 position.close_out_position(position.open_ms + 1)
                 idx_to_position[(i, j)] = position
                 self.position_manager.save_miner_position(position)
@@ -69,7 +73,7 @@ class TestPositionManager(TestBase):
             position.position_uuid = f"{self.DEFAULT_POSITION_UUID}_{i}_{j}"
             position.open_ms = self.DEFAULT_OPEN_MS + 100 * i + j
             position.trade_pair = trade_pair
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
             idx_to_position[(i, j)] = position
             self.position_manager.save_miner_position(position)
 

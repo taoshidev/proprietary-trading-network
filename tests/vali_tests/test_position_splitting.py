@@ -43,7 +43,7 @@ class TestPositionSplitting(TestBase):
             trade_pair=TradePair.BTCUSD,
             orders=orders
         )
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         
         return position
     
@@ -78,6 +78,7 @@ class TestPositionSplitting(TestBase):
             elimination_manager=self.elimination_manager,
             live_price_fetcher=self.live_price_fetcher
         )
+        self.elimination_manager.position_manager = position_manager
         
         # Create a position where cumulative leverage reaches zero implicitly
         position = self.create_position_with_orders([
@@ -156,6 +157,7 @@ class TestPositionSplitting(TestBase):
             live_price_fetcher=self.live_price_fetcher,
             # Splitting is always available in PositionManager
         )
+        self.elimination_manager.position_manager = position_manager_save
         position_manager_save.clear_all_miner_positions()
         
         # Create and save a position that should be split
@@ -271,7 +273,7 @@ class TestPositionSplitting(TestBase):
                 trade_pair=TradePair.BTCUSD,
                 orders=orders
             )
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
             
             # Split with tracking
             result, split_info = position_manager.split_position_on_flat(position, track_stats=True)

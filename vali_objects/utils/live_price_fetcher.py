@@ -267,7 +267,7 @@ class LivePriceFetcher:
         #    ans.update(closes)
         return ans
 
-    def get_close_at_date(self, trade_pair, timestamp_ms, order=None):
+    def get_close_at_date(self, trade_pair, timestamp_ms, order=None, verbose=True):
         if self.is_backtesting:
             assert order, 'Must provide order for validation during backtesting'
 
@@ -289,7 +289,7 @@ class LivePriceFetcher:
 
         if price_source is None:
             price_source = self.tiingo_data_service.get_close_rest(trade_pair=trade_pair, target_time_ms=timestamp_ms)
-            if price_source is not None:
+            if verbose and price_source is not None:
                 bt.logging.warning(
                     f"Fell back to Tiingo get_date for price of {trade_pair.trade_pair} at {TimeUtil.timestamp_ms_to_eastern_time_str(timestamp_ms)}, ms: {timestamp_ms}")
 
