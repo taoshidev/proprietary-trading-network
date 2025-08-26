@@ -1,3 +1,4 @@
+import threading
 from datetime import timezone, datetime, timedelta
 import bittensor as bt
 from bittensor_wallet import Wallet
@@ -630,8 +631,8 @@ class ValidatorContractManager:
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
 
-        # Add the new record
-        self.miner_account_sizes[hotkey].append(collateral_record)
+        # Add the new record, IPC dict requires reassignment of entire k, v pair
+        self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
 
         # Save to disk
         self._save_miner_account_sizes_to_disk()
@@ -647,7 +648,7 @@ class ValidatorContractManager:
             bt.logging.info(
                 f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
 
-    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False) -> float | None:
+    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False, records_dict: dict=None) -> float | None:
         """
         Get the account size for a miner at a given timestamp. Sort records in reverse chronological order, and return
         the first record whose valid_date_timestamp <= start_of_day_ms
@@ -655,6 +656,8 @@ class ValidatorContractManager:
         Args:
             hotkey: Miner's hotkey (SS58 address)
             timestamp_ms: Timestamp to query for (defaults to now)
+            most_recent: If True, return most recent record regardless of timestamp
+            records_dict: Optional dict to use instead of self.miner_account_sizes (for cached lookups)
 
         Returns:
             Account size in USD, or None if no applicable records
@@ -662,7 +665,10 @@ class ValidatorContractManager:
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
 
-        if hotkey not in self.miner_account_sizes or not self.miner_account_sizes[hotkey]:
+        # Use provided records_dict or default to self.miner_account_sizes
+        source_records = records_dict if records_dict is not None else self.miner_account_sizes
+        
+        if hotkey not in source_records or not source_records[hotkey]:
             return None
 
         # Get start of the requested day
@@ -673,11 +679,11 @@ class ValidatorContractManager:
         )
 
         # Sort records in reverse chronological order (newest first)
-        sorted_records = sorted(self.miner_account_sizes[hotkey], key=lambda r: r.update_time_ms, reverse=True)
+        sorted_records = sorted(source_records[hotkey], key=lambda r: r.update_time_ms, reverse=True)
 
         # Return most recent record
         if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][0]
+            most_recent_record = source_records[hotkey][0]
             return most_recent_record.account_size
 
         # Return the first record that is valid for or before the requested day
@@ -693,8 +699,6 @@ class ValidatorContractManager:
         Broadcast CollateralRecord synapse to other validators.
         Runs in a separate thread to avoid blocking the main process.
         """
-        import threading
-        
         def run_broadcast():
             try:
                 asyncio.run(self._async_broadcast_collateral_record(hotkey, collateral_record))
@@ -781,8 +785,8 @@ class ValidatorContractManager:
                 bt.logging.debug(f"Most recent collateral record for {hotkey} already exists")
                 return True
             
-            # Add the new record
-            self.miner_account_sizes[hotkey].append(collateral_record)
+            # Add the new record, IPC dict requires reassignment of entire k, v pair
+            self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
             
             # Save to disk
             self._save_miner_account_sizes_to_disk()
