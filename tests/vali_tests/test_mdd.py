@@ -117,7 +117,7 @@ class TestMDDChecker(TestBase):
 
 
     def add_order_to_position_and_save_to_disk(self, position, order):
-        position.add_order(order)
+        position.add_order(order, self.live_price_fetcher)
         self.position_manager.save_miner_position(position)
 
     def test_get_live_prices(self):

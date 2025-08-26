@@ -58,7 +58,7 @@ class TestTimeUtil(TestBase):
                        order_uuid="2000")
 
             position.orders = [o1, o2]
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
 
             self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -81,7 +81,7 @@ class TestTimeUtil(TestBase):
                    processed_ms=1719596222703,
                    order_uuid="1000")
         position.orders = [o1]
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         n_intervals, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_crypto(position.start_carry_fee_accrual_ms, t_ms)
         assert n_intervals == 0, f"n_intervals: {n_intervals}, time_until_next_interval_ms: {time_until_next_interval_ms}"
 
@@ -128,7 +128,7 @@ class TestTimeUtil(TestBase):
                             processed_ms=1719843816000 + i + MS_IN_24_HOURS * i,
                             order_uuid="2000")
             position.orders = [o1, o2]
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
             self.assertEqual(position.max_leverage_seen(), 1.0)
             self.assertEqual(position.get_cumulative_leverage(), 2.0)
             n_intervals, time_until_next_interval_ms = TimeUtil.n_intervals_elapsed_forex_indices(o1.processed_ms,

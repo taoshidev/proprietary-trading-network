@@ -2,7 +2,7 @@
 # Copyright © 2024 Taoshi Inc
 import uuid
 
-from tests.shared_objects.mock_classes import MockPlagiarismDetector
+from tests.shared_objects.mock_classes import MockPlagiarismDetector, MockLivePriceFetcher
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.enums.order_type_enum import OrderType
@@ -19,6 +19,7 @@ from vali_objects.utils.plagiarism_events import PlagiarismEvents
 from vali_objects.utils.plagiarism_pipeline import PlagiarismPipeline
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.position_utils import PositionUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 
@@ -34,8 +35,11 @@ class TestPlagiarismUnit(TestBase):
         self.mock_metagraph = MockMetagraph([self.MINER_HOTKEY1, self.MINER_HOTKEY2, self.MINER_HOTKEY3, self.MINER_HOTKEY4])
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
-                                                elimination_manager=self.elimination_manager)
+                                                elimination_manager=self.elimination_manager,
+                                                live_price_fetcher=self.live_price_fetcher)
         self.elimination_manager.position_manager = self.position_manager
         self.plagiarism_detector = MockPlagiarismDetector(self.mock_metagraph, self.position_manager)
         self.DEFAULT_TEST_POSITION_UUID = "test_position"
@@ -110,7 +114,7 @@ class TestPlagiarismUnit(TestBase):
 
 
     def add_order_to_position_and_save_to_disk(self, position, order):
-        position.add_order(order)
+        position.add_order(order, self.live_price_fetcher)
         self.position_manager.save_miner_position(position)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, time_apart, time_after):
