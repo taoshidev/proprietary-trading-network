@@ -29,10 +29,12 @@ from vali_objects.position import Position
 from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 # Removed test_helpers import - using ValiConfig directly
 from vali_objects.vali_dataclasses.order import Order
@@ -66,6 +68,11 @@ class TestEliminationWeightCalculation(TestBase):
         
         # Initialize components with enhanced mocks
         self.mock_metagraph = EnhancedMockMetagraph(self.all_miners)
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        
         self.position_locks = PositionLocks()
         
         # Create managers
@@ -77,7 +84,7 @@ class TestEliminationWeightCalculation(TestBase):
         
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
-            None,
+            self.live_price_fetcher,
             None,
             running_unit_tests=True
         )
@@ -85,7 +92,8 @@ class TestEliminationWeightCalculation(TestBase):
         self.position_manager = EnhancedMockPositionManager(
             self.mock_metagraph,
             perf_ledger_manager=self.perf_ledger_manager,
-            elimination_manager=self.elimination_manager
+            elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
 
         self.contract_manager = ValidatorContractManager(running_unit_tests=True)

@@ -16,9 +16,7 @@ import time
 import argparse
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Tuple, Set, Optional, Any, Union
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -1013,7 +1011,7 @@ class ReturnCalculator:
             position=position_copy
         )
         
-        position_copy.set_returns(realtime_price=price, time_ms=target_date_ms)
+        position_copy.set_returns(price, live_price_fetcher, time_ms=target_date_ms)
         if do_special_fetch:
             bt.logging.warning(f'Special fetch for closed position {position.position_uuid} at {position.close_ms} ms. '
                                f'Trade pair {position.trade_pair.trade_pair} Return: {position_copy.return_at_close}. price_source: {price_source}')

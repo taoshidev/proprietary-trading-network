@@ -199,7 +199,8 @@ class Validator:
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
                                               auto_sync_enabled=self.auto_sync,
-                                              contract_manager=self.contract_manager)  # Set after self.pm creation
+                                              contract_manager=self.contract_manager,
+                                              live_price_fetcher=self.live_price_fetcher)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
@@ -901,7 +902,7 @@ class Validator:
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, net_portfolio_leverage)
+                    existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
                     # Update cooldown cache after successful order processing
                     self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms

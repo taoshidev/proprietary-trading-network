@@ -678,9 +678,9 @@ class PerfLedgerManager(CacheController):
                 new_orders.append(o)
 
         position_at_start_timestamp.orders = new_orders[:-1]
-        position_at_start_timestamp.rebuild_position_with_updated_orders()
+        position_at_start_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         position_at_end_timestamp.orders = new_orders
-        position_at_end_timestamp.rebuild_position_with_updated_orders()
+        position_at_end_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         # Handle position that was forced closed due to realtime data (liquidated)
         if len(new_orders) == len(position.orders) and position.return_at_close == 0:
             position_at_end_timestamp.return_at_close = 0
@@ -972,10 +972,10 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_open_position and price_at_t_ms is not None:
                     # Always update returns for open positions when we have a price
                     # This ensures returns are always current and prevents stale values
-                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                    historical_position.set_returns(price_at_t_ms, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                 else:
                     # Closed positions or no price available - just update fees
-                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
+                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms, self.live_price_fetcher)
 
                 # Track last known prices for portfolio ledger to maintain continuity
                 if price_at_t_ms is not None:
@@ -1623,6 +1623,7 @@ class PerfLedgerManager(CacheController):
                         if last_price_ms <= position.orders[-1].processed_ms:
                             bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. Position last order at {position.orders[-1].processed_ms}')
                             continue
+
 
                         # Record the price transition and return change for logging
                         last_order_price = position.orders[-1].price

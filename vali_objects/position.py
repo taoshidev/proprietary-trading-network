@@ -6,7 +6,7 @@ from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT
+from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT, ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils import leverage_utils
 import bittensor as bt
@@ -305,7 +305,7 @@ class Position(BaseModel):
     def get_net_leverage(self):
         return self.net_leverage
 
-    def rebuild_position_with_updated_orders(self):
+    def rebuild_position_with_updated_orders(self, live_price_fetcher):
         self.current_return = 1.0
         self.close_ms = None
         self.return_at_close = 1.0
@@ -317,7 +317,7 @@ class Position(BaseModel):
         self.is_closed_position = False
         self.position_type = None
 
-        self._update_position()
+        self._update_position(live_price_fetcher)
 
     def log_position_status(self):
         bt.logging.debug(
@@ -338,7 +338,7 @@ class Position(BaseModel):
         ]
         bt.logging.debug(f"position order details: " f"close_ms [{order_info}] ")
 
-    def add_order(self, order: Order, net_portfolio_leverage: float=0.0) -> bool:
+    def add_order(self, order: Order, live_price_fetcher, net_portfolio_leverage: float=0.0) -> bool:
         """
         Add an order to a position, and adjust its leverage to stay within
         the trade pair max and portfolio max.
@@ -365,7 +365,7 @@ class Position(BaseModel):
                     raise ValueError(
                         f"Miner {self.miner_hotkey} attempted to go below min leverage {self.trade_pair.min_leverage} for trade pair {self.trade_pair.trade_pair_id}. Ignoring order.")
         self.orders.append(order)
-        self._update_position()
+        self._update_position(live_price_fetcher)
 
     def calculate_pnl(self, current_price, t_ms=None, order=None):
         if self.initial_entry_price == 0 or self.average_entry_price is None:
@@ -472,25 +472,48 @@ class Position(BaseModel):
 
         return max_leverage
 
-    def _handle_liquidation(self, time_ms):
+    def _handle_liquidation(self, time_ms, live_price_fetcher):
         self._position_log("position liquidated. Trade pair: " + str(self.trade_pair.trade_pair_id))
         if self.is_closed_position:
             return
         else:
-            self.orders.append(self.generate_fake_flat_order(self, time_ms))
+            self.orders.append(self.generate_fake_flat_order(self, time_ms, live_price_fetcher))
             self.close_out_position(time_ms)
 
     @staticmethod
-    def generate_fake_flat_order(position, elimination_time_ms):
+    def generate_fake_flat_order(position, elimination_time_ms, live_price_fetcher, extra_price_source=None):
         fake_flat_order_time = elimination_time_ms
+        price_source = live_price_fetcher.get_close_at_date(
+            trade_pair=position.trade_pair,
+            timestamp_ms=elimination_time_ms,
+            verbose=False
+        )
 
-        flat_order = Order(price=0,
+        if price_source:
+            # Parse the appropriate price
+            price = price_source.parse_appropriate_price(
+                now_ms=elimination_time_ms,
+                is_forex=position.trade_pair.is_forex,
+                order_type=OrderType.FLAT,
+                position=position
+            )
+            src = ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
+        else:
+            bt.logging.warning(f'Unexpectedly unable to fetch price for trade pair {position.trade_pair.trade_pair_id}'
+                               f' at time {TimeUtil.millis_to_formatted_date_str(elimination_time_ms)} during fake flat order'
+                               f'creation. Setting price to 0. and src to ORDER_SRC_ELIMINATION_FLAT')
+            price = 0
+            src = ORDER_SRC_ELIMINATION_FLAT
+
+
+        flat_order = Order(price=price,
                            processed_ms=fake_flat_order_time,
                            order_uuid=position.position_uuid[::-1],  # determinstic across validators. Won't mess with p2p sync
                            trade_pair=position.trade_pair,
                            order_type=OrderType.FLAT,
                            leverage=0,
-                           src=ORDER_SRC_ELIMINATION_FLAT)
+                           src=src,
+                           price_sources=[x for x in (price_source, extra_price_source) if x is not None])
         return flat_order
 
     def calculate_return_with_fees(self, current_return_no_fees, timestamp_ms=None):
@@ -512,13 +535,13 @@ class Position(BaseModel):
         current_return = self.calculate_pnl(realtime_price)
         return self.calculate_return_with_fees(current_return, timestamp_ms=time_ms)
 
-    def set_returns_with_updated_fees(self, total_fees, time_ms):
+    def set_returns_with_updated_fees(self, total_fees, time_ms, live_price_fetcher):
         self.return_at_close = self.current_return * total_fees
         if self.current_return == 0:
-            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
+            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms, live_price_fetcher)
 
 
-    def set_returns(self, realtime_price, time_ms=None, total_fees=None, order=None):
+    def set_returns(self, realtime_price, live_price_fetcher, time_ms=None, total_fees=None, order=None):
         # We used to multiple trade_pair.fees by net_leverage. Eventually we will
         # Update this calculation to approximate actual exchange fees.
         self.current_return = self.calculate_pnl(realtime_price, t_ms=time_ms, order=order)
@@ -532,9 +555,9 @@ class Position(BaseModel):
             raise ValueError(f"current return must be positive {self.current_return}")
 
         if self.current_return == 0:
-            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms)
+            self._handle_liquidation(TimeUtil.now_in_millis() if time_ms is None else time_ms, live_price_fetcher)
 
-    def update_position_state_for_new_order(self, order, delta_leverage):
+    def update_position_state_for_new_order(self, order, delta_leverage, live_price_fetcher):
         """
         Must be called after every order to maintain accurate internal state. The variable average_entry_price has
         a name that can be a little confusing. Although it claims to be the average price, it really isn't.
@@ -547,7 +570,7 @@ class Position(BaseModel):
         if order.src in (ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT):
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
-        self.set_returns(realtime_price, time_ms=order.processed_ms, order=order)
+        self.set_returns(realtime_price, live_price_fetcher, time_ms=order.processed_ms, order=order)
 
         # Liquidated
         if self.current_return == 0:
@@ -667,7 +690,7 @@ class Position(BaseModel):
 
         return should_ignore_order
 
-    def _update_position(self):
+    def _update_position(self, live_price_fetcher):
         self.net_leverage = 0.0
         self.cumulative_entry_value = 0.0
         self.realized_pnl = 0.0
@@ -700,7 +723,7 @@ class Position(BaseModel):
             #bt.logging.info(
             #    f"Updating position state for new order {order} with adjusted leverage {adjusted_leverage}"
             #)
-            self.update_position_state_for_new_order(order, adjusted_leverage)
+            self.update_position_state_for_new_order(order, adjusted_leverage, live_price_fetcher)
 
             # If the position is already closed, we don't need to process any more orders. break in case there are more orders.
             if self.position_type == OrderType.FLAT:

@@ -209,8 +209,8 @@ class EnhancedMockPerfLedgerManager:
 class EnhancedMockPositionManager(BaseMockPositionManager):
     """Enhanced mock position manager with full elimination support"""
     
-    def __init__(self, metagraph, perf_ledger_manager, elimination_manager):
-        super().__init__(metagraph, perf_ledger_manager, elimination_manager)
+    def __init__(self, metagraph, perf_ledger_manager, elimination_manager, live_price_fetcher=None):
+        super().__init__(metagraph, perf_ledger_manager, elimination_manager, live_price_fetcher)
         self.challengeperiod_manager = None  # Set after initialization
         
         # Track closed positions separately for testing

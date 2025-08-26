@@ -30,6 +30,8 @@ from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from shared_objects.cache_controller import CacheController
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
 # Removed test_helpers import - using ValiConfig directly
 
 
@@ -58,13 +60,17 @@ class TestEliminationCore(TestBase):
         ]
         self.mock_metagraph = MockMetagraph(self.all_miners)
         
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        
         # Create perf ledger manager
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         
         # Create elimination manager
         self.elimination_manager = EliminationManager(
             self.mock_metagraph, 
-            None,  # position_manager set later
+            self.live_price_fetcher,
             None,  # challengeperiod_manager set later
             running_unit_tests=True
         )
@@ -73,7 +79,8 @@ class TestEliminationCore(TestBase):
         self.position_manager = MockPositionManager(
             self.mock_metagraph,
             perf_ledger_manager=self.ledger_manager,
-            elimination_manager=self.elimination_manager
+            elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
         
         # Set up circular references

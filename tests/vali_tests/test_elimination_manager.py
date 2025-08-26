@@ -1,6 +1,8 @@
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
 from tests.shared_objects.test_utilities import (
     generate_losing_ledger,
     generate_winning_ledger,
@@ -27,12 +29,17 @@ class TestEliminationManager(TestBase):
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph([self.MDD_MINER, self.REGULAR_MINER])
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
 
-        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
-                                                    elimination_manager=self.elimination_manager)
+                                                    elimination_manager=self.elimination_manager,
+                                                    live_price_fetcher=self.live_price_fetcher)
         self.position_manager.clear_all_miner_positions()
         for hk in self.mock_metagraph.hotkeys:
             mock_position = Position(
