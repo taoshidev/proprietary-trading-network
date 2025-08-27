@@ -801,7 +801,7 @@ class EliminationTimingValidator:
 
 def get_database_url_from_config() -> Optional[str]:
     """Read database URL from config file."""
-    config_file = "config-development.json"
+    config_file = "../config-development.json"
     
     try:
         if os.path.exists(config_file):
