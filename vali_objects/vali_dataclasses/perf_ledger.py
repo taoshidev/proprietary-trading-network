@@ -603,7 +603,7 @@ class PerfLedgerManager(CacheController):
         if hotkeys is None:
             hotkeys = self.metagraph.hotkeys
 
-        # Note, eliminated miners will not appear in the dict below
+        # Build filtered ledger for all miners with positions
         filtered_ledger = {}
         for hotkey, miner_portfolio_ledger in self.get_perf_ledgers(portfolio_only=False).items():
             if hotkey not in hotkeys:
@@ -1936,9 +1936,7 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True,
-                eliminations=self.position_manager.elimination_manager.get_eliminations_from_memory()
-            )
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
             n_positions_total = 0
             n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
@@ -1949,7 +1947,7 @@ class PerfLedgerManager(CacheController):
                     hotkeys_with_no_positions.add(k)
             for k in hotkeys_with_no_positions:
                 del hotkey_to_positions[k]
-            bt.logging.info('TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total), 'TOTAL N HOTKEYS IN MEMORY: ' + str(n_hotkeys_total))
+            bt.logging.info('PERF LEDGERS TOTAL N POSITIONS IN MEMORY: ' + str(n_positions_total), 'TOTAL N HOTKEYS IN MEMORY: ' + str(n_hotkeys_total))
 
         return hotkey_to_positions, hotkeys_with_no_positions
 
@@ -1982,8 +1980,6 @@ class PerfLedgerManager(CacheController):
 
         # Sort the keys with the custom sort key
         hotkeys_ordered_by_last_trade = sorted(hotkey_to_positions.keys(), key=sort_key, reverse=True)
-
-        eliminated_hotkeys = self.position_manager.elimination_manager.get_eliminated_hotkeys()
 
         # Remove keys from perf ledgers if they aren't inx the metagraph anymore
         metagraph_hotkeys = set(self.metagraph.hotkeys)
@@ -2022,8 +2018,6 @@ class PerfLedgerManager(CacheController):
         for hotkey in hotkeys_to_iterate:
             if hotkey not in metagraph_hotkeys:
                 hotkeys_to_delete.add(hotkey)
-            elif hotkey in eliminated_hotkeys:  # eliminated hotkeys won't be in positions so they will stop updating. We will keep them in perf ledger for visualizing metrics in the dashboard.
-                pass  # Don't want to rebuild. Use this pass statement to avoid rss logic.
             elif not len(hotkey_to_positions.get(hotkey, [])):
                 hotkeys_to_delete.add(hotkey)
             elif self.enable_rss and not rss_modified and hotkey not in self.random_security_screenings:
