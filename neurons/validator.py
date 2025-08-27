@@ -306,10 +306,10 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
-        def cr_blacklist_fn(synapse: template.protocol.ValidatorCheckpoint) -> Tuple[bool, str]:
+        def cr_blacklist_fn(synapse: template.protocol.CollateralRecord) -> Tuple[bool, str]:
             return Validator.blacklist_fn(synapse, self.metagraph)
 
-        def cr_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
+        def cr_priority_fn(synapse: template.protocol.CollateralRecord) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
         self.axon.attach(
