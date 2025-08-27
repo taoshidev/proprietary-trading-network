@@ -88,6 +88,65 @@ class RequestCoreManager:
                         f"✅ Proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
                         f"Drawdown: {metrics.get('max_drawdown_percentage', 'N/A'):.2f}%"
                     )
+
+                    # Calculate validator metrics for comparison
+                    try:
+                        from vali_objects.utils.metrics import Metrics
+
+                        # Get log returns from the performance ledger
+                        ledger = perf_ledgers[hotkey]
+                        log_returns = (
+                            ledger.get_log_returns()
+                            if hasattr(ledger, "get_log_returns")
+                            else []
+                        )
+
+                        if len(log_returns) > 0:
+                            validator_metrics = {
+                                "avg_daily_pnl": Metrics.average(log_returns),
+                                "sharpe_ratio": Metrics.sharpe(
+                                    log_returns, bypass_confidence=True
+                                ),
+                                "max_drawdown": Metrics.daily_max_drawdown(log_returns),
+                                "calmar_ratio": Metrics.calmar(
+                                    log_returns, ledger, bypass_confidence=True
+                                ),
+                                "omega_ratio": Metrics.omega(
+                                    log_returns, bypass_confidence=True
+                                ),
+                                "sortino_ratio": Metrics.sortino(
+                                    log_returns, bypass_confidence=True
+                                ),
+                                "stat_confidence": Metrics.statistical_confidence(
+                                    log_returns, bypass_confidence=True
+                                ),
+                            }
+
+                            print(f"\n--- VALIDATOR METRICS ---")
+                            print(
+                                f"Average Daily PnL: {validator_metrics['avg_daily_pnl']:.9f}"
+                            )
+                            print(
+                                f"Sharpe Ratio: {validator_metrics['sharpe_ratio']:.9f}"
+                            )
+                            print(
+                                f"Max Drawdown: {validator_metrics['max_drawdown']:.9f} ({validator_metrics['max_drawdown'] * 100:.6f}%)"
+                            )
+                            print(
+                                f"Calmar Ratio: {validator_metrics['calmar_ratio']:.9f}"
+                            )
+                            print(
+                                f"Omega Ratio: {validator_metrics['omega_ratio']:.9f}"
+                            )
+                            print(
+                                f"Sortino Ratio: {validator_metrics['sortino_ratio']:.9f}"
+                            )
+                            print(
+                                f"Statistical Confidence: {validator_metrics['stat_confidence']:.9f}"
+                            )
+
+                    except Exception as e:
+                        print(f"Warning: Could not calculate validator metrics: {e}")
                 else:
                     print(
                         f"Proof generation failed for {hotkey[:8]}: {proof_result.get('message', 'Unknown error')}"
