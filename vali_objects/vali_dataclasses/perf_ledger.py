@@ -1404,12 +1404,19 @@ class PerfLedgerManager(CacheController):
         #mode_to_ticks = {'second': 0, 'minute': 0}
         #snarey = False
 
+        # Validate time range
+        if start_time_ms > end_time_ms:
+            bt.logging.error(f"Invalid time range in build_perf_ledger:")
+            bt.logging.error(f"  start_time_ms: {start_time_ms} ({TimeUtil.millis_to_formatted_date_str(start_time_ms)})")
+            bt.logging.error(f"  end_time_ms: {end_time_ms} ({TimeUtil.millis_to_formatted_date_str(end_time_ms)})")
+            bt.logging.error(f"  Miner: {miner_hotkey}")
+            raise ValueError(f"start_time_ms ({start_time_ms}) cannot be greater than end_time_ms ({end_time_ms})")
+        
         # Initialize tracking for time increments
         self._last_loop_t_ms = {}
         self._last_ledger_update_ms = {}
         for tp_id in tp_ids_to_build:
             self._last_ledger_update_ms[tp_id] = perf_ledger_bundle[tp_id].last_update_ms
-
 
         # closed positions have the same stats throughout the interval. lets do a single update now
         # so that filling the void uses the current state of those position(s)
@@ -1430,6 +1437,19 @@ class PerfLedgerManager(CacheController):
             perf_ledger.update_pl(current_return, start_time_ms, miner_hotkey, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
                                   current_spread_fee, current_carry_fee, contract_manager=contract_manager, miner_account_size=cached_account_size)
 
+        # Check if the while loop will execute at all
+        if start_time_ms + accumulated_time_ms >= end_time_ms:
+            # This should have been caught by the shortcut logic, but handle it defensively
+            # Initialize variables needed after the loop with initial values
+            tp_to_current_return = tp_to_initial_return.copy()
+            tp_to_any_open = {tp_id: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for tp_id in tp_ids_to_build}
+            tp_to_current_spread_fee = tp_to_initial_spread_fee.copy()
+            tp_to_current_carry_fee = tp_to_initial_carry_fee.copy()
+            
+            bt.logging.warning(f"build_perf_ledger: while loop will not execute for miner {miner_hotkey}. "
+                             f"start_time: {TimeUtil.millis_to_formatted_date_str(start_time_ms)}, "
+                             f"end_time: {TimeUtil.millis_to_formatted_date_str(end_time_ms)}")
+        
         while start_time_ms + accumulated_time_ms < end_time_ms:
             # Need high resolution at the start and end of the time window
             mode = self.get_current_update_mode(default_mode, start_time_ms, end_time_ms, accumulated_time_ms)
