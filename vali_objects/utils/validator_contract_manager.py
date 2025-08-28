@@ -4,6 +4,7 @@ from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
 from typing import Dict, Any, Optional, List
 import traceback
+
 from time_util.time_util import TimeUtil
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -667,7 +668,7 @@ class ValidatorContractManager:
 
         # Return most recent record
         if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][0]
+            most_recent_record = sorted_records[0]
             return most_recent_record.account_size
 
         # Return the first record that is valid for or before the requested day
