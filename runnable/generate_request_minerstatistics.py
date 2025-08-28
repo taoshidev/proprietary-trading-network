@@ -858,6 +858,8 @@ class MinerStatisticsManager:
                             portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
                             if portfolio_ledger and raw_positions:
+                                bt.logging.info(f"Preparing proof data for {hotkey[:8]} - ledger has {len(portfolio_ledger.cps) if hasattr(portfolio_ledger, 'cps') else 'no'} cps")
+                                
                                 proof_data = {
                                     "perf_ledgers": {hotkey: portfolio_ledger.to_dict()},
                                     "positions": {
@@ -871,8 +873,14 @@ class MinerStatisticsManager:
                                         }
                                     },
                                 }
-
-                                proof_result = prove(proof_data, hotkey, verbose=True)
+                                
+                                bt.logging.info(f"Calling prove() for {hotkey[:8]}")
+                                try:
+                                    proof_result = prove(proof_data, hotkey, verbose=True)
+                                    bt.logging.info(f"prove() returned for {hotkey[:8]}: {type(proof_result)}")
+                                except Exception as e:
+                                    bt.logging.error(f"prove() threw exception for {hotkey[:8]}: {str(e)}")
+                                    proof_result = None
 
                                 if proof_result and proof_result.get(
                                     "proof_results", {}
