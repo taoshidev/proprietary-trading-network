@@ -877,7 +877,7 @@ class MinerStatisticsManager:
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(proof_data, hotkey, verbose=True)
-                                    bt.logging.info(f"prove() returned for {hotkey[:8]}: {type(proof_result)}")
+                                    bt.logging.info(f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}")
                                 except Exception as e:
                                     bt.logging.error(f"prove() threw exception for {hotkey[:8]}: {str(e)}")
                                     proof_result = None
@@ -913,7 +913,7 @@ class MinerStatisticsManager:
                                     )
                                 else:
                                     bt.logging.warning(
-                                        f"ZK proof generation failed or verification unsuccessful for {hotkey[:8]}"
+                                        f"ZK proof generation failed for {hotkey[:8]}"
                                     )
                                     final_miner_dict["zk_proof"] = {
                                         "status": "failed",
