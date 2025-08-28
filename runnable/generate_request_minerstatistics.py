@@ -734,7 +734,7 @@ class MinerStatisticsManager:
 
             # Build a small function to extract ScoreResult -> dict for each metric
             def build_scores_dict(
-                metric_set: Dict[str, Dict[str, ScoreResult]]
+                metric_set: Dict[str, Dict[str, ScoreResult]],
             ) -> Dict[str, Dict[str, float]]:
                 out = {}
                 for metric_name, hotkey_map in metric_set.items():
@@ -858,34 +858,53 @@ class MinerStatisticsManager:
                             portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
                             if portfolio_ledger and raw_positions:
-                                bt.logging.info(f"Preparing proof data for {hotkey[:8]} - ledger has {len(portfolio_ledger.cps) if hasattr(portfolio_ledger, 'cps') else 'no'} cps")
+                                bt.logging.info(
+                                    f"Preparing proof data for {hotkey[:8]} - ledger has {len(portfolio_ledger.cps) if hasattr(portfolio_ledger, 'cps') else 'no'} cps"
+                                )
 
                                 proof_data = {
-                                    "perf_ledgers": {hotkey: portfolio_ledger.to_dict()},
+                                    "perf_ledgers": {
+                                        hotkey: portfolio_ledger.to_dict()
+                                    },
                                     "positions": {
                                         hotkey: {
                                             "positions": [
-                                                pos.__dict__
-                                                if hasattr(pos, "__dict__")
-                                                else pos
+                                                (
+                                                    pos.__dict__
+                                                    if hasattr(pos, "__dict__")
+                                                    else pos
+                                                )
                                                 for pos in raw_positions
                                             ]
                                         }
                                     },
                                 }
 
-
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
-                                    proof_result = prove(proof_data, hotkey, verbose=True)
-                                    bt.logging.info(f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}")
-                                    if proof_result and proof_result.get('status') == 'error':
-                                        bt.logging.error(f"Proof error for {hotkey[:8]}: {proof_result.get('message', 'No error message')}")
+                                    proof_result = prove(
+                                        proof_data, hotkey, verbose=True
+                                    )
+                                    bt.logging.info(
+                                        f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}"
+                                    )
+                                    if (
+                                        proof_result
+                                        and proof_result.get("status") == "error"
+                                    ):
+                                        bt.logging.error(
+                                            f"Proof error for {hotkey[:8]}: {proof_result.get('message', 'No error message')}"
+                                        )
                                 except Exception as e:
-                                    bt.logging.error(f"prove() threw exception for {hotkey[:8]}: {str(e)}")
+                                    bt.logging.error(
+                                        f"prove() threw exception for {hotkey[:8]}: {str(e)}"
+                                    )
                                     proof_result = None
 
-                                if proof_result and proof_result.get("status") == "success":
+                                if (
+                                    proof_result
+                                    and proof_result.get("status") == "success"
+                                ):
                                     metrics = proof_result.get("portfolio_metrics", {})
                                     bt.logging.info(
                                         f"ZK proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
@@ -921,11 +940,13 @@ class MinerStatisticsManager:
                                     final_miner_dict["zk_proof"] = {
                                         "status": "failed",
                                         "verification_success": False,
-                                        "message": proof_result.get(
-                                            "message", "Proof generation failed"
-                                        )
-                                        if proof_result
-                                        else "Unknown error",
+                                        "message": (
+                                            proof_result.get(
+                                                "message", "Proof generation failed"
+                                            )
+                                            if proof_result
+                                            else "Unknown error"
+                                        ),
                                     }
                             else:
                                 bt.logging.warning(
@@ -958,13 +979,25 @@ class MinerStatisticsManager:
             # Log subnet's own metrics for comparison
             subnet_metrics = final_miner_dict.get("augmented_scores", {})
             bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
-            bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}")
-            bt.logging.info(f"Circuit outputs {final_miner_dict["zk_proof"]}")
+            bt.logging.info(
+                f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(
+                f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(
+                f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(
+                f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(
+                f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(
+                f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}"
+            )
+            bt.logging.info(f"Circuit outputs {final_miner_dict.get('zk_proof', {})}")
             results.append(final_miner_dict)
 
         # (Optional) sort by weight rank if you want the final data sorted in that manner:
