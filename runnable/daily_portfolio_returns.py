@@ -353,7 +353,7 @@ def process_miner_with_main_logic(
         
         # Filter positions and identify required trade pairs using date string
         filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
-            all_positions, current_ms, current_date_str, elimination_tracker
+            all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
         )
         
         if not filtered_positions_by_hotkey or hotkey not in filtered_positions_by_hotkey:
@@ -732,7 +732,7 @@ class PositionFilter:
     """Handles filtering of positions by date and asset type."""
     
     @staticmethod
-    def filter_single_position(position: Position, cutoff_date_ms: int) -> Tuple[Optional[Position], str]:
+    def filter_single_position(position: Position, cutoff_date_ms: int, live_price_fetcher) -> Tuple[Optional[Position], str]:
         """
         Filter a single position by date and asset type.
         
@@ -770,7 +770,7 @@ class PositionFilter:
             position_type=position.position_type,
             is_closed_position=position.is_closed_position and position.close_ms and position.close_ms <= cutoff_date_ms,
         )
-        filtered_position.rebuild_position_with_updated_orders()
+        filtered_position.rebuild_position_with_updated_orders(live_price_fetcher)
         return filtered_position, "kept"
     
     @staticmethod
@@ -793,7 +793,7 @@ class PositionFilter:
             filtered_positions = []
             
             for position in positions:
-                filtered_position, skip_reason = PositionFilter.filter_single_position(position, target_date_ms)
+                filtered_position, skip_reason = PositionFilter.filter_single_position(position, target_date_ms, self.live_price_fetcher)
                 
                 if skip_reason == "equities":
                     stats.equities_positions_skipped += 1
@@ -821,6 +821,7 @@ class PositionFilter:
         all_positions: Dict[str, List[Position]],
         target_date_ms: int,
         date_str: str,  # Date string passed in
+        live_price_fetcher,
         elimination_tracker: Optional['EliminationTracker'] = None
     ) -> Tuple[Dict[str, List[Position]], Set[str], FilterStats]:
         """
@@ -851,7 +852,7 @@ class PositionFilter:
             filtered_positions = []
             
             for position in positions:
-                filtered_position, skip_reason = PositionFilter.filter_single_position(position, target_date_ms)
+                filtered_position, skip_reason = PositionFilter.filter_single_position(position, target_date_ms, live_price_fetcher)
                 
                 if skip_reason == "equities":
                     stats.equities_positions_skipped += 1
@@ -1002,7 +1003,7 @@ class ReturnCalculator:
             position_type=position.position_type,
             is_closed_position=position.is_closed_position,
         )
-        position_copy.rebuild_position_with_updated_orders()
+        position_copy.rebuild_position_with_updated_orders(live_price_fetcher)
         
         price = price_source.parse_appropriate_price(
             now_ms=target_date_ms,
@@ -2104,7 +2105,7 @@ def main():
         try:
             # Step 1: Filter positions and identify required trade pairs using date string
             filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
-                all_positions, current_ms, current_date_str, elimination_tracker
+                all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
             )
 
             
