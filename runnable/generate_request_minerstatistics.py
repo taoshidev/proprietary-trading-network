@@ -877,12 +877,12 @@ class MinerStatisticsManager:
                                 # Log subnet's own metrics for comparison
                                 subnet_metrics = final_miner_dict.get("augmented_scores", {})
                                 bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
-                                bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('raw_value', 'N/A')}")
-                                bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('raw_value', 'N/A')}")
-                                bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('raw_value', 'N/A')}")
-                                bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('raw_value', 'N/A')}")
-                                bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('raw_value', 'N/A')}")
-                                bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}")
+                                bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}")
+                                bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}")
+                                bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}")
+                                bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}")
+                                bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}")
                                 
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
