@@ -884,7 +884,7 @@ class MinerStatisticsManager:
 
                                 if proof_result and proof_result.get(
                                     "proof_results", {}
-                                ).get("verification_success"):
+                                ).get("proof_generated"):
                                     metrics = proof_result.get("portfolio_metrics", {})
                                     bt.logging.info(
                                         f"ZK proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
@@ -893,7 +893,7 @@ class MinerStatisticsManager:
 
                                     final_miner_dict["zk_proof"] = {
                                         "status": "success",
-                                        "verification_success": True,
+                                        "proof_generated": True,
                                         "merkle_roots": proof_result.get(
                                             "merkle_roots", {}
                                         ),
