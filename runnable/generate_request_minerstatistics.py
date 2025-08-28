@@ -874,10 +874,22 @@ class MinerStatisticsManager:
                                     },
                                 }
                                 
+                                # Log subnet's own metrics for comparison
+                                subnet_metrics = final_miner_dict.get("augmented_scores", {})
+                                bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
+                                bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('raw_value', 'N/A')}")
+                                bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('raw_value', 'N/A')}")
+                                
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(proof_data, hotkey, verbose=True)
                                     bt.logging.info(f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}")
+                                    if proof_result and proof_result.get('status') == 'error':
+                                        bt.logging.error(f"Proof error for {hotkey[:8]}: {proof_result.get('message', 'No error message')}")
                                 except Exception as e:
                                     bt.logging.error(f"prove() threw exception for {hotkey[:8]}: {str(e)}")
                                     proof_result = None
