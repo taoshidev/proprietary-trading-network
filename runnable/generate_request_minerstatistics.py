@@ -859,7 +859,7 @@ class MinerStatisticsManager:
 
                             if portfolio_ledger and raw_positions:
                                 bt.logging.info(f"Preparing proof data for {hotkey[:8]} - ledger has {len(portfolio_ledger.cps) if hasattr(portfolio_ledger, 'cps') else 'no'} cps")
-                                
+
                                 proof_data = {
                                     "perf_ledgers": {hotkey: portfolio_ledger.to_dict()},
                                     "positions": {
@@ -873,17 +873,8 @@ class MinerStatisticsManager:
                                         }
                                     },
                                 }
-                                
-                                # Log subnet's own metrics for comparison
-                                subnet_metrics = final_miner_dict.get("augmented_scores", {})
-                                bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
-                                bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}")
-                                bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}")
-                                bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}")
-                                bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}")
-                                bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}")
-                                bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}")
-                                
+
+
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(proof_data, hotkey, verbose=True)
@@ -964,6 +955,16 @@ class MinerStatisticsManager:
                         f"Hotkey {hotkey}: No cumulative ledger or checkpoints found"
                     )
 
+            # Log subnet's own metrics for comparison
+            subnet_metrics = final_miner_dict.get("augmented_scores", {})
+            bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
+            bt.logging.info(f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}")
+            bt.logging.info(f"Circuit outputs {final_miner_dict["zk_proof"]}")
             results.append(final_miner_dict)
 
         # (Optional) sort by weight rank if you want the final data sorted in that manner:
