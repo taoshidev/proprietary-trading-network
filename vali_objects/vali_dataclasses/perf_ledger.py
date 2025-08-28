@@ -2018,7 +2018,7 @@ class PerfLedgerManager(CacheController):
             print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
                     f' max_return {portfolio_ledger.max_return}')
             from vali_objects.utils.ledger_utils import LedgerUtils
-            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger, use_log=False)
+            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger, return_type='simple')
             datetime_to_daily_return = {datetime.datetime.combine(k, datetime.time.min).timestamp() :v for k, v in daily_returns.items()}
             returns = []
             returns_muled = []

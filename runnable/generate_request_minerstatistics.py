@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime
 from shared_objects.mock_metagraph import MockMetagraph
 from time_util.time_util import TimeUtil
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
@@ -209,7 +210,7 @@ class MinerStatisticsManager:
         checkpoint_durations = sum(cp.open_ms for cp in miner_cps)
 
         # Minimum days boolean
-        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N)
+        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
 
         return {
             "annual_volatility": ann_volatility,
@@ -342,10 +343,18 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]]) -> dict[str, list[float]]:
-        """Calculate daily returns for all miners."""
+    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str) -> dict[str, list[float]]:
+        """Calculate daily returns for all miners.
+        
+        Args:
+            filtered_ledger: Dictionary of miner ledgers
+            return_type: 'simple' or 'log' to specify return type
+        
+        Returns:
+            Dictionary mapping hotkeys to daily returns
+        """
         return {
-            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO))
+            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO), return_type=return_type)
             for hotkey, ledgers in filtered_ledger.items()
         }
 
@@ -581,9 +590,17 @@ class MinerStatisticsManager:
         filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
+        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*challengeperiod_success_hotkeys, *challengeperiod_probation_hotkeys])  # ledger of all miners in maincomp, including probation
+        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+            maincomp_ledger, asset_subcategories
+        )
+        bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
+
         success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             weighting=final_results_weighting
         ) # returns asset competitiveness dict, asset softmaxed scores
@@ -596,6 +613,7 @@ class MinerStatisticsManager:
         checkpoint_results = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -610,6 +628,7 @@ class MinerStatisticsManager:
         testing_checkpoint_results = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -655,7 +674,7 @@ class MinerStatisticsManager:
         augmented_scores = self.calculate_scores_with_challengeperiod(miner_data, challengeperiod_success_hotkeys, challengeperiod_eval_hotkeys, ScoreType.AUGMENTED, bypass_confidence)
 
         # For visualization
-        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger)
+        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger, return_type='simple')
 
         # Calculate raw PnL values with rankings and percentiles
         raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)
@@ -752,7 +771,7 @@ class MinerStatisticsManager:
 
             # Purely for visualization purposes
             daily_returns = daily_returns_dict.get(hotkey, {})
-            daily_returns_list = [{"date": date, "value": value} for date, value in daily_returns.items()]
+            daily_returns_list = [{"date": date, "value": value * 100} for date, value in daily_returns.items()]
 
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})

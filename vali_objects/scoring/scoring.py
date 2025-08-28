@@ -80,6 +80,7 @@ class Scoring:
     def compute_results_checkpoint(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             full_positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False,
@@ -117,6 +118,7 @@ class Scoring:
         _, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             ledger_dict=ledger_dict,
             positions=full_positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
@@ -136,6 +138,7 @@ class Scoring:
     def score_miner_asset_subcategories(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting=False
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
@@ -155,6 +158,7 @@ class Scoring:
         asset_penalized_scores_dict = Scoring.score_miners(
             ledger_dict=ledger_dict,
             positions=positions,
+            subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting
         )
@@ -173,6 +177,7 @@ class Scoring:
     def score_miners(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             positions: dict[str, list[Position]],
+            subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting: bool = False
     ) -> dict[str, dict]:
@@ -249,6 +254,7 @@ class Scoring:
                         ledger=ledger,
                         weighting=weighting,
                         days_in_year=days_in_year,
+                        min_days=subcategory_min_days[asset_subcategory],
                     )
 
                     scores.append((miner, float(score)))

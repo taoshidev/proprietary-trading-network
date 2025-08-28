@@ -25,6 +25,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
@@ -322,12 +323,16 @@ class TestEliminationWeightCalculation(TestBase):
         filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(
             hotkeys=success_hotkeys
         )
+
+        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        subcategory_min_days = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
         
         # Compute scores
         if len(filtered_ledger) > 0:
             scores = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
+                subcategory_min_days=subcategory_min_days,
                 evaluation_time_ms=TimeUtil.now_in_millis()
             )
             
