@@ -882,9 +882,7 @@ class MinerStatisticsManager:
                                     bt.logging.error(f"prove() threw exception for {hotkey[:8]}: {str(e)}")
                                     proof_result = None
 
-                                if proof_result and proof_result.get(
-                                    "proof_results", {}
-                                ).get("proof_generated"):
+                                if proof_result and proof_result.get("status") == "success":
                                     metrics = proof_result.get("portfolio_metrics", {})
                                     bt.logging.info(
                                         f"ZK proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
