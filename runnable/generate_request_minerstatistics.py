@@ -853,12 +853,13 @@ class MinerStatisticsManager:
                                 f"Generating ZK proof for miner {hotkey[:8]}..."
                             )
 
-                            raw_ledger = filtered_ledger.get(hotkey, {})
+                            raw_ledger_dict = filtered_ledger.get(hotkey, {})
                             raw_positions = filtered_positions.get(hotkey, [])
+                            portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
-                            if raw_ledger and raw_positions:
+                            if portfolio_ledger and raw_positions:
                                 proof_data = {
-                                    "perf_ledgers": {hotkey: raw_ledger},
+                                    "perf_ledgers": {hotkey: portfolio_ledger.to_dict()},
                                     "positions": {
                                         hotkey: {
                                             "positions": [
@@ -871,7 +872,7 @@ class MinerStatisticsManager:
                                     },
                                 }
 
-                                proof_result = prove(proof_data, hotkey)
+                                proof_result = prove(proof_data, hotkey, verbose=True)
 
                                 if proof_result and proof_result.get(
                                     "proof_results", {}
@@ -919,7 +920,7 @@ class MinerStatisticsManager:
                                     }
                             else:
                                 bt.logging.warning(
-                                    f"Insufficient data for ZK proof generation for {hotkey[:8]}"
+                                    f"Insufficient data for ZK proof generation for {hotkey[:8]} - portfolio_ledger: {portfolio_ledger is not None}, positions: {len(raw_positions) if raw_positions else 0}"
                                 )
                                 final_miner_dict["zk_proof"] = {
                                     "status": "skipped",
