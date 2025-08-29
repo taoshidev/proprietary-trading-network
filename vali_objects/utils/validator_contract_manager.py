@@ -650,7 +650,7 @@ class ValidatorContractManager:
 
     def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False, records_dict: dict=None) -> float | None:
         """
-        Get the account size for a miner at a given timestamp. Sort records in reverse chronological order, and return
+        Get the account size for a miner at a given timestamp. Iterate list in reverse chronological order, and return
         the first record whose valid_date_timestamp <= start_of_day_ms
 
         Args:
@@ -678,16 +678,13 @@ class ValidatorContractManager:
             .timestamp() * 1000
         )
 
-        # Sort records in reverse chronological order (newest first)
-        sorted_records = sorted(source_records[hotkey], key=lambda r: r.update_time_ms, reverse=True)
-
         # Return most recent record
         if most_recent:
-            most_recent_record = source_records[hotkey][0]
+            most_recent_record = source_records[hotkey][-1]
             return most_recent_record.account_size
 
-        # Return the first record that is valid for or before the requested day
-        for record in sorted_records:
+        # Iteate in reversed order, and return the first record that is valid for or before the requested day
+        for record in reversed(source_records[hotkey]):
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
 

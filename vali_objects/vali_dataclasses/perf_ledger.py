@@ -1843,13 +1843,13 @@ class PerfLedgerManager(CacheController):
         else:
             return self.pl_elimination_rows
     
-    def _refresh_account_sizes_cache_if_needed(self):
+    def _refresh_account_sizes_cache_if_needed(self, force_refresh=False):
         """
         Refresh cache if we're on a new UTC date. Miner account sizes go into effect once at the end of the UTC day.
         """
         current_date = TimeUtil.millis_to_short_date_str(TimeUtil.now_in_millis())
         
-        if self.cache_last_refreshed_date != current_date:
+        if self.cache_last_refreshed_date != current_date or force_refresh:
             if self.contract_manager and hasattr(self.contract_manager, 'miner_account_sizes'):
                 # Make a deepcopy of the entire account sizes dict
                 self.cached_miner_account_sizes = deepcopy(self.contract_manager.miner_account_sizes)
@@ -1883,7 +1883,7 @@ class PerfLedgerManager(CacheController):
         self.candidate_pl_elimination_rows = []
         
         # Refresh account sizes cache if needed (once per day)
-        self._refresh_account_sizes_cache_if_needed()
+        self._refresh_account_sizes_cache_if_needed(force_refresh=True)
         
         n_hotkeys = len(hotkey_to_positions)
         for hotkey_i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
