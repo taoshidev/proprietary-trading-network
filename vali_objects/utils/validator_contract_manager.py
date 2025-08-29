@@ -32,8 +32,11 @@ class CollateralRecord:
     @property
     def valid_date_str(self) -> str:
         """Returns YYYY-MM-DD format for easy reading"""
-        dt = datetime.fromtimestamp(self.valid_date_timestamp / 1000, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d")
+        return TimeUtil.millis_to_short_date_str(self.valid_date_timestamp)
+
+    def __repr__(self):
+        """String representation"""
+        return str(vars(self))
 
 
 class ValidatorContractManager:
@@ -142,14 +145,7 @@ class ValidatorContractManager:
         """Convert miner account sizes to checkpoint format for backup/sync"""
         json_dict = {}
         for hotkey, records in self.miner_account_sizes.items():
-            json_dict[hotkey] = [
-                {
-                    "account_size": record.account_size,
-                    "update_time_ms": record.update_time_ms,
-                    "valid_date_timestamp": record.valid_date_timestamp
-                }
-                for record in records
-            ]
+            json_dict[hotkey] = [vars(record) for record in records]
         return json_dict
 
     @staticmethod
@@ -711,7 +707,10 @@ class ValidatorContractManager:
         """
         try:
             # Get other validators to broadcast to
-            validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN)] if not self.is_testnet else self.metagraph.axons
+            if self.is_testnet:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.axon_info.ip != ValiConfig.AXON_NO_IP]
+            else:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP]
 
             if not validator_axons:
                 bt.logging.debug("No other validators to broadcast CollateralRecord to")
