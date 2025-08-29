@@ -15,8 +15,9 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
 class CollateralRecord:
-    def __init__(self, account_size, update_time_ms):
+    def __init__(self, account_size, account_size_theta, update_time_ms):
         self.account_size = account_size
+        self.account_size_theta = account_size_theta
         self.update_time_ms = update_time_ms
         self.valid_date_timestamp = CollateralRecord.valid_from_ms(update_time_ms)
 
@@ -164,7 +165,12 @@ class ValidatorContractManager:
                 parsed_records = []
                 for record_data in records_data:
                     if isinstance(record_data, dict) and all(key in record_data for key in ["account_size", "update_time_ms"]):
-                        record = CollateralRecord(record_data["account_size"], record_data["update_time_ms"])
+                        ## TODO: populates account_size_theta for all existing records. safe to remove
+                        if record_data.get("account_size_theta") is None:
+                            account_size_theta = record_data["account_size"] / ValiConfig.COST_PER_THETA
+                        else:
+                            account_size_theta = record_data["account_size_theta"]
+                        record = CollateralRecord(record_data["account_size"], account_size_theta, record_data["update_time_ms"])
                         parsed_records.append(record)
 
                 if parsed_records:  # Only add if we have valid records
@@ -630,7 +636,7 @@ class ValidatorContractManager:
             return
 
         account_size = collateral_balance * ValiConfig.COST_PER_THETA
-        collateral_record = CollateralRecord(account_size, timestamp_ms)
+        collateral_record = CollateralRecord(account_size, collateral_balance, timestamp_ms)
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
@@ -728,6 +734,7 @@ class ValidatorContractManager:
             collateral_record_data = {
                 "hotkey": hotkey,
                 "account_size": collateral_record.account_size,
+                "account_size_theta": collateral_record.account_size_theta,
                 "update_time_ms": collateral_record.update_time_ms
             }
             
@@ -773,6 +780,7 @@ class ValidatorContractManager:
                 # Extract data from the synapse
                 hotkey = collateral_record_data.get("hotkey")
                 account_size = collateral_record_data.get("account_size")
+                account_size_theta = collateral_record_data.get("account_size_theta")
                 update_time_ms = collateral_record_data.get("update_time_ms")
                 bt.logging.info(f"Processing collateral record update for miner {hotkey}")
 
@@ -781,7 +789,7 @@ class ValidatorContractManager:
                     return False
 
                 # Create a CollateralRecord object
-                collateral_record = CollateralRecord(account_size, update_time_ms)
+                collateral_record = CollateralRecord(account_size, account_size_theta, update_time_ms)
 
                 # Update miner account sizes
                 if hotkey not in self.miner_account_sizes:
