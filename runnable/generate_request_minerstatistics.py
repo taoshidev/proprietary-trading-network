@@ -883,11 +883,15 @@ class MinerStatisticsManager:
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(
-                                        proof_data, hotkey, verbose=True,
+                                        proof_data,
+                                        hotkey,
+                                        verbose=True,
                                         annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
                                         use_weighting=False,
                                         bypass_confidence=False,
-                                        daily_checkpoints=int(ValiConfig.DAILY_CHECKPOINTS)
+                                        daily_checkpoints=int(
+                                            ValiConfig.DAILY_CHECKPOINTS
+                                        ),
                                     )
                                     bt.logging.info(
                                         f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}"
@@ -973,7 +977,9 @@ class MinerStatisticsManager:
                             }
                         finally:
                             # Log subnet's own metrics for comparison
-                            subnet_metrics = final_miner_dict.get("augmented_scores", {})
+                            subnet_metrics = final_miner_dict.get(
+                                "augmented_scores", {}
+                            )
                             bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
                             bt.logging.info(
                                 f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}"
@@ -993,8 +999,9 @@ class MinerStatisticsManager:
                             bt.logging.info(
                                 f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}"
                             )
-            bt.logging.info(f"Circuit outputs {final_miner_dict.get('zk_proof', {})}")
-            results.append(final_miner_dict)
+                            bt.logging.info(
+                                f"Circuit outputs {final_miner_dict.get('zk_proof', {})}"
+                            )
                     else:
                         bt.logging.info(
                             "ZK proof generation skipped - disabled in configuration"
@@ -1003,7 +1010,7 @@ class MinerStatisticsManager:
                     bt.logging.warning(
                         f"Hotkey {hotkey}: No cumulative ledger or checkpoints found"
                     )
-
+            results.append(final_miner_dict)
 
         # (Optional) sort by weight rank if you want the final data sorted in that manner:
         # Filter out any miners lacking a weight, then sort.
