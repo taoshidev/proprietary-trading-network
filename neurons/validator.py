@@ -1070,23 +1070,23 @@ class Validator:
         """
         try:
             # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received collateral record update from validator hotkey [{sender_hotkey}].")
             success = self.contract_manager.receive_collateral_record_update(synapse.collateral_record)
             
             if success:
                 synapse.successfully_processed = True
                 synapse.error_message = ""
-                bt.logging.debug(f"Successfully processed CollateralRecord synapse from {synapse.dendrite.hotkey}")
+                bt.logging.info(f"Successfully processed CollateralRecord synapse from {sender_hotkey}")
             else:
                 synapse.successfully_processed = False
                 synapse.error_message = "Failed to process collateral record update"
-                bt.logging.warning(f"Failed to process CollateralRecord synapse from {synapse.dendrite.hotkey}")
+                bt.logging.warning(f"Failed to process CollateralRecord synapse from {sender_hotkey}")
                 
         except Exception as e:
             synapse.successfully_processed = False
             synapse.error_message = f"Error processing collateral record: {str(e)}"
             bt.logging.error(f"Exception in receive_collateral_record: {e}")
-            import traceback
-            bt.logging.error(traceback.format_exc())
 
         return synapse
 

@@ -52,6 +52,7 @@ class ValidatorContractManager:
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.is_backtesting = is_backtesting
         self.metagraph = metagraph
+        self._account_sizes_lock = None
         
         # Store network type for dynamic max_theta property
         if config is not None:
@@ -82,6 +83,12 @@ class ValidatorContractManager:
         else:
             self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
+
+    @property
+    def account_sizes_lock(self):
+        if not self._account_sizes_lock:
+            self._account_sizes_lock = threading.RLock()
+        return self._account_sizes_lock
 
     @property
     def max_theta(self) -> float:
@@ -174,11 +181,12 @@ class ValidatorContractManager:
             return
 
         try:
-            synced_data = self._parse_miner_account_sizes_dict(account_sizes_data)
-            self.miner_account_sizes.clear()
-            self.miner_account_sizes.update(synced_data)
-            self._save_miner_account_sizes_to_disk()
-            bt.logging.info(f"Synced {len(self.miner_account_sizes)} miner account size records")
+            with self.account_sizes_lock:
+                synced_data = self._parse_miner_account_sizes_dict(account_sizes_data)
+                self.miner_account_sizes.clear()
+                self.miner_account_sizes.update(synced_data)
+                self._save_miner_account_sizes_to_disk()
+                bt.logging.info(f"Synced {len(self.miner_account_sizes)} miner account size records")
         except Exception as e:
             bt.logging.error(f"Failed to sync miner account sizes data: {e}")
 
@@ -759,36 +767,39 @@ class ValidatorContractManager:
             bool: True if successful, False otherwise
         """
         try:
-            # Extract data from the synapse
-            hotkey = collateral_record_data.get("hotkey")
-            account_size = collateral_record_data.get("account_size")
-            update_time_ms = collateral_record_data.get("update_time_ms")
-            bt.logging.info(f"Processing collateral record update for miner {hotkey}")
-            
-            if not all([hotkey, account_size is not None, update_time_ms]):
-                bt.logging.warning(f"Invalid collateral record data received: {collateral_record_data}")
+            if self.is_mothership:
                 return False
-            
-            # Create a CollateralRecord object
-            collateral_record = CollateralRecord(account_size, update_time_ms)
-            
-            # Update miner account sizes
-            if hotkey not in self.miner_account_sizes:
-                self.miner_account_sizes[hotkey] = []
-            
-            # Check if we already have this record (avoid duplicates)
-            if self.get_miner_account_size(hotkey, most_recent=True) == account_size:
-                bt.logging.debug(f"Most recent collateral record for {hotkey} already exists")
+            with self.account_sizes_lock:
+                # Extract data from the synapse
+                hotkey = collateral_record_data.get("hotkey")
+                account_size = collateral_record_data.get("account_size")
+                update_time_ms = collateral_record_data.get("update_time_ms")
+                bt.logging.info(f"Processing collateral record update for miner {hotkey}")
+
+                if not all([hotkey, account_size is not None, update_time_ms]):
+                    bt.logging.warning(f"Invalid collateral record data received: {collateral_record_data}")
+                    return False
+
+                # Create a CollateralRecord object
+                collateral_record = CollateralRecord(account_size, update_time_ms)
+
+                # Update miner account sizes
+                if hotkey not in self.miner_account_sizes:
+                    self.miner_account_sizes[hotkey] = []
+
+                # Check if we already have this record (avoid duplicates)
+                if self.get_miner_account_size(hotkey, most_recent=True) == account_size:
+                    bt.logging.debug(f"Most recent collateral record for {hotkey} already exists")
+                    return True
+
+                # Add the new record, IPC dict requires reassignment of entire k, v pair
+                self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
+
+                # Save to disk
+                self._save_miner_account_sizes_to_disk()
+
+                bt.logging.info(f"Updated miner account size for {hotkey}: ${account_size} (valid from {collateral_record.valid_date_str})")
                 return True
-            
-            # Add the new record, IPC dict requires reassignment of entire k, v pair
-            self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
-            
-            # Save to disk
-            self._save_miner_account_sizes_to_disk()
-            
-            bt.logging.info(f"Updated miner account size for {hotkey}: ${account_size} (valid from {collateral_record.valid_date_str})")
-            return True
             
         except Exception as e:
             bt.logging.error(f"Error processing collateral record update: {e}")
