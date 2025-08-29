@@ -5,6 +5,7 @@ from setproctitle import setproctitle
 
 import bittensor as bt
 
+from miner_objects.slack_notifier import SlackNotifier
 from time_util.time_util import TimeUtil
 from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.utils.ledger_utils import LedgerUtils
@@ -19,8 +20,8 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
-                 running_unit_tests=False, is_backtesting=False, slack_notifier=None,
-                 shutdown_dict=None, weight_request_queue=None):
+                 running_unit_tests=False, is_backtesting=False, use_slack_notifier=False,
+                 shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -28,12 +29,23 @@ class SubtensorWeightSetter(CacheController):
         # Store weights for use in backtesting
         self.checkpoint_results = []
         self.transformed_list = []
-        self.slack_notifier = slack_notifier
+        self.use_slack_notifier = use_slack_notifier
+        self._slack_notifier = None
+        self.config = config
+        self.hotkey = hotkey
         
         # IPC setup
         self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
         self.weight_request_queue = weight_request_queue
-        
+
+    @property
+    def slack_notifier(self):
+        if self.use_slack_notifier and self._slack_notifier is None:
+            self._slack_notifier = SlackNotifier(hotkey=self.hotkey,
+                                                webhook_url=getattr(self.config, 'slack_webhook_url', None),
+                                                error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
+                                                is_miner=False)  # This is a validator
+        return self._slack_notifier
 
     def compute_weights_default(self, current_time: int) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         if current_time is None:

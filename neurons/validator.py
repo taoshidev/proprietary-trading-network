@@ -370,9 +370,11 @@ class Validator:
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph,
             position_manager=self.position_manager,
-            slack_notifier=self.slack_notifier,
+            use_slack_notifier=True,
             shutdown_dict=shutdown_dict,
-            weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
+            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+            config=self.config,
+            hotkey=self.wallet.hotkey.ss58_address
         )
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
