@@ -773,13 +773,13 @@ class PerfLedgerManager(CacheController):
         # Alternatively, we can be attempting to build the ledger after all orders have been accounted for. In this
         # case, we simply need to check if all positions are closed.
         if n_open_positions == 0:
-            if n_positions_newly_opened not in (0, 1):
-                for tp, historical_positions in tp_to_historical_positions.items():
-                    for i, historical_position in enumerate(historical_positions):
-                        if len(historical_position.orders) == 0:
-                            print(historical_position)
+            #if n_positions_newly_opened not in (0, 1):
+            #    for tp, historical_positions in tp_to_historical_positions.items():
+            #        for i, historical_position in enumerate(historical_positions):
+            #            if len(historical_position.orders) == 0:
+            #                print(historical_position)
 
-                raise Exception(f'n_positions_newly_opened should be 0 or 1 but got {n_positions_newly_opened}')
+            #    raise Exception(f'n_positions_newly_opened should be 0 or 1 but got {n_positions_newly_opened}')
 
             reason += 'No open positions. '
             ans = ShortcutReason.NO_OPEN_POSITIONS
