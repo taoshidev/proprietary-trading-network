@@ -883,7 +883,11 @@ class MinerStatisticsManager:
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(
-                                        proof_data, hotkey, verbose=True
+                                        proof_data, hotkey, verbose=True,
+                                        annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
+                                        use_weighting=False,
+                                        bypass_confidence=False,
+                                        daily_checkpoints=int(ValiConfig.DAILY_CHECKPOINTS)
                                     )
                                     bt.logging.info(
                                         f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}"
