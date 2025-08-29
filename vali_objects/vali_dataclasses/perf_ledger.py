@@ -35,7 +35,6 @@ class ShortcutReason(Enum):
     NO_SHORTCUT = 0
     NO_OPEN_POSITIONS = 1
     OUTSIDE_WINDOW = 2
-    ZERO_TIME_DELTA = 3
 
 class FeeCache():
     def __init__(self):
@@ -791,23 +790,6 @@ class PerfLedgerManager(CacheController):
             reason += 'Ledger cutoff. '
             ans = ShortcutReason.OUTSIDE_WINDOW
 
-        # simultaneous orders were placed
-        if start_time_ms == end_time_ms:
-            reason += 'start_time_ms == end_time_ms. Simultaneous orders.'
-            ans = ShortcutReason.ZERO_TIME_DELTA
-
-            #print('start and end time the same.')
-            #for tp, positions in tp_to_historical_positions.items():
-            #    for p in positions:
-            #        if realtime_position_to_pop and realtime_position_to_pop.trade_pair == p.trade_pair and p.is_open_position:
-            #            p = realtime_position_to_pop
-            #        if any(o.processed_ms == end_time_ms for o in p.orders):
-            #            p2 = deepcopy(p.__dict__)
-            #            orders = p2.pop('orders')
-            #            print(f'    tp {tp} position {p2}')
-            #            for o in orders:
-            #                print(f'        order {o}')
-
         if 0 and ans != ShortcutReason.NO_SHORTCUT:
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
@@ -1271,9 +1253,9 @@ class PerfLedgerManager(CacheController):
         # For non-first updates, validate that we're continuing from where we left off
         # We should always start from the ledger's last update time
         if not is_first_update:
-            # start_time_ms should match the ledger's last_update_ms + 1000ms (smallest update interval)
+            # start_time_ms should match the ledger's last_update_ms + 1ms (smallest update interval)
             # If it doesn't, there's likely a bug in the calling code
-            expected_start = portfolio_pl.last_update_ms + 1000
+            expected_start = portfolio_pl.last_update_ms + 1
             gap = start_time_ms - expected_start
 
             # We should start from exactly where we left off (gap = 0)
@@ -1322,7 +1304,7 @@ class PerfLedgerManager(CacheController):
 
             if not is_ledger_first_update:
                 gap_from_last_update = start_time_ms - perf_ledger.last_update_ms
-                if gap_from_last_update != 1000:
+                if gap_from_last_update != 1:
                     bt.logging.error(f"Gap validation failed for {tp_id}:")
                     bt.logging.error(f"  perf_ledger.last_update_ms: {perf_ledger.last_update_ms}")
                     bt.logging.error(f"  start_time_ms: {start_time_ms}")
@@ -1330,7 +1312,7 @@ class PerfLedgerManager(CacheController):
                     bt.logging.error(f"  Ledger has {len(perf_ledger.cps)} checkpoints")
                     if len(perf_ledger.cps) > 0:
                         bt.logging.error(f"  Last checkpoint time: {perf_ledger.cps[-1].last_update_ms}")
-                assert gap_from_last_update == 1000, (
+                assert gap_from_last_update == 1, (
                     f"Gap detected for {tp_id} ledger between last_update_ms and start_time_ms: "
                     f"{gap_from_last_update/1000/60:.2f} minutes. "
                     f"Last update: {TimeUtil.millis_to_formatted_date_str(perf_ledger.last_update_ms)}, "
@@ -1538,7 +1520,7 @@ class PerfLedgerManager(CacheController):
 
                     # Valid gaps are 1000ms (second mode) or 60000ms (minute mode)
                     # Mode can switch during processing, so we accept either gap
-                    valid_gaps = [0, 1000, 60000] if is_first_update else [1000, 60000]
+                    valid_gaps = [1, 1000, 60000]
 
                     assert gap in valid_gaps, (
                         f"Ledger {tp_id} jumped {gap}ms (expected 1000ms or 60000ms). "
@@ -1748,14 +1730,15 @@ class PerfLedgerManager(CacheController):
                     eliminated = True
                     break
 
-            # Collect all orders at the same timestamp
-            current_timestamp = sorted_timeline[event_idx][0].processed_ms
+            # Collect all orders within the same second (ms // 1000)
+            batch_order_timestamp = sorted_timeline[event_idx][0].processed_ms
             batch_events = []
-            while event_idx < len(sorted_timeline) and sorted_timeline[event_idx][0].processed_ms == current_timestamp:
+
+            while event_idx < len(sorted_timeline) and sorted_timeline[event_idx][0].processed_ms == batch_order_timestamp:
                 batch_events.append(sorted_timeline[event_idx])
                 event_idx += 1
             
-            # Process all orders at this timestamp and collect realtime_position_to_pop per trade pair
+            # Process all orders in this second and collect realtime_position_to_pop per trade pair
             tp_id_to_realtime_position_to_pop = {}
             for event in batch_events:
                 order, position = event
@@ -1774,7 +1757,7 @@ class PerfLedgerManager(CacheController):
                         pos2_no_orders = batch_realtime_position_to_pop
                         pos2_no_orders.orders = []
                         raise ValueError(f"Multiple realtime_position_to_pop for hotkey {hotkey} for same trade pair "
-                                         f"{tp_id} at timestamp {current_timestamp}."
+                                         f"{tp_id} in same millisecond {current_millisecond}."
                                          f" pos1 {pos1_no_orders}, pos2 {pos2_no_orders}, "
                                          f"order1 {pos1_dup_order}, order2 {pos2_dup_order}"
                     )
@@ -1798,9 +1781,6 @@ class PerfLedgerManager(CacheController):
             if not building_from_new_orders:
                 continue
 
-            # Use the first order in the batch for timestamp reference (all have same processed_ms)
-            batch_order_timestamp = batch_events[0][0].processed_ms
-            
             # Building from a checkpoint ledger. Skip until we get to the new order(s).
             portfolio_ledger = perf_ledger_bundle_candidate[TP_ID_PORTFOLIO]
             portfolio_last_update_ms = portfolio_ledger.last_update_ms
@@ -1820,10 +1800,10 @@ class PerfLedgerManager(CacheController):
                 #if continuity_changes:
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
             
-            # Need to catch up from perf_ledger.last_update_ms to batch_order_timestamp
+            # Need to catch up from perf_ledger.last_update_ms to max timestamp in batch
             # Pass the dictionary of positions (empty dict if none, single entry if one, multiple if many)
             eliminated = self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions, 
-                                               portfolio_last_update_ms + 1000, batch_order_timestamp, 
+                                               portfolio_last_update_ms + 1, batch_order_timestamp,
                                                hotkey, tp_id_to_realtime_position_to_pop, 
                                                contract_manager=self.contract_manager)
 
@@ -1867,7 +1847,7 @@ class PerfLedgerManager(CacheController):
                 #    self._log_continuity_summary(hotkey, continuity_changes, tp_to_historical_positions)
 
             self.build_perf_ledger(perf_ledger_bundle_candidate, tp_to_historical_positions,
-                                   current_last_update + 1000, now_ms, hotkey, {}, contract_manager=self.contract_manager)
+                                   current_last_update + 1, now_ms, hotkey, {}, contract_manager=self.contract_manager)
 
         self.hk_to_last_order_processed_ms[hotkey] = last_event_time_ms
 
