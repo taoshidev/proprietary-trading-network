@@ -112,6 +112,7 @@ class ValiConfig:
     DAYS_IN_YEAR_CRYPTO = 365  # annualization factor
     DAYS_IN_YEAR_FOREX = 252
 
+    # Min number of trading days required for scoring
     STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL = 60
     STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
 
@@ -299,8 +300,8 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 50  # Required minimum total collateral balance per miner in Theta. Approx $8750 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-16", low=60, increment=50, interval=1, target=300)  # Begins at 60, and increases by 50 every day until limit 300 is reached.
+    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
