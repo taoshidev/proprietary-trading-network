@@ -185,7 +185,7 @@ class Validator:
         )
 
         # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None)
+        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None, ipc_manager=self.ipc_manager, metagraph=self.metagraph)
 
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
@@ -306,6 +306,12 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def cr_blacklist_fn(synapse: template.protocol.CollateralRecord) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def cr_priority_fn(synapse: template.protocol.CollateralRecord) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -325,6 +331,11 @@ class Validator:
             forward_fn=self.receive_checkpoint,
             blacklist_fn=rc_blacklist_fn,
             priority_fn=rc_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_collateral_record,
+            blacklist_fn=cr_blacklist_fn,
+            priority_fn=cr_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -359,9 +370,11 @@ class Validator:
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph,
             position_manager=self.position_manager,
-            slack_notifier=self.slack_notifier,
+            use_slack_notifier=True,
             shutdown_dict=shutdown_dict,
-            weight_request_queue=weight_request_queue  # Same queue as MetagraphUpdater
+            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+            config=self.config,
+            hotkey=self.wallet.hotkey.ss58_address
         )
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
@@ -1049,6 +1062,32 @@ class Validator:
             bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
+        return synapse
+
+    def receive_collateral_record(self, synapse: template.protocol.CollateralRecord) -> template.protocol.CollateralRecord:
+        """
+        receive collateral record update, and update miner account sizes
+        """
+        try:
+            # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received collateral record update from validator hotkey [{sender_hotkey}].")
+            success = self.contract_manager.receive_collateral_record_update(synapse.collateral_record)
+            
+            if success:
+                synapse.successfully_processed = True
+                synapse.error_message = ""
+                bt.logging.info(f"Successfully processed CollateralRecord synapse from {sender_hotkey}")
+            else:
+                synapse.successfully_processed = False
+                synapse.error_message = "Failed to process collateral record update"
+                bt.logging.warning(f"Failed to process CollateralRecord synapse from {sender_hotkey}")
+                
+        except Exception as e:
+            synapse.successfully_processed = False
+            synapse.error_message = f"Error processing collateral record: {str(e)}"
+            bt.logging.error(f"Exception in receive_collateral_record: {e}")
+
         return synapse
 
 # This is the main function, which runs the miner.

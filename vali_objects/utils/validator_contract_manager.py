@@ -1,18 +1,23 @@
+import threading
 from datetime import timezone, datetime, timedelta
 import bittensor as bt
 from bittensor_wallet import Wallet
 from collateral_sdk import CollateralManager, Network
 from typing import Dict, Any, Optional, List
 import traceback
+import asyncio
+import json
 from time_util.time_util import TimeUtil
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+import template.protocol
 
 class CollateralRecord:
-    def __init__(self, account_size, update_time_ms):
+    def __init__(self, account_size, account_size_theta, update_time_ms):
         self.account_size = account_size
+        self.account_size_theta = account_size_theta
         self.update_time_ms = update_time_ms
         self.valid_date_timestamp = CollateralRecord.valid_from_ms(update_time_ms)
 
@@ -28,8 +33,11 @@ class CollateralRecord:
     @property
     def valid_date_str(self) -> str:
         """Returns YYYY-MM-DD format for easy reading"""
-        dt = datetime.fromtimestamp(self.valid_date_timestamp / 1000, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d")
+        return TimeUtil.millis_to_short_date_str(self.valid_date_timestamp)
+
+    def __repr__(self):
+        """String representation"""
+        return str(vars(self))
 
 
 class ValidatorContractManager:
@@ -39,11 +47,13 @@ class ValidatorContractManager:
     This class acts as the validator's interface to the collateral system.
     """
     
-    def __init__(self, config=None, position_manager=None, running_unit_tests=False, is_backtesting=False):
+    def __init__(self, config=None, position_manager=None, ipc_manager=None, running_unit_tests=False, is_backtesting=False, metagraph=None):
         self.config = config
         self.position_manager = position_manager
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.is_backtesting = is_backtesting
+        self.metagraph = metagraph
+        self._account_sizes_lock = None
         
         # Store network type for dynamic max_theta property
         if config is not None:
@@ -69,8 +79,17 @@ class ValidatorContractManager:
         self.MINER_ACCOUNT_SIZES_FILE = ValiBkpUtils.get_miner_account_sizes_file_location(running_unit_tests=running_unit_tests)
         
         # Load existing data from disk or initialize empty
-        self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
+        if ipc_manager:
+            self.miner_account_sizes = ipc_manager.dict()
+        else:
+            self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
+
+    @property
+    def account_sizes_lock(self):
+        if not self._account_sizes_lock:
+            self._account_sizes_lock = threading.RLock()
+        return self._account_sizes_lock
 
     @property
     def max_theta(self) -> float:
@@ -134,14 +153,7 @@ class ValidatorContractManager:
         """Convert miner account sizes to checkpoint format for backup/sync"""
         json_dict = {}
         for hotkey, records in self.miner_account_sizes.items():
-            json_dict[hotkey] = [
-                {
-                    "account_size": record.account_size,
-                    "update_time_ms": record.update_time_ms,
-                    "valid_date_timestamp": record.valid_date_timestamp
-                }
-                for record in records
-            ]
+            json_dict[hotkey] = [vars(record) for record in records]
         return json_dict
 
     @staticmethod
@@ -153,7 +165,12 @@ class ValidatorContractManager:
                 parsed_records = []
                 for record_data in records_data:
                     if isinstance(record_data, dict) and all(key in record_data for key in ["account_size", "update_time_ms"]):
-                        record = CollateralRecord(record_data["account_size"], record_data["update_time_ms"])
+                        ## TODO: populates account_size_theta for all existing records. safe to remove
+                        if record_data.get("account_size_theta") is None:
+                            account_size_theta = record_data["account_size"] / ValiConfig.COST_PER_THETA
+                        else:
+                            account_size_theta = record_data["account_size_theta"]
+                        record = CollateralRecord(record_data["account_size"], account_size_theta, record_data["update_time_ms"])
                         parsed_records.append(record)
 
                 if parsed_records:  # Only add if we have valid records
@@ -170,11 +187,12 @@ class ValidatorContractManager:
             return
 
         try:
-            synced_data = self._parse_miner_account_sizes_dict(account_sizes_data)
-            self.miner_account_sizes.clear()
-            self.miner_account_sizes.update(synced_data)
-            self._save_miner_account_sizes_to_disk()
-            bt.logging.info(f"Synced {len(self.miner_account_sizes)} miner account size records")
+            with self.account_sizes_lock:
+                synced_data = self._parse_miner_account_sizes_dict(account_sizes_data)
+                self.miner_account_sizes.clear()
+                self.miner_account_sizes.update(synced_data)
+                self._save_miner_account_sizes_to_disk()
+                bt.logging.info(f"Synced {len(self.miner_account_sizes)} miner account size records")
         except Exception as e:
             bt.logging.error(f"Failed to sync miner account sizes data: {e}")
 
@@ -618,17 +636,20 @@ class ValidatorContractManager:
             return
 
         account_size = collateral_balance * ValiConfig.COST_PER_THETA
-        collateral_record = CollateralRecord(account_size, timestamp_ms)
+        collateral_record = CollateralRecord(account_size, collateral_balance, timestamp_ms)
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
 
-        # Add the new record
-        self.miner_account_sizes[hotkey].append(collateral_record)
+        # Add the new record, IPC dict requires reassignment of entire k, v pair
+        self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
 
         # Save to disk
         self._save_miner_account_sizes_to_disk()
 
+        # Broadcast collateral record to other validators
+        if self.is_mothership:
+            self._broadcast_collateral_record_update_to_validators(hotkey, collateral_record)
 
         if hasattr(account_size, '_mock_name'):  # It's a mock
             bt.logging.info(
@@ -637,14 +658,16 @@ class ValidatorContractManager:
             bt.logging.info(
                 f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
 
-    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False) -> float | None:
+    def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False, records_dict: dict=None) -> float | None:
         """
-        Get the account size for a miner at a given timestamp. Sort records in reverse chronological order, and return
+        Get the account size for a miner at a given timestamp. Iterate list in reverse chronological order, and return
         the first record whose valid_date_timestamp <= start_of_day_ms
 
         Args:
             hotkey: Miner's hotkey (SS58 address)
             timestamp_ms: Timestamp to query for (defaults to now)
+            most_recent: If True, return most recent record regardless of timestamp
+            records_dict: Optional dict to use instead of self.miner_account_sizes (for cached lookups)
 
         Returns:
             Account size in USD, or None if no applicable records
@@ -652,7 +675,10 @@ class ValidatorContractManager:
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
 
-        if hotkey not in self.miner_account_sizes or not self.miner_account_sizes[hotkey]:
+        # Use provided records_dict or default to self.miner_account_sizes
+        source_records = records_dict if records_dict is not None else self.miner_account_sizes
+        
+        if hotkey not in source_records or not source_records[hotkey]:
             return None
 
         # Get start of the requested day
@@ -662,18 +688,129 @@ class ValidatorContractManager:
             .timestamp() * 1000
         )
 
-        # Sort records in reverse chronological order (newest first)
-        sorted_records = sorted(self.miner_account_sizes[hotkey], key=lambda r: r.update_time_ms, reverse=True)
-
         # Return most recent record
         if most_recent:
-            most_recent_record = self.miner_account_sizes[hotkey][0]
+            most_recent_record = source_records[hotkey][-1]
             return most_recent_record.account_size
 
-        # Return the first record that is valid for or before the requested day
-        for record in sorted_records:
+        # Iteate in reversed order, and return the first record that is valid for or before the requested day
+        for record in reversed(source_records[hotkey]):
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
 
         # No applicable records found
         return None
+
+    def _broadcast_collateral_record_update_to_validators(self, hotkey: str, collateral_record: CollateralRecord):
+        """
+        Broadcast CollateralRecord synapse to other validators.
+        Runs in a separate thread to avoid blocking the main process.
+        """
+        def run_broadcast():
+            try:
+                asyncio.run(self._async_broadcast_collateral_record(hotkey, collateral_record))
+            except Exception as e:
+                bt.logging.error(f"Failed to broadcast collateral record for {hotkey}: {e}")
+        
+        thread = threading.Thread(target=run_broadcast, daemon=True)
+        thread.start()
+
+    async def _async_broadcast_collateral_record(self, hotkey: str, collateral_record: CollateralRecord):
+        """
+        Asynchronously broadcast CollateralRecord synapse to other validators.
+        """
+        try:
+            # Get other validators to broadcast to
+            if self.is_testnet:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.vault_wallet.hotkey.ss58_address]
+            else:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.vault_wallet.hotkey.ss58_address]
+
+            if not validator_axons:
+                bt.logging.debug("No other validators to broadcast CollateralRecord to")
+                return
+            
+            # Create CollateralRecord synapse with the data
+            collateral_record_data = {
+                "hotkey": hotkey,
+                "account_size": collateral_record.account_size,
+                "account_size_theta": collateral_record.account_size_theta,
+                "update_time_ms": collateral_record.update_time_ms
+            }
+            
+            collateral_synapse = template.protocol.CollateralRecord(
+                collateral_record=collateral_record_data
+            )
+            
+            bt.logging.info(f"Broadcasting CollateralRecord for {hotkey} to {len(validator_axons)} validators")
+            
+            # Send to other validators using dendrite
+            async with bt.dendrite(wallet=self.vault_wallet) as dendrite:
+                responses = await dendrite.aquery(validator_axons, collateral_synapse)
+                
+                # Log results
+                success_count = 0
+                for response in responses:
+                    if response.successfully_processed:
+                        success_count += 1
+                    elif response.error_message:
+                        bt.logging.warning(f"Failed to send CollateralRecord to {response.axon.hotkey}: {response.error_message}")
+                
+                bt.logging.info(f"CollateralRecord broadcast completed: {success_count}/{len(responses)} validators updated")
+                
+        except Exception as e:
+            bt.logging.error(f"Error in async broadcast collateral record: {e}")
+            import traceback
+            bt.logging.error(traceback.format_exc())
+
+    def receive_collateral_record_update(self, collateral_record_data: dict) -> bool:
+        """
+        Process an incoming CollateralRecord synapse and update miner_account_sizes.
+        
+        Args:
+            collateral_record_data: Dictionary containing hotkey, account_size, update_time_ms, valid_date_timestamp
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if self.is_mothership:
+                return False
+            with self.account_sizes_lock:
+                # Extract data from the synapse
+                hotkey = collateral_record_data.get("hotkey")
+                account_size = collateral_record_data.get("account_size")
+                account_size_theta = collateral_record_data.get("account_size_theta")
+                update_time_ms = collateral_record_data.get("update_time_ms")
+                bt.logging.info(f"Processing collateral record update for miner {hotkey}")
+
+                if not all([hotkey, account_size is not None, update_time_ms]):
+                    bt.logging.warning(f"Invalid collateral record data received: {collateral_record_data}")
+                    return False
+
+                # Create a CollateralRecord object
+                collateral_record = CollateralRecord(account_size, account_size_theta, update_time_ms)
+
+                # Update miner account sizes
+                if hotkey not in self.miner_account_sizes:
+                    self.miner_account_sizes[hotkey] = []
+
+                # Check if we already have this record (avoid duplicates)
+                if self.get_miner_account_size(hotkey, most_recent=True) == account_size:
+                    bt.logging.debug(f"Most recent collateral record for {hotkey} already exists")
+                    return True
+
+                # Add the new record, IPC dict requires reassignment of entire k, v pair
+                self.miner_account_sizes[hotkey] = self.miner_account_sizes[hotkey] + [collateral_record]
+
+                # Save to disk
+                self._save_miner_account_sizes_to_disk()
+
+                bt.logging.info(f"Updated miner account size for {hotkey}: ${account_size} (valid from {collateral_record.valid_date_str})")
+                return True
+            
+        except Exception as e:
+            bt.logging.error(f"Error processing collateral record update: {e}")
+            import traceback
+            bt.logging.error(traceback.format_exc())
+            return False

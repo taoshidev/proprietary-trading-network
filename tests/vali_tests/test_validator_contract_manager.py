@@ -61,8 +61,9 @@ class TestValidatorContractManager(TestBase):
         """Test CollateralRecord creation and properties"""
         timestamp_ms = int(time.time() * 1000)
         account_size = 10000.0
+        account_size_theta = 10000.0 / ValiConfig.COST_PER_THETA
         
-        record = CollateralRecord(account_size, timestamp_ms)
+        record = CollateralRecord(account_size, account_size_theta, timestamp_ms)
         
         self.assertEqual(record.account_size, account_size)
         self.assertEqual(record.update_time_ms, timestamp_ms)
