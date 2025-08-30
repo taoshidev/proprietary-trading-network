@@ -26,13 +26,12 @@ PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
 assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
 
 class RequestCoreManager:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=None):
+    def __init__(self, position_manager, subtensor_weight_setter, contract_manager=None):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
-        self.plagiarism_detector = plagiarism_detector
         self.contract_manager = contract_manager
 
     def hash_string_to_int(self, s: str) -> int:
@@ -258,7 +257,7 @@ class RequestCoreManager:
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
         challengeperiod_dict = self.challengeperiod_manager.to_checkpoint_dict()
-        
+
         # Get miner account sizes if contract manager is available
         miner_account_sizes_dict = {}
         if self.contract_manager:

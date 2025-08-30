@@ -40,7 +40,6 @@ from time_util.time_util import TimeUtil  # noqa: E402
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager  # noqa: E402
 from vali_objects.utils.elimination_manager import EliminationManager  # noqa: E402
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher  # noqa: E402
-from vali_objects.utils.plagiarism_detector import PlagiarismDetector  # noqa: E402
 from vali_objects.utils.position_lock import PositionLocks  # noqa: E402
 from vali_objects.utils.position_manager import PositionManager  # noqa: E402
 from vali_objects.utils.price_slippage_model import PriceSlippageModel  # noqa: E402
@@ -171,11 +170,9 @@ class BacktestManager:
 
         self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f, is_backtesting=True)
-        self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(
             position_manager=self.position_manager,
-            subtensor_weight_setter=self.weight_setter,
-            plagiarism_detector=self.plagiarism_detector
+            subtensor_weight_setter=self.weight_setter
         )
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
                                       recalculate_slippage=recalculate_slippage, capital=capital)
