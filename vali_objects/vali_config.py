@@ -301,7 +301,7 @@ class ValiConfig:
 
     # Collateral limits
     MIN_COLLATERAL_BALANCE_THETA = 50  # Required minimum total collateral balance per miner in Theta. Approx $8750 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-16", low=60, increment=50, interval=1, target=300)  # Begins at 60, and increases by 50 every day until limit 300 is reached.
+    MAX_COLLATERAL_BALANCE_THETA = 1429  # Approx $250,075 capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
