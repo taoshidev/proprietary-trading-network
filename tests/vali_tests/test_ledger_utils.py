@@ -686,3 +686,197 @@ class TestLedgerUtils(TestBase):
         portfolio_ledger.tp_id = TP_ID_PORTFOLIO
         self.assertTrue(LedgerUtils.is_valid_trading_day(portfolio_ledger, date_type(2023, 1, 7)))  # Saturday
 
+    def test_circuit_subnet_aggregation_parity(self):
+        """
+        Test that subnet's daily_return_log matches circuit's expected aggregation logic.
+        This test verifies the fix for the circuit vs subnet metrics discrepancy.
+        """
+        # Create checkpoints with mixed complete/incomplete days to test filtering behavior
+        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = ValiConfig.DAILY_CHECKPOINTS
+        
+        # Day 1: Complete day (exactly DAILY_CHECKPOINTS checkpoints)
+        day1_base = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        day1_start_ms = int(day1_base.timestamp() * 1000)
+        
+        # Day 2: Incomplete day (only 1 checkpoint)  
+        day2_base = datetime(2023, 1, 2, tzinfo=timezone.utc)
+        day2_start_ms = int(day2_base.timestamp() * 1000)
+        
+        # Day 3: Complete day (exactly DAILY_CHECKPOINTS checkpoints)
+        day3_base = datetime(2023, 1, 3, tzinfo=timezone.utc)
+        day3_start_ms = int(day3_base.timestamp() * 1000)
+        
+        checkpoints = [
+            # Day 1: 2 complete checkpoints (should be included)
+            PerfCheckpoint(
+                last_update_ms=day1_start_ms + checkpoint_duration,
+                accum_ms=checkpoint_duration,
+                gain=0.1, loss=-0.05,
+                prev_portfolio_ret=1.0, n_updates=1, mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=day1_start_ms + (2 * checkpoint_duration),  
+                accum_ms=checkpoint_duration,
+                gain=0.05, loss=-0.02,
+                prev_portfolio_ret=1.05, n_updates=1, mdd=0.99
+            ),
+            # Day 2: 1 incomplete checkpoint (should be excluded by current logic)
+            PerfCheckpoint(
+                last_update_ms=day2_start_ms + checkpoint_duration,
+                accum_ms=checkpoint_duration,
+                gain=0.2, loss=-0.1,
+                prev_portfolio_ret=1.08, n_updates=1, mdd=0.99  
+            ),
+            # Day 3: 2 complete checkpoints (should be included)
+            PerfCheckpoint(
+                last_update_ms=day3_start_ms + checkpoint_duration,
+                accum_ms=checkpoint_duration,
+                gain=0.03, loss=-0.01,
+                prev_portfolio_ret=1.18, n_updates=1, mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=day3_start_ms + (2 * checkpoint_duration),
+                accum_ms=checkpoint_duration, 
+                gain=0.02, loss=-0.04,
+                prev_portfolio_ret=1.2, n_updates=1, mdd=0.99
+            ),
+        ]
+        
+        ledger = ledger_generator(checkpoints=checkpoints)
+        ledger.tp_id = TP_ID_PORTFOLIO  # Portfolio ledger
+        
+        # Get subnet's daily returns
+        daily_returns = LedgerUtils.daily_return_log(ledger)
+        
+        # Verify current behavior: only complete days are included
+        expected_complete_days = 2  # Day 1 and Day 3 have exactly 2 checkpoints each
+        self.assertEqual(len(daily_returns), expected_complete_days, 
+                        "Subnet should only include days with exactly DAILY_CHECKPOINTS checkpoints")
+        
+        # Verify the actual returns match expectations  
+        day1_return = (0.1 - 0.05) + (0.05 - 0.02)  # Sum of both day 1 checkpoints
+        day3_return = (0.03 - 0.01) + (0.02 - 0.04)  # Sum of both day 3 checkpoints
+        
+        expected_returns = [day1_return, day3_return]
+        self.assertEqual(len(daily_returns), len(expected_returns))
+        
+        for i, expected_return in enumerate(expected_returns):
+            self.assertAlmostEqual(daily_returns[i], expected_return, places=6,
+                                 msg=f"Daily return {i} should match expected calculation")
+        
+        # Document the behavior: This test verifies that the subnet correctly filters
+        # to only include "complete" trading days with exactly DAILY_CHECKPOINTS checkpoints.
+        # The circuit was updated to match this behavior to resolve metrics discrepancies.
+        print(f"Subnet aggregation test: {len(checkpoints)} checkpoints -> {len(daily_returns)} daily returns")
+        print(f"Complete days only (DAILY_CHECKPOINTS={daily_checkpoints}): {expected_complete_days}")
+        print(f"Total return: {sum(daily_returns):.6f}")
+
+    def test_proof_of_portfolio_metrics_parity(self):
+        """
+        Integration test that verifies proof-of-portfolio circuit produces the same metrics 
+        as the subnet's calculation for identical data.
+        """
+        # Skip test if proof_of_portfolio is not available
+        try:
+            from proof_of_portfolio.proof_generator import generate_proof
+        except ImportError:
+            self.skipTest("proof_of_portfolio package not available")
+        
+        # Create test data with known metrics
+        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = ValiConfig.DAILY_CHECKPOINTS
+        
+        # Create multiple complete days with varying returns
+        base_time = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        
+        test_checkpoints = []
+        expected_daily_returns = []
+        
+        # Generate 5 complete days of data
+        for day in range(5):
+            day_start_ms = int((base_time.replace(day=day+1)).timestamp() * 1000)
+            
+            # Each day gets exactly DAILY_CHECKPOINTS checkpoints
+            day_total_return = 0
+            for cp_num in range(daily_checkpoints):
+                # Vary the returns to create realistic data
+                gain = 0.01 * (day + 1) * (cp_num + 1)  # Positive trend
+                loss = -0.005 * (day + 1) * (cp_num + 0.5)  # Some losses
+                
+                checkpoint = PerfCheckpoint(
+                    last_update_ms=day_start_ms + ((cp_num + 1) * checkpoint_duration),
+                    accum_ms=checkpoint_duration,
+                    gain=gain,
+                    loss=loss,
+                    prev_portfolio_ret=1.0 + (day * 0.01),
+                    n_updates=1,
+                    mdd=0.99
+                )
+                test_checkpoints.append(checkpoint)
+                day_total_return += (gain + loss)
+            
+            expected_daily_returns.append(day_total_return)
+        
+        # Create ledger and get subnet metrics
+        ledger = ledger_generator(checkpoints=test_checkpoints)
+        ledger.tp_id = TP_ID_PORTFOLIO
+        
+        from vali_objects.utils.metrics import Metrics
+        subnet_daily_returns = LedgerUtils.daily_return_log(ledger)
+        subnet_sharpe = Metrics.sharpe(subnet_daily_returns, ledger=ledger)
+        
+        # Prepare data for circuit
+        circuit_data = {
+            "perf_ledgers": {
+                "test_hotkey": ledger.to_dict()
+            },
+            "positions": {
+                "test_hotkey": {"positions": []}  # Empty positions for this test
+            }
+        }
+        
+        # Call circuit (skip actual proof generation to avoid timeouts)
+        try:
+            result = generate_proof(
+                data=circuit_data,
+                miner_hotkey="test_hotkey", 
+                verbose=False,
+                daily_checkpoints=daily_checkpoints
+            )
+            
+            if result and result.get("status") == "success":
+                circuit_metrics = result.get("portfolio_metrics", {})
+                circuit_sharpe = circuit_metrics.get("sharpe_ratio_scaled", 0)
+                
+                # Compare key metrics
+                self.assertEqual(len(subnet_daily_returns), len(expected_daily_returns),
+                               "Subnet should process all complete days")
+                
+                # Verify daily returns match expectations
+                for i, expected in enumerate(expected_daily_returns):
+                    self.assertAlmostEqual(subnet_daily_returns[i], expected, places=6,
+                                         msg=f"Subnet daily return {i} should match expected")
+                
+                # The critical test: circuit and subnet Sharpe should be close
+                sharpe_diff = abs(circuit_sharpe - subnet_sharpe)
+                self.assertLess(sharpe_diff, 0.1, 
+                              f"Circuit Sharpe ({circuit_sharpe:.6f}) should closely match "
+                              f"subnet Sharpe ({subnet_sharpe:.6f}). Diff: {sharpe_diff:.6f}")
+                
+                print(f"Metrics parity test passed:")
+                print(f"  Days processed: {len(subnet_daily_returns)}")
+                print(f"  Subnet Sharpe: {subnet_sharpe:.6f}")
+                print(f"  Circuit Sharpe: {circuit_sharpe:.6f}")
+                print(f"  Difference: {sharpe_diff:.6f}")
+                
+            else:
+                self.fail(f"Circuit failed to generate results: {result}")
+                
+        except Exception as e:
+            # If circuit fails due to missing dependencies, skip gracefully
+            if "nargo" in str(e).lower() or "barretenberg" in str(e).lower():
+                self.skipTest(f"Circuit dependencies not available: {e}")
+            else:
+                raise
+

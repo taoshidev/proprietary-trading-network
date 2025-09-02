@@ -880,6 +880,14 @@ class MinerStatisticsManager:
                                     },
                                 }
 
+                                # Log input data to circuit for debugging
+                                debug_file_path = f"debug_proof_data_{hotkey[:8]}.json"
+                                with open(debug_file_path, "w") as f:
+                                    json.dump(proof_data, f, indent=2)
+                                bt.logging.info(
+                                    f"Proof input data written to {debug_file_path}"
+                                )
+
                                 bt.logging.info(f"Calling prove() for {hotkey[:8]}")
                                 try:
                                     proof_result = prove(
@@ -909,52 +917,81 @@ class MinerStatisticsManager:
                                     )
                                     proof_result = None
 
-                                if (
-                                    proof_result
-                                    and proof_result.get("status") == "success"
-                                ):
+                                if proof_result:
+                                    status = proof_result.get("status")
                                     metrics = proof_result.get("portfolio_metrics", {})
-                                    bt.logging.info(
-                                        f"ZK proof generated for {hotkey[:8]} - Sharpe: {metrics.get('sharpe_ratio_scaled', 'N/A'):.4f}, "
-                                        f"Drawdown: {metrics.get('max_drawdown_percentage', 'N/A'):.2f}%"
+
+                                    status_configs = {
+                                        "success": (
+                                            "info",
+                                            "ZK proof generated and verified",
+                                        ),
+                                        "verification_failed": (
+                                            "warning",
+                                            "ZK proof generated but verification failed",
+                                        ),
+                                        "proof_generation_failed": (
+                                            "warning",
+                                            "ZK proof generation failed",
+                                        ),
+                                        "error": ("error", "ZK proof error"),
+                                    }
+
+                                    log_level, message = status_configs.get(
+                                        status,
+                                        (
+                                            "warning",
+                                            f"Unknown ZK proof status: {status}",
+                                        ),
+                                    )
+                                    getattr(bt.logging, log_level)(
+                                        f"{message} for {hotkey[:8]}"
                                     )
 
-                                    final_miner_dict["zk_proof"] = {
-                                        "status": "success",
-                                        "proof_generated": True,
+                                    zk_proof = {
+                                        "status": status,
+                                        "proof_generated": status
+                                        in ["success", "verification_failed"],
+                                        "verification_success": status == "success",
                                         "merkle_roots": proof_result.get(
                                             "merkle_roots", {}
                                         ),
-                                        "portfolio_metrics": proof_result.get(
-                                            "portfolio_metrics", {}
+                                        "portfolio_metrics": metrics,
+                                        "message": (
+                                            message if status != "success" else None
                                         ),
-                                        "proof_generation_time": proof_result.get(
-                                            "proof_results", {}
-                                        ).get("proof_generation_time"),
-                                        "witness_generation_time": proof_result.get(
-                                            "proof_results", {}
-                                        ).get("witness_generation_time"),
                                     }
 
-                                    bt.logging.info(
-                                        f"ZK proof data added to statistics for {hotkey[:8]} - "
-                                        f"Signals root: {proof_result.get('merkle_roots', {}).get('signals', 'N/A')}, "
-                                        f"Returns root: {proof_result.get('merkle_roots', {}).get('returns', 'N/A')}"
-                                    )
+                                    if status == "success":
+                                        zk_proof.update(
+                                            {
+                                                "proof_generation_time": proof_result.get(
+                                                    "proof_results", {}
+                                                ).get(
+                                                    "proof_generation_time"
+                                                ),
+                                                "witness_generation_time": proof_result.get(
+                                                    "proof_results", {}
+                                                ).get(
+                                                    "witness_generation_time"
+                                                ),
+                                            }
+                                        )
+                                        bt.logging.info(
+                                            f"ZK proof data added to statistics for {hotkey[:8]} - "
+                                            f"Signals root: {proof_result.get('merkle_roots', {}).get('signals', 'N/A')}, "
+                                            f"Returns root: {proof_result.get('merkle_roots', {}).get('returns', 'N/A')}"
+                                        )
+
+                                    final_miner_dict["zk_proof"] = zk_proof
                                 else:
                                     bt.logging.warning(
-                                        f"ZK proof generation failed for {hotkey[:8]}"
+                                        f"ZK proof generation failed for {hotkey[:8]} - no result returned"
                                     )
                                     final_miner_dict["zk_proof"] = {
                                         "status": "failed",
                                         "verification_success": False,
-                                        "message": (
-                                            proof_result.get(
-                                                "message", "Proof generation failed"
-                                            )
-                                            if proof_result
-                                            else "Unknown error"
-                                        ),
+                                        "message": "No result returned from proof generation",
                                     }
                             else:
                                 bt.logging.warning(
@@ -966,6 +1003,26 @@ class MinerStatisticsManager:
                                     "message": "Insufficient ledger or position data",
                                 }
 
+                            augmented_scores_dict = final_miner_dict.get(
+                                "augmented_scores", {}
+                            )
+                            metric_keys = {
+                                "sharpe": "sharpe_ratio_scaled",
+                                "calmar": "calmar_ratio_scaled",
+                                "sortino": "sortino_ratio_scaled",
+                                "omega": "omega_ratio_scaled",
+                                "return": "avg_daily_pnl_scaled",
+                            }
+                            for metric, key in metric_keys.items():
+                                if metric in augmented_scores_dict:
+                                    augmented_scores_dict[metric]["value"] = (
+                                        metrics.get(key, None) if metrics else None
+                                    )
+
+                            if metrics:
+                                bt.logging.info(
+                                    f"Using circuit-verified metrics for {hotkey[:8]}"
+                                )
                         except Exception as e:
                             bt.logging.error(
                                 f"Error generating ZK proof for {hotkey[:8]}: {str(e)}"
