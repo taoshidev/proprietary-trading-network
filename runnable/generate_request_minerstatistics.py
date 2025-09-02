@@ -14,6 +14,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig, TradePair
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
@@ -870,8 +871,8 @@ class MinerStatisticsManager:
                                         hotkey: {
                                             "positions": [
                                                 (
-                                                    pos.__dict__
-                                                    if hasattr(pos, "__dict__")
+                                                    pos.to_dict()
+                                                    if hasattr(pos, "to_dict")
                                                     else pos
                                                 )
                                                 for pos in raw_positions
@@ -882,8 +883,19 @@ class MinerStatisticsManager:
 
                                 # Log input data to circuit for debugging
                                 debug_file_path = f"debug_proof_data_{hotkey[:8]}.json"
+
+                                class CustomEncoder(json.JSONEncoder):
+                                    def default(self, obj):
+                                        if isinstance(obj, TradePair):
+                                            return obj.trade_pair_id
+                                        if isinstance(obj, OrderType):
+                                            return obj.value
+                                        return super().default(obj)
+
                                 with open(debug_file_path, "w") as f:
-                                    json.dump(proof_data, f, indent=2)
+                                    json.dump(
+                                        proof_data, f, indent=2, cls=CustomEncoder
+                                    )
                                 bt.logging.info(
                                     f"Proof input data written to {debug_file_path}"
                                 )
