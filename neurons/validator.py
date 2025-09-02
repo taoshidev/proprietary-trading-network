@@ -231,7 +231,8 @@ class Validator:
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
-                                                              ipc_manager=self.ipc_manager)
+                                                              ipc_manager=self.ipc_manager,
+                                                              contract_manager=self.contract_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,

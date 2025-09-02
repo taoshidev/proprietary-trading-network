@@ -11,6 +11,7 @@ from collections import defaultdict
 import numpy as np
 from scipy.stats import percentileofscore
 
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from time_util.time_util import TimeUtil
@@ -27,6 +28,7 @@ class PenaltyInputType(Enum):
     LEDGER = auto()
     POSITIONS = auto()
     PSEUDO_POSITIONS = auto()
+    COLLATERAL = auto()
 
 
 @dataclass
@@ -73,6 +75,10 @@ class Scoring:
         'risk_profile': PenaltyConfig(
             function=PositionPenalties.risk_profile_penalty,
             input_type=PenaltyInputType.POSITIONS
+        ),
+        'min_collateral': PenaltyConfig(
+            function=ValidatorContractManager.min_collateral_penalty,
+            input_type=PenaltyInputType.COLLATERAL
         )
     }
 
@@ -84,7 +90,8 @@ class Scoring:
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False,
-            metrics=None
+            metrics=None,
+            all_miner_account_sizes: dict[str, float]=None
     ) -> List[Tuple[str, float]]:
         if len(ledger_dict) == 0:
             bt.logging.debug("No results to compute, returning empty list")
@@ -107,7 +114,7 @@ class Scoring:
         if metrics is not None:
             Scoring.scoring_config = metrics
         # Compute miner penalties
-        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict, all_miner_account_sizes)
 
         # Miners with full penalty
         full_penalty_miner_scores: list[tuple[str, float]] = [
@@ -120,7 +127,8 @@ class Scoring:
             positions=full_positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
-            weighting=weighting
+            weighting=weighting,
+            all_miner_account_sizes=all_miner_account_sizes
         )
 
         # Now combine the percentile scores prior to running a full softmax
@@ -144,7 +152,8 @@ class Scoring:
             positions: dict[str, list[Position]],
             subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
-            weighting=False
+            weighting=False,
+            all_miner_account_sizes: dict[str, float]=None
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
         """
         returns:
@@ -164,7 +173,8 @@ class Scoring:
             positions=positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=evaluation_time_ms,
-            weighting=weighting
+            weighting=weighting,
+            all_miner_account_sizes=all_miner_account_sizes
         )
 
         # Combine and penalize scores
@@ -184,7 +194,7 @@ class Scoring:
             subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting: bool = False,
-            scoring_config: dict[str, dict[str, float]] = None
+            all_miner_account_sizes: dict[str, float]=None
     ) -> dict[str, dict]:
         """
         Scores the miners based on their ledger and positions.
@@ -217,7 +227,7 @@ class Scoring:
         # psuedo_positions = PositionUtils.build_pseudo_positions(filtered_positions)
 
         # Compute miner penalties
-        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict)
+        miner_penalties = Scoring.miner_penalties(filtered_positions, ledger_dict, all_miner_account_sizes)
         # miner_psuedo_penalties = Scoring.miner_penalties(psuedo_positions, ledger_dict)
 
         # full_miner_penalties = {
@@ -310,7 +320,8 @@ class Scoring:
     @staticmethod
     def miner_penalties(
             hotkey_positions: dict[str, list[Position]],
-            ledger_dict: dict[str, dict[str, PerfLedger]]
+            ledger_dict: dict[str, dict[str, PerfLedger]],
+            all_miner_account_sizes: dict[str, float]
     ) -> dict[str, float]:
         # Compute miner penalties
         miner_penalties = {}
@@ -325,6 +336,8 @@ class Scoring:
 
             portfolio_ledger = ledger.get(TP_ID_PORTFOLIO) if ledger else PerfLedger()
 
+            miner_account_size = all_miner_account_sizes.get(miner, 0)
+
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():
                 # Apply penalty based on its input type
@@ -333,6 +346,8 @@ class Scoring:
                     penalty = penalty_config.function(portfolio_ledger)
                 elif penalty_config.input_type == PenaltyInputType.POSITIONS:
                     penalty = penalty_config.function(positions)
+                elif penalty_config.input_type == PenaltyInputType.COLLATERAL:
+                    penalty = penalty_config.function(miner_account_size)
 
                 cumulative_penalty *= penalty
 

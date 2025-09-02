@@ -585,13 +585,14 @@ class MinerStatisticsManager:
             maincomp_ledger, asset_subcategories
         )
         bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
-
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(time_now)
         success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            all_miner_account_sizes=all_miner_account_sizes
         ) # returns asset competitiveness dict, asset softmaxed scores
 
         subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(asset_softmaxed_scores)
@@ -612,7 +613,8 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -627,7 +629,8 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics= self.extract_scoring_config( self.metrics_calculator.metrics)
+            metrics= self.extract_scoring_config( self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)

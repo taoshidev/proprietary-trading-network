@@ -704,13 +704,37 @@ class ValidatorContractManager:
             most_recent_record = source_records[hotkey][-1]
             return most_recent_record.account_size
 
-        # Iteate in reversed order, and return the first record that is valid for or before the requested day
+        # Iterate in reversed order, and return the first record that is valid for or before the requested day
         for record in reversed(source_records[hotkey]):
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
 
         # No applicable records found
         return None
+
+    def get_all_miner_account_sizes(self, miner_account_sizes:dict[str, List[CollateralRecord]]=None, timestamp_ms:int=None) -> dict[str, float]:
+        """
+        Return a dict of all miner account sizes at a timestamp_ms
+        """
+        if miner_account_sizes is None:
+            miner_account_sizes = self.miner_account_sizes
+
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
+
+        all_miner_account_sizes = {}
+        for hotkey in miner_account_sizes.keys():
+            all_miner_account_sizes[hotkey] = self.get_miner_account_size(hotkey, timestamp_ms=timestamp_ms, records_dict=miner_account_sizes)
+        return all_miner_account_sizes
+
+    @staticmethod
+    def min_collateral_penalty(collateral:float) -> float:
+        """
+        Penalize miners who do not reach the min collateral
+        """
+        if collateral >= ValiConfig.MIN_CAPITAL:
+            return 1
+        return 0
 
     def _broadcast_collateral_record_update_to_validators(self, hotkey: str, collateral_record: CollateralRecord):
         """

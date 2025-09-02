@@ -21,7 +21,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
                  running_unit_tests=False, is_backtesting=False, use_slack_notifier=False,
-                 shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None):
+                 shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None, contract_manager=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -33,6 +33,7 @@ class SubtensorWeightSetter(CacheController):
         self._slack_notifier = None
         self.config = config
         self.hotkey = hotkey
+        self.contract_manager=contract_manager
         
         # IPC setup
         self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
@@ -98,7 +99,6 @@ class SubtensorWeightSetter(CacheController):
         return checkpoint_results, transformed_list
 
     def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days, scoring_challenge: bool = False):
-
         miner_group = "challenge period" if scoring_challenge else "main competition"
 
         # only collect ledger elements for the miners that passed the challenge period
@@ -111,13 +111,16 @@ class SubtensorWeightSetter(CacheController):
             return [], []
         else:
             bt.logging.info(f"Calculating new subtensor weights for {miner_group}...")
+            all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(current_time)
+
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
                 subcategory_min_days=subcategory_min_days,
                 evaluation_time_ms=current_time,
                 verbose=True,
-                weighting=True
+                weighting=True,
+                all_miner_account_sizes=all_miner_account_sizes
             )
             checkpoint_results = sorted(checkpoint_results, key=lambda x: x[1], reverse=True)
 
