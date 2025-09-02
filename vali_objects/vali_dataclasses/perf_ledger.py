@@ -394,14 +394,14 @@ class PerfLedger():
         if miner_account_size is not None:
             account_size = miner_account_size
         elif contract_manager is None:
-            account_size = ValiConfig.CAPITAL_FLOOR
+            account_size = ValiConfig.MIN_CAPITAL
             #bt.logging.info(f"Contract manager is not initialized, using default account sizes")
         else:
             account_size = contract_manager.get_miner_account_size(miner_hotkey, now_ms)
             if account_size is None:
                 #bt.logging.info(f"Miner doesn't have valid account size, hotkey: {miner_hotkey}, using default account size: {account_size}")
-                account_size = ValiConfig.CAPITAL_FLOOR
-        account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+                account_size = ValiConfig.MIN_CAPITAL
+        account_size = max(account_size, ValiConfig.MIN_CAPITAL)
 
         if delta_return > 0:
             current_cp.gain += delta_return
@@ -1871,9 +1871,9 @@ class PerfLedgerManager(CacheController):
         if self.contract_manager and self.cached_miner_account_sizes:
             account_size = self.contract_manager.get_miner_account_size(
                 hotkey, timestamp_ms, records_dict=self.cached_miner_account_sizes)
-            return account_size if account_size is not None else ValiConfig.CAPITAL_FLOOR
+            return account_size if account_size is not None else ValiConfig.MIN_CAPITAL
         else:
-            return ValiConfig.CAPITAL_FLOOR
+            return ValiConfig.MIN_CAPITAL
 
     def update_all_perf_ledgers(self, hotkey_to_positions: dict[str, List[Position]],
                                 existing_perf_ledgers: dict[str, dict[str, PerfLedger]],
@@ -2259,7 +2259,7 @@ class PerfLedgerManager(CacheController):
         # Create a list of hotkeys with their positions for RDD
         hotkey_data = []
         for i, (hotkey, positions) in enumerate(hotkey_to_positions.items()):
-            single_miner_account_size = {hotkey: self.cached_miner_account_sizes.get(hotkey, ValiConfig.CAPITAL_FLOOR)}
+            single_miner_account_size = {hotkey: self.cached_miner_account_sizes.get(hotkey, ValiConfig.MIN_CAPITAL)}
             hotkey_data.append((i, len(hotkey_to_positions), hotkey, positions, existing_perf_ledgers.get(hotkey), now_ms, is_backtesting, single_miner_account_size, self.cache_last_refreshed_date))
             if top_n_miners and i == top_n_miners - 1:
                 break

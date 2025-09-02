@@ -23,11 +23,11 @@ class PriceSlippageModel:
     is_backtesting = False
     fetch_slippage_data = False
     recalculate_slippage = False
-    capital = ValiConfig.CAPITAL
+    capital = ValiConfig.DEFAULT_CAPITAL
     last_refresh_time_ms = 0
 
     def __init__(self, live_price_fetcher=None, running_unit_tests=False, is_backtesting=False,
-                 fetch_slippage_data=False, recalculate_slippage=False, capital=ValiConfig.CAPITAL):
+                 fetch_slippage_data=False, recalculate_slippage=False, capital=ValiConfig.DEFAULT_CAPITAL):
         if not PriceSlippageModel.parameters:
             PriceSlippageModel.holidays_nyse = holidays.financial_holidays('NYSE')
             PriceSlippageModel.parameters = self.read_slippage_model_parameters()
@@ -43,7 +43,7 @@ class PriceSlippageModel:
         PriceSlippageModel.capital = capital
 
     @classmethod
-    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital=ValiConfig.CAPITAL):
+    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital=ValiConfig.DEFAULT_CAPITAL):
         """
         returns the percentage slippage of the current order.
         each asset class uses a unique model
@@ -84,7 +84,7 @@ class PriceSlippageModel:
         spread = ask - bid
         mid_price = (bid + ask) / 2
 
-        size = abs(order.leverage) * ValiConfig.CAPITAL
+        size = abs(order.leverage) * ValiConfig.DEFAULT_CAPITAL
         volume_shares = size / mid_price
 
         if order.processed_ms > 1735718400000:  # Use fitted BB+ for orders after jan 1, 2024, 08:00:00 UTC
@@ -115,7 +115,7 @@ class PriceSlippageModel:
 
         # bt.logging.info(f"bid: {bid}, ask: {ask}, adv: {avg_daily_volume}, vol: {annualized_volatility}")
 
-        size = abs(order.leverage) * ValiConfig.CAPITAL
+        size = abs(order.leverage) * ValiConfig.DEFAULT_CAPITAL
         base, _ = order.trade_pair.trade_pair.split("/")
         base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
         # print(base_to_usd_conversion)

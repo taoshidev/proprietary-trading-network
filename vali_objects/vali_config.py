@@ -184,10 +184,6 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    # Account Size
-    CAPITAL_FLOOR = 5_000
-    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
-
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
@@ -305,13 +301,15 @@ class ValiConfig:
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
+    # Account Size
+    COST_PER_THETA = 175  # Account size USD value per theta of collateral
+    MIN_CAPITAL = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
+    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+
     # Miner will get a base of 50% collateral returned upon elimination
     BASE_COLLATERAL_RETURNED = 0.5
     # 50% of drawdown proportion is slashed
     SLASH_PROPORTION = 0.5
-
-    # Account size USD value per theta of collateral
-    COST_PER_THETA = 175
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
