@@ -231,7 +231,8 @@ class Validator:
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
-                                                              ipc_manager=self.ipc_manager)
+                                                              ipc_manager=self.ipc_manager,
+                                                              contract_manager=self.contract_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
@@ -374,7 +375,8 @@ class Validator:
             shutdown_dict=shutdown_dict,
             weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
             config=self.config,
-            hotkey=self.wallet.hotkey.ss58_address
+            hotkey=self.wallet.hotkey.ss58_address,
+            contract_manager=self.contract_manager
         )
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
@@ -688,9 +690,9 @@ class Validator:
                 # Get relevant account size
                 account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
                 if account_size is None:
-                    account_size = ValiConfig.CAPITAL_FLOOR
+                    account_size = ValiConfig.MIN_CAPITAL
                 else:
-                    account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+                    account_size = max(account_size, ValiConfig.MIN_CAPITAL)
 
                 # if a position doesn't exist, then make a new one
                 open_position = Position(

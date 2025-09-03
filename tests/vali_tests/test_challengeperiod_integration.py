@@ -15,6 +15,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -105,9 +106,11 @@ class TestChallengePeriodIntegration(TestBase):
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
+                                                              contract_manager=self.contract_manager,
                                                               running_unit_tests=True)
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
@@ -241,7 +244,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(len(self.challengeperiod_manager.get_testing_miners()), len(self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES))
 
-        current_time = current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()*ValiConfig.DAILY_MS + 1
+        current_time = current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS*ValiConfig.DAILY_MS + 1
         self.challengeperiod_manager.refresh(current_time)
         self.elimination_manager.process_eliminations(PositionLocks())
 

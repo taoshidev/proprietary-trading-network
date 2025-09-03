@@ -316,13 +316,16 @@ class MinerStatisticsManager:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
         subcategory_scores = Scoring.score_miners(
             ledger_dict=ledgers,
             positions=positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             weighting=weighting,
-            scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics))
+            scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
+        )
 
         metric_results = {subcategory.value: {} for subcategory in subcategory_scores.keys()}
         subcategory_scores["overall"] = {"metrics": self.metrics_calculator.metrics}
@@ -443,9 +446,9 @@ class MinerStatisticsManager:
             # Fetch most recent account size even if it isn't valid yet for scoring
             account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
             if account_size is None:
-                account_size = ValiConfig.CAPITAL_FLOOR
+                account_size = ValiConfig.MIN_CAPITAL
             else:
-                account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+                account_size = max(account_size, ValiConfig.MIN_CAPITAL)
             account_sizes.append((hotkey, account_size))
 
         account_size_ranks = self.rank_dictionary(account_sizes)
@@ -585,13 +588,14 @@ class MinerStatisticsManager:
             maincomp_ledger, asset_subcategories
         )
         bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
-
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
         success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
-            weighting=final_results_weighting
+            weighting=final_results_weighting,
+            all_miner_account_sizes=all_miner_account_sizes
         ) # returns asset competitiveness dict, asset softmaxed scores
 
         subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(asset_softmaxed_scores)
@@ -612,7 +616,8 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -627,7 +632,8 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics= self.extract_scoring_config( self.metrics_calculator.metrics)
+            metrics= self.extract_scoring_config( self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(testing_ledger, testing_checkpoint_results)
@@ -910,6 +916,7 @@ if __name__ == "__main__":
         metagraph=metagraph,
         running_unit_tests=False,
         position_manager=position_manager,
+        contract_manager=contract_manager,
     )
     plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 

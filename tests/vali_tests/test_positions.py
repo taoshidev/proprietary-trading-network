@@ -46,7 +46,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
@@ -125,7 +125,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
             orders=[],
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(reduce_size_order)
@@ -194,7 +194,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.EURUSD,
             orders=[],
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(reduce_size_order)
@@ -239,7 +239,7 @@ class TestPositions(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.USDJPY,
             orders=[],
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         closed_position.add_order(open_order)
         closed_position.add_order(close_order)
@@ -266,7 +266,7 @@ class TestPositions(TestBase):
             orders=[open_order],
             net_leverage=-0.1,
             average_entry_price=100,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         assert open_position.current_return == 1
 
@@ -431,7 +431,7 @@ class TestPositions(TestBase):
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -452,7 +452,7 @@ class TestPositions(TestBase):
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -490,7 +490,7 @@ class TestPositions(TestBase):
             miner_hotkey='5EUTaAo7vCGxvLDWRXRrEuqctPjt9fKZmgkaeFZocWECUe9X',
             position_uuid='6955409a-031e-47df-8614-4488208497a6',
             trade_pair=TradePair.BTCUSD,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         o1 = Order(order_type=OrderType.LONG,
                    leverage=1.0,
@@ -536,7 +536,7 @@ class TestPositions(TestBase):
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -557,7 +557,7 @@ class TestPositions(TestBase):
             'open_ms': FEE_V6_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -599,7 +599,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -620,7 +620,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -659,7 +659,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -680,7 +680,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 10.0)
@@ -719,7 +719,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -740,7 +740,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -784,7 +784,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -807,7 +807,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -830,7 +830,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -874,7 +874,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -897,7 +897,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -921,7 +921,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -960,7 +960,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -981,7 +981,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -996,7 +996,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
 
         with self.assertRaises(ValueError):
@@ -1151,7 +1151,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1172,7 +1172,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1193,7 +1193,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.1)
@@ -1231,7 +1231,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1252,7 +1252,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.0)
@@ -1298,7 +1298,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1319,7 +1319,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1340,7 +1340,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1402,7 +1402,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
@@ -1463,7 +1463,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 1.12)
@@ -1524,7 +1524,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), 2.5)
@@ -1565,7 +1565,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=weekday_time_ms,
             trade_pair=trade_pair1,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         trade_pair2 = TradePair.EURJPY
         hotkey2 = self.DEFAULT_MINER_HOTKEY + '_2'
@@ -1574,7 +1574,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID + '_2',
             open_ms=weekday_time_ms,
             trade_pair=trade_pair2,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
 
         o1 = Order(order_type=OrderType.SHORT,
@@ -1607,7 +1607,7 @@ class TestPositions(TestBase):
             'open_ms': weekday_time_ms,
             'trade_pair': trade_pair1,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1628,7 +1628,7 @@ class TestPositions(TestBase):
             'open_ms': weekday_time_ms,
             'trade_pair': trade_pair2,
             'position_uuid': self.DEFAULT_POSITION_UUID + '_2',
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1683,7 +1683,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1714,7 +1714,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1765,7 +1765,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1816,7 +1816,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1861,7 +1861,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1892,7 +1892,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1938,7 +1938,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -1983,7 +1983,7 @@ class TestPositions(TestBase):
             'open_ms': LEVERAGE_BOUNDS_V2_START_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -2029,7 +2029,7 @@ class TestPositions(TestBase):
             'open_ms': 1000,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -2072,7 +2072,7 @@ class TestPositions(TestBase):
             'open_ms': LEVERAGE_BOUNDS_V2_START_TIME_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -2119,7 +2119,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), max_allowed_leverage)
@@ -2163,7 +2163,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
         self.assertEqual(position.max_leverage_seen(), TradePair.BTCUSD.max_leverage)
@@ -2232,7 +2232,7 @@ class TestPositions(TestBase):
             'open_ms': self.DEFAULT_OPEN_MS,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -2275,7 +2275,7 @@ class TestPositions(TestBase):
             'open_ms': o1.processed_ms,
             'trade_pair': self.DEFAULT_TRADE_PAIR,
             'position_uuid': self.DEFAULT_POSITION_UUID,
-            'account_size': ValiConfig.CAPITAL,
+            'account_size': ValiConfig.DEFAULT_CAPITAL,
             'unrealized_pnl': 0
         })
 
@@ -2579,7 +2579,7 @@ class TestPositions(TestBase):
             position_uuid=self.DEFAULT_POSITION_UUID,
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=TradePair.DJI,
-            account_size=ValiConfig.CAPITAL
+            account_size=ValiConfig.DEFAULT_CAPITAL
         )
         for i in range(3):
             o = Order(order_type=OrderType.LONG,

@@ -27,6 +27,7 @@ class ChallengePeriodManager(CacheController):
             perf_ledger_manager : PerfLedgerManager=None,
             position_manager: PositionManager=None,
             ipc_manager=None,
+            contract_manager=None,
             *,
             running_unit_tests=False,
             is_backtesting=False):
@@ -36,6 +37,7 @@ class ChallengePeriodManager(CacheController):
         self.position_manager = position_manager
         self.elimination_manager = self.position_manager.elimination_manager
         self.eliminations_with_reasons: dict[str, tuple[str, float]] = {}
+        self.contract_manager = contract_manager
 
         self.CHALLENGE_FILE = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=running_unit_tests)
 
@@ -352,18 +354,20 @@ class ChallengePeriodManager(CacheController):
         )
         bt.logging.info(f"challengeperiod_manager subcategory_min_days: {subcategory_min_days}")
 
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=current_time)
+
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
         if not success_scores_dict:
             success_positions = {hotkey: miner_positions for hotkey, miner_positions in positions.items() if hotkey in success_hotkeys}
             success_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in success_hotkeys}
-
             # Get the penalized scores of all successful miners
             success_scores_dict = Scoring.score_miners(
                     ledger_dict=success_ledger,
                     positions=success_positions,
                     subcategory_min_days=subcategory_min_days,
                     evaluation_time_ms=current_time,
-                    weighting=True)
+                    weighting=True,
+                    all_miner_account_sizes=all_miner_account_sizes)
 
         if not inspection_scores_dict:
             candidates_positions = {hotkey: positions[hotkey] for hotkey in valid_candidate_hotkeys}
@@ -374,7 +378,8 @@ class ChallengePeriodManager(CacheController):
                     positions=candidates_positions,
                     subcategory_min_days=subcategory_min_days,
                     evaluation_time_ms=current_time,
-                    weighting=True)
+                    weighting=True,
+                    all_miner_account_sizes=all_miner_account_sizes)
 
         hotkeys_to_promote, hotkeys_to_demote = ChallengePeriodManager.evaluate_promotions(success_hotkeys,
                                                                                            success_scores_dict,
@@ -453,7 +458,7 @@ class ChallengePeriodManager(CacheController):
             return False
 
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
-        return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()
+        return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS
 
     def meets_time_criteria(self, current_time, bucket_start_time, bucket):
         if bucket == MinerBucket.MAINCOMP:
