@@ -11,6 +11,7 @@ from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import bittensor as bt
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
@@ -86,6 +87,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                        challengeperiod_manager=None,
                                        elimination_manager=elimination_manager)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
+    contract_manager = ValidatorContractManager(config=None, running_unit_tests=False)
     perf_ledger_manager = PerfLedgerManager(None)
 
     if DEBUG:
@@ -180,6 +182,14 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})
     challengeperiod_manager.sync_challenge_period_data(challengeperiod)
+
+    ## Sync miner account sizes with the disk
+    miner_account_sizes = data.get('miner_account_sizes', {})
+    if miner_account_sizes:
+        bt.logging.info(f"syncing {len(miner_account_sizes)} miner account size records")
+        contract_manager.sync_miner_account_sizes_data(miner_account_sizes)
+    else:
+        bt.logging.info("No miner account sizes found in backup data")
 
     challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
     return True

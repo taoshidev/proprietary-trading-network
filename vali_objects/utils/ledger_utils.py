@@ -1,11 +1,14 @@
 # developer: trdougherty
 import math
+import statistics
+
 import numpy as np
 import copy
 from datetime import datetime, timezone, timedelta, date
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
 from vali_objects.vali_config import ValiConfig, TradePair
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from time_util.time_util import ForexHolidayCalendar
 import bittensor as bt
 
@@ -25,25 +28,38 @@ class LedgerUtils:
         return daily_returns_percentage
 
     @staticmethod
-    def daily_returns_by_date(ledger: PerfLedger) -> dict[date, float]:
+    def daily_returns_by_date(ledger: PerfLedger, return_type: str) -> dict[date, float]:
         """
         Calculate daily returns from performance checkpoints, only including full days
         :param ledger: PerfLedger - the ledger of the miner
-        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns as a percentage
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns 
+                 (both as decimal values, not percentages)
         """
+        if return_type not in ['simple', 'log']:
+            raise ValueError("return_type must be either 'simple' or 'log'")
+        
         date_return_map = LedgerUtils.daily_return_log_by_date(ledger)
-        return {date: (math.exp(log_return) - 1) * 100
-                for date, log_return in date_return_map.items()}
+        
+        if return_type == 'log':
+            return date_return_map
+        else:  # simple
+            return {date: math.exp(log_return) - 1
+                    for date, log_return in date_return_map.items()}
 
     @staticmethod
-    def daily_return_ratio_by_date(ledger: PerfLedger, use_log: bool) -> dict[datetime.date, float]:
+    def daily_return_ratio_by_date(ledger: PerfLedger, return_type: str) -> dict[datetime.date, float]:
         """
         Calculate daily returns from performance checkpoints, with date keys as datetime.date objects.
 
         :param ledger: PerfLedger - the ledger of the miner
-        :param use_log: If True, calculates log returns; otherwise, calculates simple returns
-        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[datetime.date, float] - dictionary mapping dates to daily returns 
+                 (both as decimal values, not percentages)
         """
+        if return_type not in ['simple', 'log']:
+            raise ValueError("return_type must be either 'simple' or 'log'")
+            
         if not ledger or not ledger.cps:
             return {}
 
@@ -69,9 +85,9 @@ class LedgerUtils:
             end_value = cp.prev_portfolio_ret
             
             try:
-                if use_log:
+                if return_type == 'log':
                     ans[date] = math.log(end_value / begin_value)
-                else:
+                else:  # simple
                     ans[date] = (end_value / begin_value) - 1
             except (ZeroDivisionError, ValueError):
                 ans[date] = None   # fallback if begin_value is 0 or invalid
@@ -81,16 +97,18 @@ class LedgerUtils:
         return ans
                 
     @staticmethod
-    def daily_returns_by_date_json(ledger: PerfLedger) -> dict[str, float]:
+    def daily_returns_by_date_json(ledger: PerfLedger, return_type: str) -> dict[str, float]:
         """
         Calculate daily returns from performance checkpoints, with date keys as strings (YYYY-MM-DD)
         to ensure JSON compatibility.
         
         :param ledger: PerfLedger - the ledger of the miner
-        :return: dict[str, float] - dictionary mapping date strings to daily returns as percentages
+        :param return_type: str - either 'simple' or 'log' to specify return type
+        :return: dict[str, float] - dictionary mapping date strings to daily returns 
+                 (both as decimal values, not percentages, rounded to 6 decimal places)
         """
-        date_return_map = LedgerUtils.daily_returns_by_date(ledger)
-        return {date.isoformat(): round(return_value, 3)
+        date_return_map = LedgerUtils.daily_returns_by_date(ledger, return_type)
+        return {date.isoformat(): round(return_value, 6)
                 for date, return_value in date_return_map.items()}
 
     @staticmethod
@@ -122,11 +140,30 @@ class LedgerUtils:
         Returns:
             dict[date, float] - dictionary mapping dates to daily log returns
         """
-        if not ledger.cps:
+        complete_days = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        date_return_map = {}
+        for running_date, day_checkpoints in sorted(complete_days.items()):
+            daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
+            date_return_map[running_date] = daily_return
+
+        return date_return_map
+
+    @staticmethod
+    def _group_checkpoints_by_complete_days(ledger: PerfLedger) -> dict[datetime.date, list]:
+        """
+        Helper function to group checkpoints by date for complete days only.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            dict[datetime.date, list] - dictionary mapping dates to lists of checkpoints for complete days
+        """
+        if not ledger or not ledger.cps:
             return {}
 
         checkpoints = ledger.cps
-
         daily_groups = {}
         n_checkpoints_per_day = int(ValiConfig.DAILY_CHECKPOINTS)
 
@@ -144,14 +181,71 @@ class LedgerUtils:
                     daily_groups[running_date] = []
                 daily_groups[running_date].append(cp)
 
-        # Calculate returns for complete days
-        date_return_map = {}
-        for running_date, day_checkpoints in sorted(daily_groups.items()):
+        # Filter to only include complete days
+        complete_days = {}
+        for running_date, day_checkpoints in daily_groups.items():
             if len(day_checkpoints) == n_checkpoints_per_day:
-                daily_return = sum(cp.gain + cp.loss for cp in day_checkpoints)
-                date_return_map[running_date] = daily_return
+                complete_days[running_date] = day_checkpoints
 
-        return date_return_map
+        return complete_days
+
+    @staticmethod
+    def raw_pnl(ledger: PerfLedger) -> float:
+        """
+        Calculate total pnl from tracked PnL values in perf ledgers.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+
+        Returns:
+            float - total pnl of the ledger
+        """
+
+        if ledger is None or not ledger.cps:
+            return 0
+        total_pnl = 0
+        for cp in ledger.cps:
+            total_pnl += cp.pnl_gain + cp.pnl_loss
+
+        return total_pnl
+
+    @staticmethod
+    def daily_pnl_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
+        """
+        Calculate daily PnL from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+        
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+            
+        Returns:
+            dict[datetime.date, float] - dictionary mapping dates to total PnL
+        """
+        complete_days = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        date_pnl_map = {}
+        for running_date, day_checkpoints in sorted(complete_days.items()):
+            total_pnl = sum(cp.pnl_gain + cp.pnl_loss for cp in day_checkpoints)
+            date_pnl_map[running_date] = total_pnl
+
+        return date_pnl_map
+
+    @staticmethod
+    def daily_pnl(ledger: PerfLedger) -> list[float]:
+        """
+        Calculate daily PnL from performance checkpoints, only including full days
+        with complete data and correct total accumulated time.
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        Returns:
+            List[float] - list of daily PnL values for complete days
+        """
+        if ledger is None or not ledger.cps:
+            return []
+
+        date_pnl_map = LedgerUtils.daily_pnl_by_date(ledger)
+        return list(date_pnl_map.values())
 
     @staticmethod
     def is_valid_trading_day(ledger: PerfLedger, testing_date: date) -> bool:
@@ -376,6 +470,8 @@ class LedgerUtils:
         Returns:
             float - the maximum drawdown percentage for the ledger
         """
+        if not ledger:
+            return 0
         checkpoints = ledger.cps
         if len(checkpoints) == 0:
             return 0
@@ -489,3 +585,56 @@ class LedgerUtils:
         miner_returns = LedgerUtils.daily_return_log(ledger)
 
         return len(miner_returns)
+
+    @staticmethod
+    def calculate_dynamic_minimum_days_for_asset_subcategories(
+        ledger_dict: dict[str, dict[str, PerfLedger]],
+        asset_subcategories: list[str]
+    ) -> dict[str, int]:
+        """
+        Calculates the dynamic minimum participation days for a specific asset subcategory.
+        Returns the number of days that the Nth longest participating miner has (where N is
+        configured by DYNAMIC_MIN_DAYS_PERCENTILE_RANK), capped at 60 days and floored at 7 days.
+        
+        Args:
+            ledger_dict: Dictionary mapping hotkeys to their full ledger data
+            asset_subcategories: List of subcategories to calculate dynamic minimum days for
+        
+        Returns:
+            dict[str, int]: Dictionary mapping asset subcategory to min days requirement (between 7-60 days)
+        """
+        subcategory_min_days = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
+
+        if not ledger_dict:
+            return subcategory_min_days
+
+        try:
+            # Create asset segmentation to get miners participating in this subcategory
+            segmentation_machine = AssetSegmentation(ledger_dict)
+
+            for subcategory in asset_subcategories:
+                asset_ledger = segmentation_machine.segmentation(subcategory)
+
+                # Calculate participation days for each miner in this subcategory
+                miner_participation_days = []
+                for hotkey, ledger in asset_ledger.items():
+                    if ledger is not None:
+                        days_participating = LedgerUtils.get_trading_days(ledger)
+                        if days_participating > 0:
+                            miner_participation_days.append(days_participating)
+
+                # Sort in descending order (longest participation first)
+                miner_participation_days.sort(reverse=True)
+
+                if len(miner_participation_days) < ValiConfig.DYNAMIC_MIN_DAYS_NUM_MINERS:
+                    minimum_days = ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR  # Not enough participating miners, return floor
+                else:
+                    # Use the shorter of Nth longest participating miner (index N-1), or median of all participating miners
+                    minimum_days = min(miner_participation_days[ValiConfig.DYNAMIC_MIN_DAYS_NUM_MINERS - 1], int(statistics.median(miner_participation_days)))
+
+                # Apply bounds: floor of 7 days, cap of 60 days
+                subcategory_min_days[subcategory] = max(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR, min(ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL, minimum_days))
+            return subcategory_min_days
+        except Exception as e:
+            bt.logging.warning(f"Error calculating dynamic minimum days: {e}")
+            return subcategory_min_days

@@ -554,55 +554,88 @@ class TestLedgerUtils(TestBase):
         """Test the daily returns by date function"""
         # Test with empty ledger
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger, 'simple'), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date(empty_ledger, 'log'), {})
 
         # Test with ledger containing checkpoints
         ledger = self.DEFAULT_LEDGER
-        log_results = LedgerUtils.daily_return_log_by_date(ledger)
-        percentage_results = LedgerUtils.daily_returns_by_date(ledger)
-
+        log_results_direct = LedgerUtils.daily_return_log_by_date(ledger)
+        
+        # Test log returns
+        log_results = LedgerUtils.daily_returns_by_date(ledger, 'log')
+        self.assertEqual(log_results, log_results_direct)
+        
+        # Test simple returns
+        simple_results = LedgerUtils.daily_returns_by_date(ledger, 'simple')
+        
         # Should have same dates as keys
-        self.assertEqual(set(log_results.keys()), set(percentage_results.keys()))
+        self.assertEqual(set(log_results.keys()), set(simple_results.keys()))
 
-        # Values should be percentages (exp(log_return) - 1) * 100
+        # Values should be simple returns (exp(log_return) - 1) as decimals, not percentages
         for date, log_return in log_results.items():
-            expected_percentage = (math.exp(log_return) - 1) * 100
-            self.assertAlmostEqual(percentage_results[date], expected_percentage)
+            expected_simple = math.exp(log_return) - 1
+            self.assertAlmostEqual(simple_results[date], expected_simple)
+        
+        # Test invalid return_type
+        with self.assertRaises(ValueError):
+            LedgerUtils.daily_returns_by_date(ledger, 'invalid')
 
     def test_daily_returns_by_date_json(self):
         """Test the JSON-compatible daily returns by date function"""
         # Test with empty ledger
         empty_ledger = PerfLedger()
-        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger, 'simple'), {})
+        self.assertEqual(LedgerUtils.daily_returns_by_date_json(empty_ledger, 'log'), {})
 
         # Test with ledger containing checkpoints
         ledger = self.DEFAULT_LEDGER
-        regular_results = LedgerUtils.daily_returns_by_date(ledger)
-        json_results = LedgerUtils.daily_returns_by_date_json(ledger)
+        
+        # Test simple returns
+        simple_results = LedgerUtils.daily_returns_by_date(ledger, 'simple')
+        json_simple_results = LedgerUtils.daily_returns_by_date_json(ledger, 'simple')
+        
+        # Test log returns
+        log_results = LedgerUtils.daily_returns_by_date(ledger, 'log')
+        json_log_results = LedgerUtils.daily_returns_by_date_json(ledger, 'log')
 
         # Should have same number of entries
-        self.assertEqual(len(regular_results), len(json_results))
+        self.assertEqual(len(simple_results), len(json_simple_results))
+        self.assertEqual(len(log_results), len(json_log_results))
 
         # Keys in json_results should be strings in ISO format (YYYY-MM-DD)
-        for key in json_results.keys():
+        for key in json_simple_results.keys():
             self.assertIsInstance(key, str)
             # Verify it's in ISO format by parsing it back to a date
             parsed_date = date_type.fromisoformat(key)
             self.assertIsInstance(parsed_date, date_type)
+        
+        # Values should be rounded to 6 decimal places
+        for date_str, value in json_simple_results.items():
+            date_obj = date_type.fromisoformat(date_str)
+            expected_value = round(simple_results[date_obj], 6)
+            self.assertAlmostEqual(value, expected_value, places=6)
+        
+        for date_str, value in json_log_results.items():
+            date_obj = date_type.fromisoformat(date_str)
+            expected_value = round(log_results[date_obj], 6)
+            self.assertAlmostEqual(value, expected_value, places=6)
+        
+        # Test invalid return_type
+        with self.assertRaises(ValueError):
+            LedgerUtils.daily_returns_by_date_json(ledger, 'invalid')
 
-        # Values should match between regular and JSON formats
-        for date, value in regular_results.items():
-            date_str = date.isoformat()
-            self.assertIn(date_str, json_results)
-            self.assertEqual(json_results[date_str], value)
-
-        # Test JSON serializability
+        # Test JSON serializability for both simple and log returns
         import json
         try:
-            json_string = json.dumps(json_results)
-        # Parsing back should give the same data
-            parsed_json = json.loads(json_string)
-            self.assertEqual(parsed_json, json_results)
+            # Test simple returns JSON serializability
+            json_string_simple = json.dumps(json_simple_results)
+            parsed_json_simple = json.loads(json_string_simple)
+            self.assertEqual(parsed_json_simple, json_simple_results)
+            
+            # Test log returns JSON serializability
+            json_string_log = json.dumps(json_log_results)
+            parsed_json_log = json.loads(json_string_log)
+            self.assertEqual(parsed_json_log, json_log_results)
         except TypeError:
             self.fail("daily_returns_by_date_json results should be JSON serializable")
     
@@ -686,197 +719,627 @@ class TestLedgerUtils(TestBase):
         portfolio_ledger.tp_id = TP_ID_PORTFOLIO
         self.assertTrue(LedgerUtils.is_valid_trading_day(portfolio_ledger, date_type(2023, 1, 7)))  # Saturday
 
-    def test_circuit_subnet_aggregation_parity(self):
-        """
-        Test that subnet's daily_return_log matches circuit's expected aggregation logic.
-        This test verifies the fix for the circuit vs subnet metrics discrepancy.
-        """
-        # Create checkpoints with mixed complete/incomplete days to test filtering behavior
-        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
-        daily_checkpoints = ValiConfig.DAILY_CHECKPOINTS
+    def test_daily_pnl_empty_ledger(self):
+        """Test daily_pnl with empty ledger"""
+        # Test with None
+        result = LedgerUtils.daily_pnl(None)
+        self.assertEqual(result, [])
         
-        # Day 1: Complete day (exactly DAILY_CHECKPOINTS checkpoints)
-        day1_base = datetime(2023, 1, 1, tzinfo=timezone.utc)
-        day1_start_ms = int(day1_base.timestamp() * 1000)
-        
-        # Day 2: Incomplete day (only 1 checkpoint)  
-        day2_base = datetime(2023, 1, 2, tzinfo=timezone.utc)
-        day2_start_ms = int(day2_base.timestamp() * 1000)
-        
-        # Day 3: Complete day (exactly DAILY_CHECKPOINTS checkpoints)
-        day3_base = datetime(2023, 1, 3, tzinfo=timezone.utc)
-        day3_start_ms = int(day3_base.timestamp() * 1000)
-        
-        checkpoints = [
-            # Day 1: 2 complete checkpoints (should be included)
-            PerfCheckpoint(
-                last_update_ms=day1_start_ms + checkpoint_duration,
-                accum_ms=checkpoint_duration,
-                gain=0.1, loss=-0.05,
-                prev_portfolio_ret=1.0, n_updates=1, mdd=0.99
-            ),
-            PerfCheckpoint(
-                last_update_ms=day1_start_ms + (2 * checkpoint_duration),  
-                accum_ms=checkpoint_duration,
-                gain=0.05, loss=-0.02,
-                prev_portfolio_ret=1.05, n_updates=1, mdd=0.99
-            ),
-            # Day 2: 1 incomplete checkpoint (should be excluded by current logic)
-            PerfCheckpoint(
-                last_update_ms=day2_start_ms + checkpoint_duration,
-                accum_ms=checkpoint_duration,
-                gain=0.2, loss=-0.1,
-                prev_portfolio_ret=1.08, n_updates=1, mdd=0.99  
-            ),
-            # Day 3: 2 complete checkpoints (should be included)
-            PerfCheckpoint(
-                last_update_ms=day3_start_ms + checkpoint_duration,
-                accum_ms=checkpoint_duration,
-                gain=0.03, loss=-0.01,
-                prev_portfolio_ret=1.18, n_updates=1, mdd=0.99
-            ),
-            PerfCheckpoint(
-                last_update_ms=day3_start_ms + (2 * checkpoint_duration),
-                accum_ms=checkpoint_duration, 
-                gain=0.02, loss=-0.04,
-                prev_portfolio_ret=1.2, n_updates=1, mdd=0.99
-            ),
-        ]
-        
-        ledger = ledger_generator(checkpoints=checkpoints)
-        ledger.tp_id = TP_ID_PORTFOLIO  # Portfolio ledger
-        
-        # Get subnet's daily returns
-        daily_returns = LedgerUtils.daily_return_log(ledger)
-        
-        # Verify current behavior: only complete days are included
-        expected_complete_days = 2  # Day 1 and Day 3 have exactly 2 checkpoints each
-        self.assertEqual(len(daily_returns), expected_complete_days, 
-                        "Subnet should only include days with exactly DAILY_CHECKPOINTS checkpoints")
-        
-        # Verify the actual returns match expectations  
-        day1_return = (0.1 - 0.05) + (0.05 - 0.02)  # Sum of both day 1 checkpoints
-        day3_return = (0.03 - 0.01) + (0.02 - 0.04)  # Sum of both day 3 checkpoints
-        
-        expected_returns = [day1_return, day3_return]
-        self.assertEqual(len(daily_returns), len(expected_returns))
-        
-        for i, expected_return in enumerate(expected_returns):
-            self.assertAlmostEqual(daily_returns[i], expected_return, places=6,
-                                 msg=f"Daily return {i} should match expected calculation")
-        
-        # Document the behavior: This test verifies that the subnet correctly filters
-        # to only include "complete" trading days with exactly DAILY_CHECKPOINTS checkpoints.
-        # The circuit was updated to match this behavior to resolve metrics discrepancies.
-        print(f"Subnet aggregation test: {len(checkpoints)} checkpoints -> {len(daily_returns)} daily returns")
-        print(f"Complete days only (DAILY_CHECKPOINTS={daily_checkpoints}): {expected_complete_days}")
-        print(f"Total return: {sum(daily_returns):.6f}")
+        # Test with empty checkpoint list
+        empty_ledger = PerfLedger(cps=[])
+        result = LedgerUtils.daily_pnl(empty_ledger)
+        self.assertEqual(result, [])
 
-    def test_proof_of_portfolio_metrics_parity(self):
-        """
-        Integration test that verifies proof-of-portfolio circuit produces the same metrics 
-        as the subnet's calculation for identical data.
-        """
-        # Skip test if proof_of_portfolio is not available
-        try:
-            from proof_of_portfolio.proof_generator import generate_proof
-        except ImportError:
-            self.skipTest("proof_of_portfolio package not available")
+    def test_daily_pnl_single_complete_day(self):
+        """Test daily_pnl with single complete day"""
+        # Create test data similar to existing test patterns
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
         
-        # Create test data with known metrics
-        checkpoint_duration = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
-        daily_checkpoints = ValiConfig.DAILY_CHECKPOINTS
+        checkpoints = []
         
-        # Create multiple complete days with varying returns
-        base_time = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        # Create a complete day worth of checkpoints
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                pnl_gain=20,  # $10 realized PnL per checkpoint
+                pnl_loss=-5,  # $5 unrealized PnL per checkpoint
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
         
-        test_checkpoints = []
-        expected_daily_returns = []
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl(ledger)
         
-        # Generate 5 complete days of data
-        for day in range(5):
-            day_start_ms = int((base_time.replace(day=day+1)).timestamp() * 1000)
-            
-            # Each day gets exactly DAILY_CHECKPOINTS checkpoints
-            day_total_return = 0
-            for cp_num in range(daily_checkpoints):
-                # Vary the returns to create realistic data
-                gain = 0.01 * (day + 1) * (cp_num + 1)  # Positive trend
-                loss = -0.005 * (day + 1) * (cp_num + 0.5)  # Some losses
-                
+        # Should have one day's worth of data
+        self.assertEqual(len(result), 1)
+        # Total PnL should be (10 + 5) * daily_checkpoints = 15 * daily_checkpoints
+        expected_pnl = 15.0 * daily_checkpoints
+        self.assertEqual(result[0], expected_pnl)
+
+    def test_daily_pnl_incomplete_day(self):
+        """Test daily_pnl with incomplete day (should be filtered out)"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create incomplete day (missing one checkpoint)
+        for i in range(daily_checkpoints - 1):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                pnl_gain=20,
+                pnl_loss=-5,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl(ledger)
+        
+        # Should have no complete days
+        self.assertEqual(len(result), 0)
+
+    def test_daily_pnl_by_date_empty_ledger(self):
+        """Test daily_pnl_by_date with empty ledger"""
+        # Test with None
+        result = LedgerUtils.daily_pnl_by_date(None)
+        self.assertEqual(result, {})
+        
+        # Test with empty checkpoint list
+        empty_ledger = PerfLedger(cps=[])
+        result = LedgerUtils.daily_pnl_by_date(empty_ledger)
+        self.assertEqual(result, {})
+
+    def test_daily_pnl_by_date_single_day(self):
+        """Test daily_pnl_by_date with single complete day"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create a complete day worth of checkpoints
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                pnl_gain=40.0,
+                pnl_loss=-10.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl_by_date(ledger)
+        
+        # Should have one entry
+        self.assertEqual(len(result), 1)
+        
+        # Check the date key and PnL value
+        expected_date = datetime.fromtimestamp(base_time_ms / 1000, tz=timezone.utc).date()
+        self.assertIn(expected_date, result)
+        expected_pnl = 30.0 * daily_checkpoints
+        self.assertEqual(result[expected_date], expected_pnl)
+
+    def test_daily_pnl_by_date_multiple_days(self):
+        """Test daily_pnl_by_date with multiple days"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create 2 complete days with different PnL
+        for day in range(2):
+            day_offset_ms = day * 24 * 60 * 60 * 1000
+            for i in range(daily_checkpoints):
+                checkpoint_time = base_time_ms + day_offset_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
                 checkpoint = PerfCheckpoint(
-                    last_update_ms=day_start_ms + ((cp_num + 1) * checkpoint_duration),
-                    accum_ms=checkpoint_duration,
-                    gain=gain,
-                    loss=loss,
-                    prev_portfolio_ret=1.0 + (day * 0.01),
+                    last_update_ms=checkpoint_time,
+                    accum_ms=checkpoint_duration_ms,
+                    open_ms=checkpoint_time - checkpoint_duration_ms,
+                    prev_portfolio_ret=1.0,
+                    pnl_gain=150.0 * (day + 1),
+                    pnl_loss=0,
+                    gain=0.0,
+                    loss=0.0,
                     n_updates=1,
                     mdd=0.99
                 )
-                test_checkpoints.append(checkpoint)
-                day_total_return += (gain + loss)
-            
-            expected_daily_returns.append(day_total_return)
+                checkpoints.append(checkpoint)
         
-        # Create ledger and get subnet metrics
-        ledger = ledger_generator(checkpoints=test_checkpoints)
-        ledger.tp_id = TP_ID_PORTFOLIO
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl_by_date(ledger)
         
-        from vali_objects.utils.metrics import Metrics
-        subnet_daily_returns = LedgerUtils.daily_return_log(ledger)
-        subnet_sharpe = Metrics.sharpe(subnet_daily_returns, ledger=ledger)
+        # Should have 2 entries
+        self.assertEqual(len(result), 2)
         
-        # Prepare data for circuit
-        circuit_data = {
-            "perf_ledgers": {
-                "test_hotkey": ledger.to_dict()
-            },
-            "positions": {
-                "test_hotkey": {"positions": []}  # Empty positions for this test
-            }
-        }
+        # Check both days
+        for day in range(2):
+            day_offset_ms = day * 24 * 60 * 60 * 1000
+            expected_date = datetime.fromtimestamp((base_time_ms + day_offset_ms) / 1000, tz=timezone.utc).date()
+            self.assertIn(expected_date, result)
+            expected_pnl = (150.0 * (day + 1)) * daily_checkpoints
+            self.assertEqual(result[expected_date], expected_pnl)
+
+    def test_group_checkpoints_by_complete_days_empty_ledger(self):
+        """Test _group_checkpoints_by_complete_days with empty ledger"""
+        empty_ledger = PerfLedger(cps=[])
+        result = LedgerUtils._group_checkpoints_by_complete_days(empty_ledger)
+        self.assertEqual(result, {})
+
+    def test_group_checkpoints_by_complete_days_complete_day(self):
+        """Test _group_checkpoints_by_complete_days with complete day"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
         
-        # Call circuit (skip actual proof generation to avoid timeouts)
-        try:
-            result = generate_proof(
-                data=circuit_data,
-                miner_hotkey="test_hotkey", 
-                verbose=False,
-                daily_checkpoints=daily_checkpoints
+        checkpoints = []
+        
+        # Create a complete day worth of checkpoints
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,  # Full cell
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
             )
-            
-            if result and result.get("status") == "success":
-                circuit_metrics = result.get("portfolio_metrics", {})
-                circuit_sharpe = circuit_metrics.get("sharpe_ratio_scaled", 0)
-                
-                # Compare key metrics
-                self.assertEqual(len(subnet_daily_returns), len(expected_daily_returns),
-                               "Subnet should process all complete days")
-                
-                # Verify daily returns match expectations
-                for i, expected in enumerate(expected_daily_returns):
-                    self.assertAlmostEqual(subnet_daily_returns[i], expected, places=6,
-                                         msg=f"Subnet daily return {i} should match expected")
-                
-                # The critical test: circuit and subnet Sharpe should be close
-                sharpe_diff = abs(circuit_sharpe - subnet_sharpe)
-                self.assertLess(sharpe_diff, 0.1, 
-                              f"Circuit Sharpe ({circuit_sharpe:.6f}) should closely match "
-                              f"subnet Sharpe ({subnet_sharpe:.6f}). Diff: {sharpe_diff:.6f}")
-                
-                print(f"Metrics parity test passed:")
-                print(f"  Days processed: {len(subnet_daily_returns)}")
-                print(f"  Subnet Sharpe: {subnet_sharpe:.6f}")
-                print(f"  Circuit Sharpe: {circuit_sharpe:.6f}")
-                print(f"  Difference: {sharpe_diff:.6f}")
-                
-            else:
-                self.fail(f"Circuit failed to generate results: {result}")
-                
-        except Exception as e:
-            # If circuit fails due to missing dependencies, skip gracefully
-            if "nargo" in str(e).lower() or "barretenberg" in str(e).lower():
-                self.skipTest(f"Circuit dependencies not available: {e}")
-            else:
-                raise
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        # Should have one day
+        self.assertEqual(len(result), 1)
+        
+        # Check the date and number of checkpoints
+        expected_date = datetime.fromtimestamp(base_time_ms / 1000, tz=timezone.utc).date()
+        self.assertIn(expected_date, result)
+        self.assertEqual(len(result[expected_date]), daily_checkpoints)
+
+    def test_group_checkpoints_by_complete_days_incomplete_day(self):
+        """Test _group_checkpoints_by_complete_days with incomplete day"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create incomplete day (missing one checkpoint)
+        for i in range(daily_checkpoints - 1):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        # Should have no complete days
+        self.assertEqual(len(result), 0)
+
+    def test_group_checkpoints_by_complete_days_partial_cells(self):
+        """Test _group_checkpoints_by_complete_days with partial cells (should be filtered out)"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create checkpoints with partial accumulation time
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms // 2,  # Partial cell
+                open_ms=checkpoint_time - checkpoint_duration_ms // 2,
+                prev_portfolio_ret=1.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils._group_checkpoints_by_complete_days(ledger)
+        
+        # Should have no complete days (all cells are partial)
+        self.assertEqual(len(result), 0)
+
+    def test_daily_pnl_zero_pnl_values(self):
+        """Test daily_pnl with zero PnL values"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create a complete day with zero PnL
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl(ledger)
+        
+        # Should have one day with zero PnL
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], 0.0)
+
+    def test_daily_pnl_negative_pnl_values(self):
+        """Test daily_pnl with negative PnL values"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create a complete day with negative PnL
+        for i in range(daily_checkpoints):
+            checkpoint_time = base_time_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+            checkpoint = PerfCheckpoint(
+                last_update_ms=checkpoint_time,
+                accum_ms=checkpoint_duration_ms,
+                open_ms=checkpoint_time - checkpoint_duration_ms,
+                prev_portfolio_ret=1.0,
+                pnl_gain=5,
+                pnl_loss=-40,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+            checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.daily_pnl(ledger)
+        
+        # Should have one day with negative PnL
+        self.assertEqual(len(result), 1)
+        expected_pnl = -35.0 * daily_checkpoints
+        self.assertEqual(result[0], expected_pnl)
+
+    def test_daily_pnl_consistency_with_by_date(self):
+        """Test that daily_pnl and daily_pnl_by_date return consistent results"""
+        base_time_ms = int(1672531200000)  # 2023-01-01 00:00:00 UTC
+        checkpoint_duration_ms = ValiConfig.TARGET_CHECKPOINT_DURATION_MS
+        daily_checkpoints = int(ValiConfig.DAILY_CHECKPOINTS)
+        
+        checkpoints = []
+        
+        # Create 2 complete days
+        for day in range(2):
+            day_offset_ms = day * 24 * 60 * 60 * 1000
+            for i in range(daily_checkpoints):
+                checkpoint_time = base_time_ms + day_offset_ms + (i * checkpoint_duration_ms) + checkpoint_duration_ms
+                checkpoint = PerfCheckpoint(
+                    last_update_ms=checkpoint_time,
+                    accum_ms=checkpoint_duration_ms,
+                    open_ms=checkpoint_time - checkpoint_duration_ms,
+                    prev_portfolio_ret=1.0,
+                    pnl_gain=50,
+                    pnl_loss=-5,
+                    gain=0.0,
+                    loss=0.0,
+                    n_updates=1,
+                    mdd=0.99
+                )
+                checkpoints.append(checkpoint)
+        
+        ledger = PerfLedger(cps=checkpoints)
+        
+        # Get results from both methods
+        daily_pnl_result = LedgerUtils.daily_pnl(ledger)
+        daily_pnl_by_date_result = LedgerUtils.daily_pnl_by_date(ledger)
+        
+        # Should have same number of entries
+        self.assertEqual(len(daily_pnl_result), len(daily_pnl_by_date_result))
+        
+        # Values should match (order might be different)
+        sorted_daily_pnl = sorted(daily_pnl_result)
+        sorted_by_date_values = sorted(daily_pnl_by_date_result.values())
+        self.assertEqual(sorted_daily_pnl, sorted_by_date_values)
+
+    def test_raw_pnl_empty_ledger(self):
+        """Test raw_pnl with None ledger"""
+        result = LedgerUtils.raw_pnl(None)
+        self.assertEqual(result, 0.0)
+
+    def test_raw_pnl_empty_checkpoint_list(self):
+        """Test raw_pnl with ledger having empty checkpoint list"""
+        empty_ledger = PerfLedger(cps=[])
+        result = LedgerUtils.raw_pnl(empty_ledger)
+        self.assertEqual(result, 0.0)
+
+    def test_raw_pnl_single_checkpoint(self):
+        """Test raw_pnl with single checkpoint"""
+        checkpoint = PerfCheckpoint(
+            last_update_ms=1672531200000,
+            accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+            open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+            prev_portfolio_ret=1.0,
+            pnl_gain=100.0,
+            pnl_loss=-25.0,
+            gain=0.0,
+            loss=0.0,
+            n_updates=1,
+            mdd=0.99
+        )
+        ledger = PerfLedger(cps=[checkpoint])
+        result = LedgerUtils.raw_pnl(ledger)
+        self.assertEqual(result, 75.0)
+
+    def test_raw_pnl_multiple_checkpoints(self):
+        """Test raw_pnl with multiple checkpoints"""
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=50.0,
+                pnl_loss=-10.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=30.0,
+                pnl_loss=-5.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + 2 * ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=20.0,
+                pnl_loss=-8.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        # (50 + (-10)) + (30 + (-5)) + (20 + (-8)) = 40 + 25 + 12 = 77
+        self.assertEqual(result, 77.0)
+
+    def test_raw_pnl_positive_values(self):
+        """Test raw_pnl with only positive PnL values"""
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=100.0,
+                pnl_loss=0.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=50.0,
+                pnl_loss=0.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        self.assertEqual(result, 150.0)
+
+    def test_raw_pnl_negative_values(self):
+        """Test raw_pnl with only negative PnL values"""
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=0.0,
+                pnl_loss=-100.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=0.0,
+                pnl_loss=-50.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        self.assertEqual(result, -150.0)
+
+    def test_raw_pnl_mixed_values(self):
+        """Test raw_pnl with mixed positive and negative PnL values"""
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=150.0,
+                pnl_loss=-100.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=25.0,
+                pnl_loss=-75.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        # (150 + (-100)) + (25 + (-75)) = 50 + (-50) = 0
+        self.assertEqual(result, 0.0)
+
+    def test_raw_pnl_zero_values(self):
+        """Test raw_pnl with zero PnL values"""
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=0.0,
+                pnl_loss=0.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=0.0,
+                pnl_loss=0.0,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        self.assertEqual(result, 0.0)
+
+    def test_raw_pnl_mathematical_correctness(self):
+        """Test raw_pnl mathematical correctness with various values"""
+        # Test with decimal values
+        checkpoints = [
+            PerfCheckpoint(
+                last_update_ms=1672531200000,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                prev_portfolio_ret=1.0,
+                pnl_gain=12.34,
+                pnl_loss=-5.67,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            ),
+            PerfCheckpoint(
+                last_update_ms=1672531200000 + ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+                open_ms=1672531200000,
+                prev_portfolio_ret=1.0,
+                pnl_gain=0.01,
+                pnl_loss=-0.01,
+                gain=0.0,
+                loss=0.0,
+                n_updates=1,
+                mdd=0.99
+            )
+        ]
+        ledger = PerfLedger(cps=checkpoints)
+        result = LedgerUtils.raw_pnl(ledger)
+        expected = (12.34 + (-5.67)) + (0.01 + (-0.01))
+        self.assertAlmostEqual(result, expected, places=7)
+
+    def test_raw_pnl_large_values(self):
+        """Test raw_pnl with large PnL values"""
+        checkpoint = PerfCheckpoint(
+            last_update_ms=1672531200000,
+            accum_ms=ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+            open_ms=1672531200000 - ValiConfig.TARGET_CHECKPOINT_DURATION_MS,
+            prev_portfolio_ret=1.0,
+            pnl_gain=999999.99,
+            pnl_loss=-888888.88,
+            gain=0.0,
+            loss=0.0,
+            n_updates=1,
+            mdd=0.99
+        )
+        ledger = PerfLedger(cps=[checkpoint])
+        result = LedgerUtils.raw_pnl(ledger)
+        expected = 999999.99 + (-888888.88)
+        self.assertAlmostEqual(result, expected, places=2)
 

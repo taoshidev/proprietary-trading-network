@@ -5,6 +5,7 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.utils.asset_segmentation import AssetSegmentation
 from vali_objects.vali_config import TradePair, ValiConfig, ForexSubcategory, CryptoSubcategory
 
 from tests.shared_objects.test_utilities import generate_ledger
@@ -69,6 +70,9 @@ class TestWeights(TestBase):
             }
         }
 
+        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        self.SUBCATEGORY_MIN_DAYS = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
+
         self.DEFAULT_LEDGER = generate_ledger(0.1)
 
     def test_transform_and_scale_results_defaults(self):
@@ -83,6 +87,7 @@ class TestWeights(TestBase):
         scaled_transformed_list = Scoring.compute_results_checkpoint(
             ledger,
             miner_positions,
+            subcategory_min_days=self.SUBCATEGORY_MIN_DAYS,
             evaluation_time_ms=self.EVALUATION_TIME_MS,
         )
 
@@ -385,7 +390,7 @@ class TestWeights(TestBase):
         ledger = {"miner1": self.DEFAULT_LEDGER}
         positions = {"miner1": [self.DEFAULT_POSITION]}
         
-        result = Scoring.score_miners(ledger, positions, self.EVALUATION_TIME_MS)
+        result = Scoring.score_miners(ledger, positions, self.SUBCATEGORY_MIN_DAYS, self.EVALUATION_TIME_MS)
         self.assertIsInstance(result, dict)
         
         # Check that result contains asset subcategories

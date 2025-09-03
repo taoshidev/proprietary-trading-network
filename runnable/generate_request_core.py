@@ -10,6 +10,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
 from vali_objects.position import Position
@@ -25,13 +26,14 @@ PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
 assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
 
 class RequestCoreManager:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector):
+    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=None):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
+        self.contract_manager = contract_manager
 
     def hash_string_to_int(self, s: str) -> int:
         # Create a SHA-256 hash object
@@ -150,14 +152,15 @@ class RequestCoreManager:
 
     def create_and_upload_production_files(self, eliminations, ord_dict_hotkey_position_map, time_now,
                                            youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict):
+                                           challengeperiod_dict, miner_account_sizes_dict):
 
-        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers()
+        perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
         final_dict = {
             'version': ValiConfig.VERSION,
             'created_timestamp_ms': time_now,
             'created_date': TimeUtil.millis_to_formatted_date_str(time_now),
             'challengeperiod': challengeperiod_dict,
+            'miner_account_sizes': miner_account_sizes_dict,
             'eliminations': eliminations,
             'youngest_order_processed_ms': youngest_order_processed_ms,
             'oldest_order_processed_ms': oldest_order_processed_ms,
@@ -255,19 +258,26 @@ class RequestCoreManager:
         assert n_orders_original == n_positions_new, f"n_orders_original: {n_orders_original}, n_positions_new: {n_positions_new}"
 
         challengeperiod_dict = self.challengeperiod_manager.to_checkpoint_dict()
+        
+        # Get miner account sizes if contract manager is available
+        miner_account_sizes_dict = {}
+        if self.contract_manager:
+            miner_account_sizes_dict = self.contract_manager.miner_account_sizes_dict()
 
         if write_and_upload_production_files:
             self.create_and_upload_production_files(eliminations, ord_dict_hotkey_position_map, time_now_ms,
                                            youngest_order_processed_ms, oldest_order_processed_ms,
-                                           challengeperiod_dict)
+                                           challengeperiod_dict, miner_account_sizes_dict)
 
         checkpoint_dict = {
             'challengeperiod': challengeperiod_dict,
+            'miner_account_sizes': miner_account_sizes_dict,
             'positions': unfiltered_positions
         }
         return checkpoint_dict
 
 if __name__ == "__main__":
+    contract_manager = ValidatorContractManager()
     perf_ledger_manager = PerfLedgerManager(None, {}, [])
     elimination_manager = EliminationManager(None, [],None, None)
     position_manager = PositionManager(None, None, elimination_manager=elimination_manager,
@@ -287,5 +297,5 @@ if __name__ == "__main__":
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 
-    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    rcm = RequestCoreManager(position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=contract_manager)
     rcm.generate_request_core(write_and_upload_production_files=True)

@@ -145,7 +145,7 @@ class Validator:
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
         self.wallet = bt.wallet(config=self.config)
-        
+
         # Initialize Slack notifier for error reporting
         self.slack_notifier = SlackNotifier(
             hotkey=self.wallet.hotkey.ss58_address,
@@ -153,32 +153,40 @@ class Validator:
             error_webhook_url=getattr(self.config, 'slack_error_webhook_url', None),
             is_miner=False  # This is a validator
         )
-        
+
         # Track last error notification time to prevent spam
         self.last_error_notification_time = 0
         self.error_notification_cooldown = 300  # 5 minutes between error notifications
-        
+
         bt.logging.info(f"Wallet: {self.wallet}")
 
         # metagraph provides the network's current state, holding state about other participants in a subnet.
         # IMPORTANT: Only update this variable in-place. Otherwise, the reference will be lost in the helper classes.
         self.metagraph = get_ipc_metagraph(self.ipc_manager)
 
+        # Create single weight request queue (validator only)
+        weight_request_queue = self.ipc_manager.Queue()
+
         # Create MetagraphUpdater which manages the subtensor connection
         self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
                                                   False, position_manager=None,
                                                   shutdown_dict=shutdown_dict,
-                                                  slack_notifier=self.slack_notifier)
-        
+                                                  slack_notifier=self.slack_notifier,
+                                                  weight_request_queue=weight_request_queue)
+
         # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
         # This ensures we always have the current subtensor instance even after round-robin switches
         bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
-        
+
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
             max_wait_time=60,
             slack_notifier=self.slack_notifier
         )
+
+        # Initialize ValidatorContractManager for collateral operations
+        self.contract_manager = ValidatorContractManager(config=self.config, position_manager=None, ipc_manager=self.ipc_manager, metagraph=self.metagraph)
+
 
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
@@ -190,7 +198,8 @@ class Validator:
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
-                                              auto_sync_enabled=self.auto_sync)  # Set after self.pm creation
+                                              auto_sync_enabled=self.auto_sync,
+                                              contract_manager=self.contract_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
@@ -203,11 +212,12 @@ class Validator:
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None)  # Set after self.pm creation
+                                                     position_manager=None,
+                                                     contract_manager=self.contract_manager)  # Set after self.pm creation)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
-                                                perform_order_corrections=True,
+                                                perform_order_corrections=False,
                                                 ipc_manager=self.ipc_manager,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
@@ -225,7 +235,8 @@ class Validator:
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
-                                   self.p2p_syncer, self.elimination_manager, self.metagraph_updater]):
+                                   self.p2p_syncer, self.elimination_manager, self.metagraph_updater,
+                                   self.contract_manager]):
             obj.position_manager = self.position_manager
 
         self.position_manager.challengeperiod_manager = self.challengeperiod_manager
@@ -295,6 +306,12 @@ class Validator:
         def rc_priority_fn(synapse: template.protocol.ValidatorCheckpoint) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def cr_blacklist_fn(synapse: template.protocol.CollateralRecord) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def cr_priority_fn(synapse: template.protocol.CollateralRecord) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -314,6 +331,11 @@ class Validator:
             forward_fn=self.receive_checkpoint,
             blacklist_fn=rc_blacklist_fn,
             priority_fn=rc_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_collateral_record,
+            blacklist_fn=cr_blacklist_fn,
+            priority_fn=cr_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -344,23 +366,32 @@ class Validator:
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
-        self.weight_setter = SubtensorWeightSetter(
-            self.metagraph, 
-            position_manager=self.position_manager,
-            slack_notifier=self.slack_notifier
-        )
-        # Set config reference for alert context
-        self.weight_setter.config = self.config
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.weight_setter = SubtensorWeightSetter(
+            self.metagraph,
+            position_manager=self.position_manager,
+            use_slack_notifier=True,
+            shutdown_dict=shutdown_dict,
+            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+            config=self.config,
+            hotkey=self.wallet.hotkey.ss58_address
+        )
+
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
 
-        # Initialize ValidatorContractManager for collateral operations
-        self.contract_manager = ValidatorContractManager(config=self.config, metagraph=self.metagraph)
+        # Start the weight setter loop in its own process
+        self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
+        self.weight_setter_process.start()
+
+        # Start dedicated weight processing thread in MetagraphUpdater (validators only)
+        if self.metagraph_updater.weight_request_queue:
+            self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
+            self.weight_processing_thread.start()
 
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
@@ -378,8 +409,7 @@ class Validator:
                 rest_host=self.config.api_host,
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
-                contract_manager=self.contract_manager,
-                config=self.config
+                contract_manager=self.contract_manager
             )
 
             # Start the API Manager in a separate process
@@ -435,7 +465,7 @@ class Validator:
             f"Prioritizing {synapse.dendrite.hotkey} with value: ", priority
         )
         return priority
-    
+
     @property
     def subtensor(self):
         """
@@ -471,22 +501,14 @@ class Validator:
         # Adds override arguments for network and netuid.
         parser.add_argument("--netuid", type=int, default=1, help="The chain subnet uid.")
         
-        # Vault wallet specific arguments for collateral operations
-        # These allow using a separate wallet for collateral operations instead of the main validator wallet
-        parser.add_argument("--vault-wallet.name", type=str, default=None, dest="vault_wallet_name",
-                            help="Name of the vault wallet for collateral operations (optional)")
-        parser.add_argument("--vault-wallet.hotkey", type=str, default=None, dest="vault_wallet_hotkey",
-                            help="Hotkey of the vault wallet for collateral operations (optional)")
-        parser.add_argument("--vault-wallet.path", type=str, default="~/.bittensor/wallets/", dest="vault_wallet_path",
-                            help="Path to the vault wallet directory (default: ~/.bittensor/wallets/)")
-        
+
         # Adds subtensor specific arguments i.e. --subtensor.chain_endpoint ... --subtensor.network ...
         bt.subtensor.add_args(parser)
         # Adds logging specific arguments i.e. --logging.debug ..., --logging.trace .. or --logging.logging_dir ...
         bt.logging.add_args(parser)
         # Adds wallet specific arguments i.e. --wallet.name ..., --wallet.hotkey ./. or --wallet.path ...
         bt.wallet.add_args(parser)
-        
+
         # Add Slack webhook arguments
         parser.add_argument(
             "--slack-webhook-url",
@@ -530,7 +552,7 @@ class Validator:
             return
         # Handle shutdown gracefully
         bt.logging.warning("Performing graceful exit...")
-        
+
         # Send shutdown notification to Slack
         if self.slack_notifier:
             self.slack_notifier.send_message(
@@ -546,6 +568,11 @@ class Validator:
         self.live_price_fetcher.stop_all_threads()
         bt.logging.warning("Stopping perf ledger...")
         self.perf_ledger_updater_thread.join()
+        bt.logging.warning("Stopping weight setter...")
+        self.weight_setter_process.join()
+        if hasattr(self, 'weight_processing_thread'):
+            bt.logging.warning("Stopping weight processing thread...")
+            self.weight_processing_thread.join()
         bt.logging.warning("Stopping plagiarism detector...")
         self.plagiarism_thread.join()
         if self.rog_thread:
@@ -562,7 +589,7 @@ class Validator:
         global shutdown_dict
         # Keep the vali alive. This loop maintains the vali's operations until intentionally stopped.
         bt.logging.info("Starting main loop")
-        
+
         # Send startup notification to Slack
         if self.slack_notifier:
             vm_info = f"VM: {self.slack_notifier.vm_hostname} ({self.slack_notifier.vm_ip})" if self.slack_notifier.vm_hostname else ""
@@ -584,19 +611,19 @@ class Validator:
                 self.challengeperiod_manager.refresh(current_time=current_time)
                 self.elimination_manager.process_eliminations(self.position_locks)
                 #self.position_locks.cleanup_locks(self.metagraph.hotkeys)
-                self.weight_setter.set_weights(self.wallet, self.config.netuid, self.metagraph_updater.get_subtensor(), current_time=current_time)
+                # Weight setting now runs in its own process
                 #self.p2p_syncer.sync_positions_with_cooldown()
 
             # In case of unforeseen errors, the validator will log the error and send notification to Slack
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 bt.logging.error(error_traceback)
-                
+
                 # Send error notification to Slack with rate limiting
                 current_time_seconds = time.time()
                 if self.slack_notifier and (current_time_seconds - self.last_error_notification_time) > self.error_notification_cooldown:
                     self.last_error_notification_time = current_time_seconds
-                    
+
                     # Use shared error formatting utility
                     error_message = ErrorUtils.format_error_for_slack(
                         error=e,
@@ -604,14 +631,14 @@ class Validator:
                         include_operation=True,
                         include_timestamp=True
                     )
-                    
+
                     self.slack_notifier.send_message(
                         f"❌ Validator main loop error!\n"
                         f"{error_message}\n"
                         f"Note: Further errors suppressed for {self.error_notification_cooldown/60:.0f} minutes",
                         level="error"
                     )
-                
+
                 time.sleep(10)
 
         self.check_shutdown()
@@ -658,12 +685,20 @@ class Validator:
             if order_type == OrderType.FLAT:
                 open_position = None
             else:
+                # Get relevant account size
+                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
+                if account_size is None:
+                    account_size = ValiConfig.CAPITAL_FLOOR
+                else:
+                    account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
+
                 # if a position doesn't exist, then make a new one
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
                     open_ms=order_time_ms,
-                    trade_pair=trade_pair
+                    trade_pair=trade_pair,
+                    account_size=account_size
                 )
         return open_position
 
@@ -732,12 +767,6 @@ class Validator:
 
         if signal:
             tp = self.parse_trade_pair_from_signal(signal)
-            err_msg = self.enforce_order_cooldown(tp.trade_pair_id, now_ms, sender_hotkey)
-            if err_msg:
-                bt.logging.error(err_msg)
-                synapse.successfully_processed = False
-                synapse.error_message = err_msg
-                return True
 
             if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
@@ -765,6 +794,7 @@ class Validator:
     def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
         """
         Enforce cooldown between orders for the same trade pair using an efficient cache.
+        This method must be called within the position lock to prevent race conditions.
         """
         cache_key = (miner_hotkey, trade_pair_id)
         current_order_time_ms = now_ms
@@ -785,8 +815,6 @@ class Validator:
                     f"Please wait {time_to_wait_in_s:.1f} seconds before placing another order."
                 )
 
-        # Update the cache with the current order time (will be done after order is successfully processed)
-        self.last_order_time_cache[(miner_hotkey, trade_pair_id)] = now_ms
         return msg
 
     def parse_miner_uuid(self, synapse: template.protocol.SendSignal):
@@ -837,6 +865,14 @@ class Validator:
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
             with self.position_locks.get_lock(miner_hotkey, trade_pair.trade_pair_id):
+                # Check cooldown inside the lock to prevent race conditions
+                err_msg = self.enforce_order_cooldown(trade_pair.trade_pair_id, now_ms, miner_hotkey)
+                if err_msg:
+                    bt.logging.error(err_msg)
+                    synapse.successfully_processed = False
+                    synapse.error_message = err_msg
+                    return synapse
+                    
                 self.enforce_no_duplicate_order(synapse)
                 if synapse.error_message:
                     return synapse
@@ -863,6 +899,8 @@ class Validator:
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
+                    # Update cooldown cache after successful order processing
+                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
                     if self.config.serve:
                         # Add the position to the queue for broadcasting
                         self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
@@ -1024,6 +1062,32 @@ class Validator:
             bt.logging.info(f"Received a checkpoint poke from non validator [{sender_hotkey}]")
             synapse.error_message = "Rejecting checkpoint poke from non validator"
             synapse.successfully_processed = False
+        return synapse
+
+    def receive_collateral_record(self, synapse: template.protocol.CollateralRecord) -> template.protocol.CollateralRecord:
+        """
+        receive collateral record update, and update miner account sizes
+        """
+        try:
+            # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received collateral record update from validator hotkey [{sender_hotkey}].")
+            success = self.contract_manager.receive_collateral_record_update(synapse.collateral_record)
+            
+            if success:
+                synapse.successfully_processed = True
+                synapse.error_message = ""
+                bt.logging.info(f"Successfully processed CollateralRecord synapse from {sender_hotkey}")
+            else:
+                synapse.successfully_processed = False
+                synapse.error_message = "Failed to process collateral record update"
+                bt.logging.warning(f"Failed to process CollateralRecord synapse from {sender_hotkey}")
+                
+        except Exception as e:
+            synapse.successfully_processed = False
+            synapse.error_message = f"Error processing collateral record: {str(e)}"
+            bt.logging.error(f"Exception in receive_collateral_record: {e}")
+
         return synapse
 
 # This is the main function, which runs the miner.

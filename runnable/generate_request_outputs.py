@@ -14,6 +14,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 import bittensor as bt
 
@@ -69,7 +70,8 @@ class RequestOutputGenerator:
                            "main validator loop.")
 
     def repull_data_from_disk(self):
-        perf_ledger_manager = PerfLedgerManager(None)
+        contract_manager = ValidatorContractManager()
+        perf_ledger_manager = PerfLedgerManager(metagraph=None, contract_manager=contract_manager)
         elimination_manager = EliminationManager(None, None, None)
         self.position_manager = PositionManager(None, None,
                                                 elimination_manager=elimination_manager,
@@ -88,7 +90,7 @@ class RequestOutputGenerator:
             position_manager=self.position_manager,
         )
         self.plagiarism_detector = PlagiarismDetector(None, None, position_manager=self.position_manager)
-        self.rcm = RequestCoreManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector)
+        self.rcm = RequestCoreManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector, contract_manager=contract_manager)
         self.msm = MinerStatisticsManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector)
 
 

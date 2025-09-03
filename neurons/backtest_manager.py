@@ -45,6 +45,7 @@ from vali_objects.utils.position_lock import PositionLocks  # noqa: E402
 from vali_objects.utils.position_manager import PositionManager  # noqa: E402
 from vali_objects.utils.price_slippage_model import PriceSlippageModel  # noqa: E402
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter  # noqa: E402
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager  # noqa: E402
 from vali_objects.utils.vali_utils import ValiUtils  # noqa: E402
 from vali_objects.vali_config import ValiConfig  # noqa: E402
 from vali_objects.vali_dataclasses.perf_ledger import ParallelizationMode, PerfLedgerManager  # noqa: E402
@@ -131,6 +132,8 @@ class BacktestManager:
 
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True, is_backtesting=True)
 
+        self.contract_manager = ValidatorContractManager(is_backtesting=True)
+
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph,
                                                      shutdown_dict=shutdown_dict,
                                                      live_price_fetcher=None, # Don't want SSL objects to be pickled
@@ -141,7 +144,8 @@ class BacktestManager:
                                                      secrets=self.secrets,
                                                      use_slippage=use_slippage,
                                                      build_portfolio_ledgers_only=build_portfolio_ledgers_only,
-                                                     target_ledger_window_ms=target_ledger_window_ms)
+                                                     target_ledger_window_ms=target_ledger_window_ms,
+                                                     contract_manager=self.contract_manager)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
@@ -253,7 +257,7 @@ class BacktestManager:
             self.challengeperiod_manager.add_all_miners_to_success(current_time_ms=current_time_ms, run_elimination=run_elimination)
         if run_elimination:
             self.elimination_manager.process_eliminations(self.position_locks)
-        self.weight_setter.set_weights(None, None, None, current_time=current_time_ms)
+        self.weight_setter.set_weights(current_time=current_time_ms)
 
 
 if __name__ == '__main__':
