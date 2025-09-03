@@ -294,6 +294,7 @@ if __name__ == "__main__":
         metagraph=None,
         running_unit_tests=False,
         position_manager=position_manager,
+        contract_manager=contract_manager
     )
     plagiarism_detector = PlagiarismDetector(None, None, position_manager=position_manager)
 

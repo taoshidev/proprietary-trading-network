@@ -913,6 +913,7 @@ if __name__ == "__main__":
         metagraph=metagraph,
         running_unit_tests=False,
         position_manager=position_manager,
+        contract_manager=contract_manager,
     )
     plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 

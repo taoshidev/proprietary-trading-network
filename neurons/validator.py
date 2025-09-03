@@ -375,7 +375,8 @@ class Validator:
             shutdown_dict=shutdown_dict,
             weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
             config=self.config,
-            hotkey=self.wallet.hotkey.ss58_address
+            hotkey=self.wallet.hotkey.ss58_address,
+            contract_manager=self.contract_manager
         )
 
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager)
