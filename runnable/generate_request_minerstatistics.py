@@ -7,6 +7,9 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 
 from datetime import datetime
 from shared_objects.mock_metagraph import MockMetagraph
@@ -30,7 +33,8 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_P
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.position import Position
-from proof_of_portfolio import prove_sync as prove
+from proof_of_portfolio import prove
+import asyncio
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +127,8 @@ class MetricsCalculator:
                 "pnl": ScoreMetric(
                     name="pnl",
                     metric_func=Metrics.pnl_score,
-                    weight=ValiConfig.SCORING_PNL_WEIGHT
-                )
+                    weight=ValiConfig.SCORING_PNL_WEIGHT,
+                ),
             }
         else:
             self.metrics = metrics
@@ -149,7 +153,7 @@ class MetricsCalculator:
                     log_returns=log_returns,
                     ledger=ledger,
                     weighting=weighting,
-                    bypass_confidence=metric.bypass_confidence
+                    bypass_confidence=metric.bypass_confidence,
                 )
 
             scores[hotkey] = value
@@ -166,7 +170,7 @@ class MinerStatisticsManager:
         position_manager: PositionManager,
         subtensor_weight_setter: SubtensorWeightSetter,
         plagiarism_detector: PlagiarismDetector,
-        metrics: Dict[str, MetricsCalculator] = None
+        metrics: Dict[str, MetricsCalculator] = None,
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -231,7 +235,9 @@ class MinerStatisticsManager:
         checkpoint_durations = sum(cp.open_ms for cp in miner_cps)
 
         # Minimum days boolean
-        meets_min_days = (len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL)
+        meets_min_days = (
+            len(miner_returns) >= ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL
+        )
 
         return {
             "annual_volatility": ann_volatility,
@@ -376,18 +382,22 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Daily Returns
     # -------------------------------------------
-    def calculate_all_daily_returns(self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str) -> dict[str, list[float]]:
+    def calculate_all_daily_returns(
+        self, filtered_ledger: dict[str, dict[str, PerfLedger]], return_type: str
+    ) -> dict[str, list[float]]:
         """Calculate daily returns for all miners.
-        
+
         Args:
             filtered_ledger: Dictionary of miner ledgers
             return_type: 'simple' or 'log' to specify return type
-        
+
         Returns:
             Dictionary mapping hotkeys to daily returns
         """
         return {
-            hotkey: LedgerUtils.daily_returns_by_date_json(ledgers.get(TP_ID_PORTFOLIO), return_type=return_type)
+            hotkey: LedgerUtils.daily_returns_by_date_json(
+                ledgers.get(TP_ID_PORTFOLIO), return_type=return_type
+            )
             for hotkey, ledgers in filtered_ledger.items()
         }
 
@@ -494,7 +504,7 @@ class MinerStatisticsManager:
 
             scoring_config[key] = {
                 "function": metric.metric_func,
-                "weight": metric.weight
+                "weight": metric.weight,
             }
 
         return scoring_config
@@ -502,14 +512,16 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Raw PnL Calculation
     # -------------------------------------------
-    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]], now_ms: int = None) -> Dict[str, Dict[str, float]]:
+    def calculate_pnl_info(
+        self, filtered_ledger: Dict[str, Dict[str, PerfLedger]], now_ms: int = None
+    ) -> Dict[str, Dict[str, float]]:
         """Calculate raw PnL values, rankings and percentiles for all miners."""
         if now_ms is None:
             now_ms = TimeUtil.now_in_millis()
 
         raw_pnl_values = []
         account_sizes = []
-        
+
         # Calculate raw PnL for each miner
         for hotkey, ledgers in filtered_ledger.items():
             portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
@@ -520,13 +532,15 @@ class MinerStatisticsManager:
                 raw_pnl_values.append((hotkey, 0.0))
 
             # Fetch most recent account size even if it isn't valid yet for scoring
-            account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
+            account_size = self.contract_manager.get_miner_account_size(
+                hotkey, now_ms, most_recent=True
+            )
             if account_size is None:
                 account_size = ValiConfig.CAPITAL_FLOOR
             else:
                 account_size = max(account_size, ValiConfig.CAPITAL_FLOOR)
             account_sizes.append((hotkey, account_size))
-        
+
         # Calculate rankings and percentiles
         ranks = self.rank_dictionary(raw_pnl_values)
         percentiles = self.percentile_rank_dictionary(raw_pnl_values)
@@ -535,7 +549,7 @@ class MinerStatisticsManager:
         account_size_ranks = self.rank_dictionary(account_sizes)
         account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
         account_sizes_dict = dict(account_sizes)
-        
+
         # Build result dictionary
         result = {}
         for hotkey in values_dict:
@@ -543,15 +557,15 @@ class MinerStatisticsManager:
                 "account_size": {
                     "value": account_sizes_dict[hotkey],
                     "rank": account_size_ranks[hotkey],
-                    "percentile": account_size_percentiles[hotkey]
+                    "percentile": account_size_percentiles[hotkey],
                 },
                 "raw_pnl": {
                     "value": values_dict[hotkey],
                     "rank": ranks[hotkey],
-                    "percentile": percentiles[hotkey]
-                }
+                    "percentile": percentiles[hotkey],
+                },
             }
-        
+
         return result
 
     # -------------------------------------------
@@ -663,19 +677,34 @@ class MinerStatisticsManager:
             all_miner_hotkeys
         )
 
-        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*challengeperiod_success_hotkeys, *challengeperiod_probation_hotkeys])  # ledger of all miners in maincomp, including probation
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            maincomp_ledger, asset_subcategories
+        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(
+            hotkeys=[
+                *challengeperiod_success_hotkeys,
+                *challengeperiod_probation_hotkeys,
+            ]
+        )  # ledger of all miners in maincomp, including probation
+        asset_subcategories = list(
+            AssetSegmentation.distill_asset_subcategories(
+                ValiConfig.ASSET_CLASS_BREAKDOWN
+            )
         )
-        bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
+        subcategory_min_days = (
+            LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
+                maincomp_ledger, asset_subcategories
+            )
+        )
+        bt.logging.info(
+            f"generate_minerstats subcategory_min_days: {subcategory_min_days}"
+        )
 
-        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
-            filtered_ledger,
-            filtered_positions,
-            subcategory_min_days=subcategory_min_days,
-            evaluation_time_ms=time_now,
-            weighting=final_results_weighting,
+        success_competitiveness, asset_softmaxed_scores = (
+            Scoring.score_miner_asset_subcategories(
+                filtered_ledger,
+                filtered_positions,
+                subcategory_min_days=subcategory_min_days,
+                evaluation_time_ms=time_now,
+                weighting=final_results_weighting,
+            )
         )  # returns asset competitiveness dict, asset softmaxed scores
 
         # For weighting logic: gather "successful" checkpoint-based results
@@ -694,7 +723,7 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -713,7 +742,7 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
-            metrics=self.extract_scoring_config(self.metrics_calculator.metrics)
+            metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(
@@ -786,7 +815,9 @@ class MinerStatisticsManager:
         )
 
         # For visualization
-        daily_returns_dict = self.calculate_all_daily_returns(filtered_ledger, return_type='simple')
+        daily_returns_dict = self.calculate_all_daily_returns(
+            filtered_ledger, return_type="simple"
+        )
 
         # Calculate raw PnL values with rankings and percentiles
         raw_pnl_dict = self.calculate_pnl_info(filtered_ledger, now_ms=time_now)
@@ -881,7 +912,9 @@ class MinerStatisticsManager:
                 ),
             }
             # Raw PnL
-            raw_pnl_info = raw_pnl_dict.get(hotkey, {"value": 0.0, "rank": None, "percentile": 0.0})
+            raw_pnl_info = raw_pnl_dict.get(
+                hotkey, {"value": 0.0, "rank": None, "percentile": 0.0}
+            )
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
 
@@ -895,7 +928,10 @@ class MinerStatisticsManager:
 
             # Purely for visualization purposes
             daily_returns = daily_returns_dict.get(hotkey, {})
-            daily_returns_list = [{"date": date, "value": value * 100} for date, value in daily_returns.items()]
+            daily_returns_list = [
+                {"date": date, "value": value * 100}
+                for date, value in daily_returns.items()
+            ]
 
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
@@ -953,231 +989,84 @@ class MinerStatisticsManager:
                         )
 
                     if ValiConfig.ENABLE_ZK_PROOFS:
+                        raw_ledger_dict = filtered_ledger.get(hotkey, {})
+                        raw_positions = filtered_positions.get(hotkey, [])
+                        portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
+
                         try:
-                            bt.logging.info(
-                                f"Generating ZK proof for miner {hotkey[:8]}..."
+                            miner_data = {
+                                "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},
+                                "positions": raw_positions
+                            }
+                            zk_result = asyncio.run(
+                                prove(miner_data, hotkey)
                             )
+                        except Exception as e:
+                            bt.logging.error(
+                                f"Error in ZK proof generation for {hotkey[:8]}: {str(e)}"
+                            )
+                            zk_result = {
+                                "status": "error",
+                                "verification_success": False,
+                                "message": str(e),
+                            }
 
-                            raw_ledger_dict = filtered_ledger.get(hotkey, {})
-                            raw_positions = filtered_positions.get(hotkey, [])
-                            portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
+                        final_miner_dict["zk_proof"] = zk_result
 
-                            if portfolio_ledger and raw_positions:
-                                bt.logging.info(
-                                    f"Preparing proof data for {hotkey[:8]} - ledger has {len(portfolio_ledger.cps) if hasattr(portfolio_ledger, 'cps') else 'no'} cps"
-                                )
-
-                                proof_data = {
-                                    "perf_ledgers": {
-                                        hotkey: portfolio_ledger.to_dict()
-                                    },
-                                    "positions": {
-                                        hotkey: {
-                                            "positions": [
-                                                (
-                                                    pos.to_dict()
-                                                    if hasattr(pos, "to_dict")
-                                                    else pos
-                                                )
-                                                for pos in raw_positions
-                                            ]
-                                        }
-                                    },
-                                }
-
-                                # Log input data to circuit for debugging
-                                debug_file_path = f"debug_proof_data_{hotkey[:8]}.json"
-
-                                class CustomEncoder(json.JSONEncoder):
-                                    def default(self, obj):
-                                        if isinstance(obj, TradePair):
-                                            return obj.trade_pair_id
-                                        if isinstance(obj, OrderType):
-                                            return obj.value
-                                        return super().default(obj)
-
-                                with open(debug_file_path, "w") as f:
-                                    json.dump(
-                                        proof_data, f, indent=2, cls=CustomEncoder
-                                    )
-                                bt.logging.info(
-                                    f"Proof input data written to {debug_file_path}"
-                                )
-
-                                bt.logging.info(f"Calling prove() for {hotkey[:8]}")
-                                try:
-                                    proof_result = prove(
-                                        proof_data,
-                                        hotkey,
-                                        verbose=True,
-                                        annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
-                                        use_weighting=False,
-                                        bypass_confidence=False,
-                                        daily_checkpoints=int(
-                                            ValiConfig.DAILY_CHECKPOINTS
-                                        ),
-                                    )
-                                    bt.logging.info(
-                                        f"prove() returned for {hotkey[:8]}: status={proof_result.get('status') if proof_result else None}"
-                                    )
-                                    if (
-                                        proof_result
-                                        and proof_result.get("status") == "error"
-                                    ):
-                                        bt.logging.error(
-                                            f"Proof error for {hotkey[:8]}: {proof_result.get('message', 'No error message')}"
-                                        )
-                                except Exception as e:
-                                    bt.logging.error(
-                                        f"prove() threw exception for {hotkey[:8]}: {str(e)}"
-                                    )
-                                    proof_result = None
-
-                                if proof_result:
-                                    status = proof_result.get("status")
-                                    metrics = proof_result.get("portfolio_metrics", {})
-
-                                    status_configs = {
-                                        "success": (
-                                            "info",
-                                            "ZK proof generated and verified",
-                                        ),
-                                        "verification_failed": (
-                                            "warning",
-                                            "ZK proof generated but verification failed",
-                                        ),
-                                        "proof_generation_failed": (
-                                            "warning",
-                                            "ZK proof generation failed",
-                                        ),
-                                        "error": ("error", "ZK proof error"),
-                                    }
-
-                                    log_level, message = status_configs.get(
-                                        status,
-                                        (
-                                            "warning",
-                                            f"Unknown ZK proof status: {status}",
-                                        ),
-                                    )
-                                    getattr(bt.logging, log_level)(
-                                        f"{message} for {hotkey[:8]}"
-                                    )
-
-                                    zk_proof = {
-                                        "status": status,
-                                        "proof_generated": status
-                                        in ["success", "verification_failed"],
-                                        "verification_success": status == "success",
-                                        "merkle_roots": proof_result.get(
-                                            "merkle_roots", {}
-                                        ),
-                                        "portfolio_metrics": metrics,
-                                        "message": (
-                                            message if status != "success" else None
-                                        ),
-                                    }
-
-                                    if status == "success":
-                                        zk_proof.update(
-                                            {
-                                                "proof_generation_time": proof_result.get(
-                                                    "proof_results", {}
-                                                ).get(
-                                                    "proof_generation_time"
-                                                ),
-                                                "witness_generation_time": proof_result.get(
-                                                    "proof_results", {}
-                                                ).get(
-                                                    "witness_generation_time"
-                                                ),
-                                            }
-                                        )
-                                        bt.logging.info(
-                                            f"ZK proof data added to statistics for {hotkey[:8]} - "
-                                            f"Signals root: {proof_result.get('merkle_roots', {}).get('signals', 'N/A')}, "
-                                            f"Returns root: {proof_result.get('merkle_roots', {}).get('returns', 'N/A')}"
-                                        )
-
-                                    final_miner_dict["zk_proof"] = zk_proof
-                                else:
-                                    bt.logging.warning(
-                                        f"ZK proof generation failed for {hotkey[:8]} - no result returned"
-                                    )
-                                    final_miner_dict["zk_proof"] = {
-                                        "status": "failed",
-                                        "verification_success": False,
-                                        "message": "No result returned from proof generation",
-                                    }
-                            else:
-                                bt.logging.warning(
-                                    f"Insufficient data for ZK proof generation for {hotkey[:8]} - portfolio_ledger: {portfolio_ledger is not None}, positions: {len(raw_positions) if raw_positions else 0}"
-                                )
-                                final_miner_dict["zk_proof"] = {
-                                    "status": "skipped",
-                                    "verification_success": False,
-                                    "message": "Insufficient ledger or position data",
-                                }
-
+                        if (
+                            zk_result.get("status") == "success"
+                            and "portfolio_metrics" in zk_result
+                        ):
+                            circuit_metrics = zk_result["portfolio_metrics"]
                             augmented_scores_dict = final_miner_dict.get(
                                 "augmented_scores", {}
                             )
+
+                            zk_scores = {}
                             metric_keys = {
                                 "sharpe": "sharpe_ratio_scaled",
                                 "calmar": "calmar_ratio_scaled",
                                 "sortino": "sortino_ratio_scaled",
                                 "omega": "omega_ratio_scaled",
-                                "return": "avg_daily_pnl_scaled",
+                                "return": "avg_daily_pnl_ptn_scaled",
+                                "pnl": "pnl_score_scaled",
                             }
-                            for metric, key in metric_keys.items():
-                                if metric in augmented_scores_dict:
-                                    augmented_scores_dict[metric]["value"] = (
-                                        metrics.get(key, None) if metrics else None
+
+                            bt.logging.info(
+                                f"=== Circuit vs Subnet Comparison for {hotkey[:8]} ==="
+                            )
+                            bt.logging.info(
+                                "Metric           Circuit    Subnet     Diff"
+                            )
+                            bt.logging.info("=" * 50)
+
+                            for metric, circuit_key in metric_keys.items():
+                                if circuit_key in circuit_metrics:
+                                    circuit_value = circuit_metrics[circuit_key]
+                                    
+                                    zk_scores[metric] = {
+                                        "value": circuit_value,
+                                        "rank": None,
+                                        "percentile": None,
+                                    }
+
+                                    subnet_value = augmented_scores_dict.get(
+                                        metric, {}
+                                    ).get("value", 0.0)
+                                    if subnet_value is None:
+                                        subnet_value = 0.0
+
+                                    diff = abs(circuit_value - subnet_value)
+
+                                    bt.logging.info(
+                                        f"{metric:<15} {circuit_value:>10.6f} {subnet_value:>10.6f} {diff:>10.6f}"
                                     )
 
-                            if metrics:
-                                bt.logging.info(
-                                    f"Using circuit-verified metrics for {hotkey[:8]}"
-                                )
-                        except Exception as e:
-                            bt.logging.error(
-                                f"Error generating ZK proof for {hotkey[:8]}: {str(e)}"
-                            )
-                            final_miner_dict["zk_proof"] = {
-                                "status": "error",
-                                "verification_success": False,
-                                "message": str(e),
-                            }
-                        finally:
-                            # Log subnet's own metrics for comparison
-                            subnet_metrics = final_miner_dict.get(
-                                "augmented_scores", {}
-                            )
-                            bt.logging.info(f"=== SUBNET METRICS for {hotkey[:8]} ===")
-                            bt.logging.info(
-                                f"Sharpe: {subnet_metrics.get('sharpe', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Calmar: {subnet_metrics.get('calmar', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Omega: {subnet_metrics.get('omega', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Sortino: {subnet_metrics.get('sortino', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Return: {subnet_metrics.get('return', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Statistical Confidence: {subnet_metrics.get('statistical_confidence', {}).get('value', 'N/A')}"
-                            )
-                            bt.logging.info(
-                                f"Circuit outputs {final_miner_dict.get('zk_proof', {})}"
-                            )
+                            final_miner_dict["zk_scores"] = zk_scores
+                            bt.logging.info(f"ZK scores added for {hotkey[:8]}")
                     else:
-                        bt.logging.info(
-                            "ZK proof generation skipped - disabled in configuration"
+                        bt.logging.debug(
+                            "ZK proof generation disabled in configuration"
                         )
                 else:
                     bt.logging.warning(
@@ -1271,7 +1160,9 @@ if __name__ == "__main__":
     challengeperiod_manager = ChallengePeriodManager(
         metagraph, None, position_manager=position_manager
     )
-    contract_manager = ValidatorContractManager(config=None, position_manager=position_manager)
+    contract_manager = ValidatorContractManager(
+        config=None, position_manager=position_manager
+    )
 
     # Cross-wire references
     elimination_manager.position_manager = position_manager
