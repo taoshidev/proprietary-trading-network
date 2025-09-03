@@ -137,7 +137,7 @@ class SubtensorWeightSetter(CacheController):
                 if miner in hotkey_to_idx:
                     checkpoint_netuid_weights.append((
                         hotkey_to_idx[miner],
-                        score if scoring_challenge else max(score, ValiConfig.MAINCOMP_MIN_WEIGHT)  # Maincomp weight floor
+                        score
                     ))
                 else:
                     bt.logging.error(f"Miner {miner} not found in the metagraph.")

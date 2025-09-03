@@ -734,7 +734,7 @@ class ValidatorContractManager:
         """
         if collateral >= ValiConfig.MIN_CAPITAL:
             return 1
-        return 0
+        return 0.01
 
     def _broadcast_collateral_record_update_to_validators(self, hotkey: str, collateral_record: CollateralRecord):
         """
