@@ -194,7 +194,8 @@ class Scoring:
             subcategory_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             weighting: bool = False,
-            all_miner_account_sizes: dict[str, float]=None
+            scoring_config: dict[str, dict[str, float]] = None,
+            all_miner_account_sizes: dict[str, float] = None
     ) -> dict[str, dict]:
         """
         Scores the miners based on their ledger and positions.
