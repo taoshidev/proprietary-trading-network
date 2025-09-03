@@ -93,9 +93,10 @@ def _TradePair_Lookup() -> dict[str, TradePairCategory]:
     return mapping
 
 class InterpolatedValueFromDate():
-    def __init__(self, start_date: str, *, low: int, interval: int, increment: int, target: int):
+    def __init__(self, start_date: str, *, low: int=None, high:int=None, interval: int, increment: int, target: int):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         self.low = low
+        self.high = high
         self.interval = interval
         self.increment = increment
         self.target = target
@@ -103,8 +104,13 @@ class InterpolatedValueFromDate():
     def value(self):
         days_since_start = (datetime.now(tz=timezone.utc) - self.start_date).days
         intervals = max(0, days_since_start // self.interval)
-        new_n = self.low + self.increment * intervals
-        return min(self.target, new_n)
+
+        if self.low is not None:
+            new_n = self.low + abs(self.increment) * intervals
+            return min(self.target, new_n)
+        else:
+            new_n = self.high - abs(self.increment) * intervals
+            return max(self.target, new_n)
 
 class ValiConfig:
     # versioning
@@ -260,9 +266,9 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    CHALLENGE_PERIOD_MINIMUM_DAYS = 45
-    CHALLENGE_PERIOD_MAXIMUM_DAYS = 90
-    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
+    CHALLENGE_PERIOD_MINIMUM_DAYS = 61
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     PROBATION_MAXIMUM_DAYS = 30

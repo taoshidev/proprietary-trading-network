@@ -39,8 +39,8 @@ class TestChallengePeriodUnit(TestBase):
 
         DAILY_MS = ValiConfig.DAILY_MS
         # Challenge miners must have a minimum amount of trading days before promotion
-        self.MIN_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() + 1) * DAILY_MS # time when miner can now be promoted
-        self.BEFORE_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value() - 1) * DAILY_MS # time before miner has enough trading days
+        self.MIN_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS + 1) * DAILY_MS # time when miner can now be promoted
+        self.BEFORE_PROMOTION_TIME = self.START_TIME + (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS - 1) * DAILY_MS # time before miner has enough trading days
 
         # Number of positions
         self.N_POSITIONS_BOUNDS = 20 + 1

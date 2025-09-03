@@ -241,7 +241,7 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertEqual(len(self.challengeperiod_manager.get_testing_miners()), len(self.TESTING_MINER_NAMES + self.FAILING_MINER_NAMES))
 
-        current_time = current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()*ValiConfig.DAILY_MS + 1
+        current_time = current_time=self.max_open_ms + ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS*ValiConfig.DAILY_MS + 1
         self.challengeperiod_manager.refresh(current_time)
         self.elimination_manager.process_eliminations(PositionLocks())
 
