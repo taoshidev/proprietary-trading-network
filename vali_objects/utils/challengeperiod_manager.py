@@ -354,7 +354,7 @@ class ChallengePeriodManager(CacheController):
         )
         bt.logging.info(f"challengeperiod_manager subcategory_min_days: {subcategory_min_days}")
 
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(current_time)
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=current_time)
 
         # If success_scoring_dict is already calculated, no need to calculate scores. Useful for testing
         if not success_scores_dict:

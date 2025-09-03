@@ -89,6 +89,7 @@ class TestWeights(TestBase):
             miner_positions,
             subcategory_min_days=self.SUBCATEGORY_MIN_DAYS,
             evaluation_time_ms=self.EVALUATION_TIME_MS,
+            all_miner_account_sizes={}
         )
 
         # Check that the result is a list of tuples with string and float elements
@@ -391,7 +392,7 @@ class TestWeights(TestBase):
         ledger = {"miner1": self.DEFAULT_LEDGER}
         positions = {"miner1": [self.DEFAULT_POSITION]}
         
-        result = Scoring.score_miners(ledger, positions, self.SUBCATEGORY_MIN_DAYS, self.EVALUATION_TIME_MS)
+        result = Scoring.score_miners(ledger, positions, self.SUBCATEGORY_MIN_DAYS, self.EVALUATION_TIME_MS, all_miner_account_sizes={})
         self.assertIsInstance(result, dict)
         
         # Check that result contains asset subcategories
@@ -423,7 +424,7 @@ class TestWeights(TestBase):
 
     def test_miner_penalties_empty_input(self):
         """Test miner_penalties with empty input"""
-        result = Scoring.miner_penalties({}, {})
+        result = Scoring.miner_penalties({}, {}, {})
         self.assertEqual(result, {})
 
     def test_miner_penalties_with_ledger(self):
@@ -431,7 +432,7 @@ class TestWeights(TestBase):
         positions = {"miner1": [self.DEFAULT_POSITION]}
         ledger = {"miner1": self.DEFAULT_LEDGER}
         
-        result = Scoring.miner_penalties(positions, ledger)
+        result = Scoring.miner_penalties(positions, ledger, {})
         self.assertIsInstance(result, dict)
         self.assertIn("miner1", result)
         self.assertIsInstance(result["miner1"], float)
@@ -443,7 +444,7 @@ class TestWeights(TestBase):
         positions = {"miner1": [self.DEFAULT_POSITION]}
         ledger = {"miner1": None}
         
-        result = Scoring.miner_penalties(positions, ledger)
+        result = Scoring.miner_penalties(positions, ledger, {})
         self.assertEqual(result, {})
 
     def test_normalize_scores_empty_input(self):

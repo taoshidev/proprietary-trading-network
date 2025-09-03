@@ -32,6 +32,7 @@ from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
@@ -95,11 +96,14 @@ class TestEliminationIntegration(TestBase):
             perf_ledger_manager=self.perf_ledger_manager,
             elimination_manager=self.elimination_manager
         )
+
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         
         self.challengeperiod_manager = EnhancedMockChallengePeriodManager(
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.perf_ledger_manager,
+            contract_manager=self.contract_manager,
             running_unit_tests=True
         )
         
@@ -113,6 +117,7 @@ class TestEliminationIntegration(TestBase):
         self.weight_setter = SubtensorWeightSetter(
             self.mock_metagraph,
             self.position_manager,
+            contract_manager=self.contract_manager,
             running_unit_tests=True
         )
         # Set the challengeperiod_manager on the weight setter's position_manager

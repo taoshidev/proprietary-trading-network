@@ -111,7 +111,7 @@ class SubtensorWeightSetter(CacheController):
             return [], []
         else:
             bt.logging.info(f"Calculating new subtensor weights for {miner_group}...")
-            all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(current_time)
+            all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=current_time)
 
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,

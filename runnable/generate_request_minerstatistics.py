@@ -585,7 +585,7 @@ class MinerStatisticsManager:
             maincomp_ledger, asset_subcategories
         )
         bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(time_now)
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
         success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
             filtered_ledger,
             filtered_positions,

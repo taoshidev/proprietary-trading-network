@@ -18,6 +18,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
@@ -120,7 +121,8 @@ class TestChallengePeriodUnit(TestBase):
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=None,
                                                     elimination_manager=self.elimination_manager)
-        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.challengeperiod_manager = MockChallengePeriodManager(self.mock_metagraph, position_manager=self.position_manager, contract_manager=self.contract_manager)
         self.ledger_manager = self.challengeperiod_manager.perf_ledger_manager
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
