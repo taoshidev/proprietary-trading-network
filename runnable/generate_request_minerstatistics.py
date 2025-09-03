@@ -316,13 +316,16 @@ class MinerStatisticsManager:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
         subcategory_scores = Scoring.score_miners(
             ledger_dict=ledgers,
             positions=positions,
             subcategory_min_days=subcategory_min_days,
             evaluation_time_ms=time_now,
             weighting=weighting,
-            scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics))
+            scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics),
+            all_miner_account_sizes=all_miner_account_sizes
+        )
 
         metric_results = {subcategory.value: {} for subcategory in subcategory_scores.keys()}
         subcategory_scores["overall"] = {"metrics": self.metrics_calculator.metrics}

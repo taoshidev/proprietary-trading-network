@@ -262,7 +262,6 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    MAINCOMP_MIN_WEIGHT = 3.6e-05
     CHALLENGE_PERIOD_MINIMUM_DAYS = 61
     CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
     CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
