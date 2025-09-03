@@ -645,7 +645,78 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error processing collateral withdrawal: {e}")
                 return jsonify({'error': 'Internal server error processing withdrawal'}), 500
+
+        @self.app.route("/collateral/", methods=["GET"])
+        def get_all_collateral_data():
+            """Get collateral data for all miners.
+            
+            Example curl requests:
+            
+            # Get all collateral data for all miners
+            curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:48888/collateral/
+            
+            # Get collateral data for a specific miner
+            curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:48888/collateral/?hotkey=5GhDr...
+            
+            # Get only the most recent collateral record for each miner
+            curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:48888/collateral/?most_recent=true
+            
+            # Combine filters: specific miner's most recent record
+            curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:48888/collateral/?hotkey=5GhDr...&most_recent=true
+            
+            Response format:
+            {
+                "status": "success",
+                "data": {
+                    "hotkey1": [{
+                        "account_size": 1000.0,
+                        "account_size_theta": 10.0,
+                        "update_time_ms": 1234567890000,
+                        "valid_date_timestamp": 1234567890000
+                    }],
+                    ...
+                },
+                "miner_count": 5,
+                "total_records": 25,
+                "timestamp": 1234567890000
+            }
+            """
+            
+            # Check API key authentication
+            api_key = self._get_api_key_safe()
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+            
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+
+            try:
+                # Get query parameters for filtering
+                hotkey_filter = request.args.get('hotkey')
+                most_recent_only = request.args.get('most_recent', 'false').lower() == 'true'
                 
+                # Get all collateral data using the proper serialization method
+                # Pass most_recent_only directly to avoid double iteration
+                data = self.contract_manager.miner_account_sizes_dict(most_recent_only=most_recent_only)
+                
+                # Apply hotkey filter if requested
+                if hotkey_filter and hotkey_filter in data:
+                    data = {hotkey_filter: data[hotkey_filter]}
+                
+                # Return consistent response format
+                return jsonify({
+                    'status': 'success',
+                    'data': data,
+                    'miner_count': len(data),
+                    'total_records': sum(len(records) for records in data.values()),
+                    'timestamp': TimeUtil.now_in_millis()
+                })
+
+            except Exception as e:
+                bt.logging.error(f"Error getting all collateral data: {e}")
+                return jsonify({'error': 'Internal server error retrieving data'}), 500
+
         @self.app.route("/collateral/balance/<miner_address>", methods=["GET"])
         def get_collateral_balance(miner_address):
             """Get a miner's collateral balance."""

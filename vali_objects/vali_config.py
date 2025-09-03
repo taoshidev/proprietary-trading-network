@@ -114,7 +114,7 @@ class ValiConfig:
 
     STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL = 60
     STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
-    
+
     # Dynamic minimum days calculation - use Nth longest participating miner as threshold
     DYNAMIC_MIN_DAYS_NUM_MINERS = 20
 
@@ -249,7 +249,6 @@ class ValiConfig:
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
     PNL_NOCONFIDENCE_VALUE = -100_000
-    CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.75
