@@ -102,7 +102,7 @@ class ValidatorContractManager:
         if self.is_testnet:
             return ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
         else:
-            return ValiConfig.MAX_COLLATERAL_BALANCE_THETA.value()
+            return ValiConfig.MAX_COLLATERAL_BALANCE_THETA
 
     @property
     def min_theta(self) -> float:
@@ -115,7 +115,7 @@ class ValidatorContractManager:
         if self.is_testnet:
             return ValiConfig.MIN_COLLATERAL_BALANCE_TESTNET
         else:
-            return ValiConfig.MIN_COLLATERAL_BALANCE_THETA
+            return ValiConfig.MIN_COLLATERAL_BALANCE_THETA.value()
 
     def load_contract_owner(self):
         """
