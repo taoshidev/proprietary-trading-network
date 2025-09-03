@@ -149,11 +149,22 @@ class ValidatorContractManager:
         except Exception as e:
             bt.logging.error(f"Failed to save miner account sizes to disk: {e}")
 
-    def miner_account_sizes_dict(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Convert miner account sizes to checkpoint format for backup/sync"""
+    def miner_account_sizes_dict(self, most_recent_only: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+        """Convert miner account sizes to checkpoint format for backup/sync
+        
+        Args:
+            most_recent_only: If True, only return the most recent record for each miner
+        
+        Returns:
+            Dictionary with hotkeys as keys and list of record dicts as values
+        """
         json_dict = {}
         for hotkey, records in self.miner_account_sizes.items():
-            json_dict[hotkey] = [vars(record) for record in records]
+            if most_recent_only and records:
+                # Only include the most recent (last) record
+                json_dict[hotkey] = [vars(records[-1])]
+            else:
+                json_dict[hotkey] = [vars(record) for record in records]
         return json_dict
 
     @staticmethod
