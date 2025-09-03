@@ -304,15 +304,16 @@ class TestWeights(TestBase):
 
     def test_subclass_score_aggregation_empty_input(self):
         """Test subclass_score_aggregation with empty input"""
-        result = Scoring.subclass_score_aggregation({})
+        result = Scoring.subclass_score_aggregation({}, {})
         self.assertEqual(result, [])
 
     def test_subclass_score_aggregation_single_asset(self):
         """Test subclass_score_aggregation with single asset class"""
 
         asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
+        asset_weights = {self.DEFAULT_SUBCATEGORY: 1.0}
         
-        result = Scoring.subclass_score_aggregation(asset_scores)
+        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
         
@@ -328,8 +329,8 @@ class TestWeights(TestBase):
     def test_subclass_score_aggregation_multiple_assets(self):
         """Test subclass_score_aggregation with multiple asset classes"""
         asset_scores = self.DEFAULT_ASSET_SCORES
-
-        result = Scoring.subclass_score_aggregation(asset_scores)
+        asset_weights = {sub_category : 0.5 for sub_category in self.DEFAULT_ASSET_SCORES.keys()}
+        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
         

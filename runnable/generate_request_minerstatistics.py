@@ -535,7 +535,7 @@ class MinerStatisticsManager:
                 subcategory_data[subcategory] = {
                     "score": aggregated_score,
                     "rank": subcategory_ranks.get(hotkey, 0),
-                    "percentile": subcategory_percentiles.get(hotkey, 0.0)
+                    "percentile": subcategory_percentiles.get(hotkey, 0.0) * 100
                 }
         
         return subcategory_data
