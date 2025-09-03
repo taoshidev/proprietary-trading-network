@@ -458,7 +458,7 @@ class ChallengePeriodManager(CacheController):
             return False
 
         miner_returns = LedgerUtils.daily_return_log(ledger_element)
-        return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS.value()
+        return len(miner_returns) >= ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS
 
     def meets_time_criteria(self, current_time, bucket_start_time, bucket):
         if bucket == MinerBucket.MAINCOMP:
