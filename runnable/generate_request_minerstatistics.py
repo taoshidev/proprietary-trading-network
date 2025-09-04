@@ -151,6 +151,7 @@ class MinerStatisticsManager:
         position_manager: PositionManager,
         subtensor_weight_setter: SubtensorWeightSetter,
         plagiarism_detector: PlagiarismDetector,
+        contract_manager: ValidatorContractManager,
         metrics: Dict[str, MetricsCalculator] = None
     ):
         self.position_manager = position_manager
@@ -159,7 +160,7 @@ class MinerStatisticsManager:
         self.challengeperiod_manager = position_manager.challengeperiod_manager
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
-        self.contract_manager = self.perf_ledger_manager.contract_manager
+        self.contract_manager = contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
 
@@ -920,7 +921,7 @@ if __name__ == "__main__":
     )
     plagiarism_detector = PlagiarismDetector(metagraph, None, position_manager=position_manager)
 
-    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector)
+    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=contract_manager)
     pwd = os.getcwd()
     custom_output_path = os.path.join(pwd, 'debug_miner_statistics.json')
     msm.generate_request_minerstatistics(TimeUtil.now_in_millis(), True, custom_output_path=custom_output_path)

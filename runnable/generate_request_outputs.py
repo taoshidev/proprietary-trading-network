@@ -92,7 +92,7 @@ class RequestOutputGenerator:
         )
         self.plagiarism_detector = PlagiarismDetector(None, None, position_manager=self.position_manager)
         self.rcm = RequestCoreManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector, contract_manager=contract_manager)
-        self.msm = MinerStatisticsManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector)
+        self.msm = MinerStatisticsManager(self.position_manager, self.subtensor_weight_setter, self.plagiarism_detector, contract_manager=contract_manager)
 
 
     def run_rcm_loop(self):
