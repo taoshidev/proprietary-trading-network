@@ -33,7 +33,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_P
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.position import Position
-from proof_of_portfolio import prove
+from proof_of_portfolio import prove_sync as prove
 import asyncio
 
 
@@ -998,8 +998,11 @@ class MinerStatisticsManager:
                                 "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},
                                 "positions": raw_positions
                             }
-                            zk_result = asyncio.run(
-                                prove(miner_data, hotkey)
+                            zk_result = prove(
+                                miner_data, 
+                                hotkey,
+                                bypass_confidence=bypass_confidence,
+                                use_weighting=final_results_weighting
                             )
                         except Exception as e:
                             bt.logging.error(
