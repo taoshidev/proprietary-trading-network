@@ -152,7 +152,8 @@ class MinerStatisticsManager:
         subtensor_weight_setter: SubtensorWeightSetter,
         plagiarism_detector: PlagiarismDetector,
         contract_manager: ValidatorContractManager,
-        metrics: Dict[str, MetricsCalculator] = None
+        metrics: Dict[str, MetricsCalculator] = None,
+        ipc_manager = None
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -163,6 +164,10 @@ class MinerStatisticsManager:
         self.contract_manager = contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
+        if ipc_manager:
+            self.miner_statistics = ipc_manager.dict()
+        else:
+            self.miner_statistics = {}
 
     # -------------------------------------------
     # Ranking / Percentile Helpers
@@ -874,7 +879,7 @@ class MinerStatisticsManager:
         return printable_config
 
     # -------------------------------------------
-    # Write to disk
+    # Write to disk, memory
     # -------------------------------------------
     def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False, custom_output_path=None):
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report, bypass_confidence=bypass_confidence)
@@ -883,6 +888,11 @@ class MinerStatisticsManager:
         else:
             output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
+        self.miner_statistics['stats'] = final_dict
+
+    def get_miner_statistics_from_memory(self) -> Dict[str, Any]:
+        stats = self.miner_statistics.get('stats', {})
+        return stats if stats else None
 
 
 # ---------------------------------------------------------------------------

@@ -52,8 +52,14 @@ class APIMetricsTracker:
         # Maps endpoint to deque of (timestamp, latency) tuples
         self.endpoint_hits: Dict[str, Deque[Tuple[float, float]]] = defaultdict(lambda: deque(maxlen=10000))
 
+        # Track per-endpoint API key usage: maps (endpoint, user_id) to deque of timestamps
+        self.endpoint_api_key_hits: Dict[Tuple[str, str], Deque[float]] = defaultdict(lambda: deque(maxlen=10000))
+
         # Track failed requests: maps (user_id, endpoint, status_code) to deque of timestamps
         self.failed_requests: Dict[Tuple[str, str, int], Deque[float]] = defaultdict(lambda: deque(maxlen=1000))
+
+        # Store actual API keys for unknown keys: maps unknown_key_id to actual api_key
+        self.unknown_key_mapping: Dict[str, str] = {}
 
         # Lock for thread safety
         self.metrics_lock = threading.Lock()
@@ -76,12 +82,22 @@ class APIMetricsTracker:
         """
         # Get user_id from api_key if available
         user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+        
+        # If it's an unknown key, store the actual API key for display
+        if user_id == "unknown_key" and api_key:
+            # Create a unique identifier for this unknown key
+            unknown_key_id = f"unknown_key_{hash(api_key) % 10000:04d}"
+            self.unknown_key_mapping[unknown_key_id] = api_key
+            user_id = unknown_key_id
 
         now = time.time()
 
         with self.metrics_lock:
             self.api_key_hits[user_id].append(now)
             self.endpoint_hits[endpoint].append((now, duration))
+            
+            # Track per-endpoint API key usage
+            self.endpoint_api_key_hits[(endpoint, user_id)].append(now)
 
             # Track failed requests
             if status_code >= 400:
@@ -164,6 +180,26 @@ class APIMetricsTracker:
             # Remove empty failed request entries
             for key in empty_failed:
                 del self.failed_requests[key]
+            
+            # Process per-endpoint API key usage
+            endpoint_api_key_counts = {}
+            empty_endpoint_keys = []
+            for (endpoint, user_id), timestamps in self.endpoint_api_key_hits.items():
+                # Remove outdated entries
+                while timestamps and timestamps[0] < cutoff_time:
+                    timestamps.popleft()
+
+                count = len(timestamps)
+                if count > 0:
+                    if endpoint not in endpoint_api_key_counts:
+                        endpoint_api_key_counts[endpoint] = {}
+                    endpoint_api_key_counts[endpoint][user_id] = count
+                else:
+                    empty_endpoint_keys.append((endpoint, user_id))
+
+            # Remove empty endpoint-key combinations
+            for key in empty_endpoint_keys:
+                del self.endpoint_api_key_hits[key]
 
         # Skip logging if there's no activity
         if not api_counts and not endpoint_stats and not failed_stats:
@@ -177,7 +213,12 @@ class APIMetricsTracker:
         log_lines.append("\nAPI Key Usage:")
         if api_counts:
             for key, count in sorted(api_counts.items(), key=lambda x: x[1], reverse=True):
-                log_lines.append(f"  {key}: {count} requests")
+                # Show actual API key for unknown entries
+                if key.startswith("unknown_key_") and key in self.unknown_key_mapping:
+                    display_key = f"{key} ({self.unknown_key_mapping[key]})"
+                else:
+                    display_key = key
+                log_lines.append(f"  {display_key}: {count} requests")
         else:
             log_lines.append("  No API requests in this period")
 
@@ -186,7 +227,24 @@ class APIMetricsTracker:
         if endpoint_stats:
             for endpoint, stats in sorted(endpoint_stats.items(),
                                           key=lambda x: x[1]["count"], reverse=True):
-                log_lines.append(f"  {endpoint}: {stats['count']} requests")
+                # Create API key breakdown for this endpoint
+                api_key_breakdown = {}
+                if endpoint in endpoint_api_key_counts:
+                    for user_id, count in endpoint_api_key_counts[endpoint].items():
+                        # Show actual API key for unknown entries
+                        if user_id.startswith("unknown_key_") and user_id in self.unknown_key_mapping:
+                            display_key = f"{user_id} ({self.unknown_key_mapping[user_id]})"
+                        else:
+                            display_key = user_id
+                        api_key_breakdown[display_key] = count
+                
+                # Format API key breakdown
+                if api_key_breakdown:
+                    breakdown_str = str(api_key_breakdown)
+                    log_lines.append(f"  {endpoint}: {stats['count']} requests {breakdown_str}")
+                else:
+                    log_lines.append(f"  {endpoint}: {stats['count']} requests")
+                    
                 log_lines.append(f"    mean: {stats['mean'] * 1000:.2f}ms")
                 log_lines.append(f"    median: {stats['median'] * 1000:.2f}ms")
                 log_lines.append(f"    min/max: {stats['min'] * 1000:.2f}ms / {stats['max'] * 1000:.2f}ms")
@@ -198,7 +256,12 @@ class APIMetricsTracker:
             log_lines.append("\nFailed Requests:")
             for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
                                                                   key=lambda x: x[1], reverse=True):
-                log_lines.append(f"  {user_id} -> {endpoint} [{status_code}]: {count} failures")
+                # Show actual API key for unknown entries
+                if user_id.startswith("unknown_key_") and user_id in self.unknown_key_mapping:
+                    display_user_id = f"{user_id} ({self.unknown_key_mapping[user_id]})"
+                else:
+                    display_user_id = user_id
+                log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code}]: {count} failures")
 
         # Log the complete report
         final_str = "\n".join(log_lines)
@@ -228,7 +291,8 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
+                 miner_statistics_manager=None, request_core_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -248,6 +312,8 @@ class PTNRestServer(APIKeyMixin):
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
         self.contract_manager = contract_manager
+        self.miner_statistics_manager = miner_statistics_manager
+        self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
@@ -465,6 +531,21 @@ class PTNRestServer(APIKeyMixin):
             if not self.can_access_tier(api_key, 100):
                 return jsonify({'error': 'Validator checkpoint data requires tier 100 access'}), 403
 
+            # Try to get compressed data from memory cache first
+            compressed_data = None
+            if self.request_core_manager:
+                try:
+                    compressed_data = self.request_core_manager.get_compressed_checkpoint_from_memory()
+                except Exception as e:
+                    bt.logging.debug(f"Error accessing compressed checkpoint cache: {e}")
+            
+            if compressed_data is not None:
+                # Return compressed data with appropriate headers
+                return Response(compressed_data, content_type='application/json', headers={
+                    'Content-Encoding': 'gzip'
+                })
+            
+            # Fallback to file read if memory unavailable
             f = ValiBkpUtils.get_vcp_output_path()
             data = self._get_file(f)
 
@@ -479,9 +560,13 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            f = ValiBkpUtils.get_miner_stats_dir()
-            data = self._get_file(f)
-            if data is None:
+            data = None
+            if self.miner_statistics_manager:
+                data = self.miner_statistics_manager.get_miner_statistics_from_memory()
+            if not data:
+                f = ValiBkpUtils.get_miner_stats_dir()
+                data = self._get_file(f)
+            if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
 
             # Grab the optional "checkpoints" query param; default it to "true"
@@ -500,9 +585,13 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            f = ValiBkpUtils.get_miner_stats_dir()
-            data = self._get_file(f)
-            if data is None:
+            data = None
+            if self.miner_statistics_manager:
+                data = self.miner_statistics_manager.get_miner_statistics_from_memory()
+            if not data:
+                f = ValiBkpUtils.get_miner_stats_dir()
+                data = self._get_file(f)
+            if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
 
             data_summary = data.get("data", [])
