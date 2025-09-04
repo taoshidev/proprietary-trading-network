@@ -338,6 +338,8 @@ if __name__ == '__main__':
                           use_slippage=use_slippage, fetch_slippage_data=False, recalculate_slippage=False,
                           parallel_mode=parallel_mode,
                           build_portfolio_ledgers_only=build_portfolio_ledgers_only)
+    
+    print(f"DEBUG: Starting backtest loop from {start_time_ms} to {end_time_ms}")
     for t_ms in range(start_time_ms, end_time_ms, 1000 * 60 * 60 * 24):
         btm.update(t_ms, run_challenge=run_challenge, run_elimination=run_elimination)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
@@ -357,10 +359,14 @@ if __name__ == '__main__':
     print("="*80)
     
     try:
-        btm.miner_statistics_manager.generate()
-        print("✅ Miner statistics and ZK proofs generated successfully!")
+        bt.logging.info("Calling generate_miner_statistics_data...")
+        result = btm.miner_statistics_manager.generate_miner_statistics_data(
+            bypass_confidence=True
+        )
+        bt.logging.success("✅ Miner statistics and ZK proofs generated successfully!")
+        bt.logging.info(f"Generated statistics for {len(result.get('main', {}))} miners")
     except Exception as e:
-        print(f"❌ Error generating miner statistics: {e}")
+        bt.logging.error(f"❌ Error generating miner statistics: {e}")
         import traceback
         traceback.print_exc()
 
