@@ -349,6 +349,8 @@ if __name__ == '__main__':
         for k, v in perf_ledger_bundles.items():
             PerfLedgerManager.print_bundle(k, v)
 
+    print("DEBUG: About to generate miner statistics...")
+    
     # Generate miner statistics and ZK proofs
     print("\n" + "="*80)
     print("GENERATING MINER STATISTICS & ZK PROOFS")
@@ -364,3 +366,4 @@ if __name__ == '__main__':
 
     tf = time.time()
     bt.logging.success(f'Finished backtesting in {tf - t0} seconds')
+    print("DEBUG: Script completed!")
