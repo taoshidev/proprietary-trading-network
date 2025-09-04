@@ -349,5 +349,18 @@ if __name__ == '__main__':
         for k, v in perf_ledger_bundles.items():
             PerfLedgerManager.print_bundle(k, v)
 
+    # Generate miner statistics and ZK proofs
+    print("\n" + "="*80)
+    print("GENERATING MINER STATISTICS & ZK PROOFS")
+    print("="*80)
+    
+    try:
+        btm.miner_statistics_manager.generate()
+        print("✅ Miner statistics and ZK proofs generated successfully!")
+    except Exception as e:
+        print(f"❌ Error generating miner statistics: {e}")
+        import traceback
+        traceback.print_exc()
+
     tf = time.time()
     bt.logging.success(f'Finished backtesting in {tf - t0} seconds')
