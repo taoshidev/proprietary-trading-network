@@ -994,6 +994,13 @@ class MinerStatisticsManager:
                         portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
                         try:
+                            bt.logging.info(f"ZK proof params: bypass_confidence={bypass_confidence}, use_weighting={final_results_weighting}")
+                            
+                            # Log data points for debugging
+                            if portfolio_ledger and portfolio_ledger.cps:
+                                data_points = len(portfolio_ledger.cps)
+                                bt.logging.info(f"Miner {hotkey[:8]} has {data_points} checkpoints (60-day threshold)")
+                            
                             miner_data = {
                                 "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},
                                 "positions": raw_positions
