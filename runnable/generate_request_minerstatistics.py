@@ -1001,6 +1001,21 @@ class MinerStatisticsManager:
                                 data_points = len(portfolio_ledger.cps)
                                 bt.logging.info(f"Miner {hotkey[:8]} has {data_points} checkpoints (60-day threshold)")
                             
+                            # Get account size for this miner
+                            account_size = 1000000  # Default fallback
+                            if self.contract_manager:
+                                try:
+                                    actual_account_size = self.contract_manager.get_miner_account_size(
+                                        hotkey, time_now, most_recent=True
+                                    )
+                                    if actual_account_size:
+                                        account_size = int(actual_account_size)
+                                        bt.logging.info(f"Using real account size for {hotkey[:8]}...: ${account_size:,}")
+                                    else:
+                                        bt.logging.info(f"No account size found for {hotkey[:8]}..., using default: ${account_size:,}")
+                                except Exception as e:
+                                    bt.logging.warning(f"Error getting account size for {hotkey[:8]}...: {e}, using default")
+                            
                             miner_data = {
                                 "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},
                                 "positions": raw_positions
@@ -1009,8 +1024,14 @@ class MinerStatisticsManager:
                                 miner_data, 
                                 hotkey,
                                 bypass_confidence=bypass_confidence,
-                                use_weighting=final_results_weighting
+                                use_weighting=final_results_weighting,
+                                account_size=account_size
                             )
+                            bt.logging.info(f"ZK proof result status: {zk_result.get('status') if zk_result else 'None'}")
+                            if zk_result and 'portfolio_metrics' in zk_result:
+                                bt.logging.info(f"Portfolio metrics keys: {list(zk_result['portfolio_metrics'].keys())}")
+                            else:
+                                bt.logging.warning("No portfolio_metrics in ZK result!")
                         except Exception as e:
                             bt.logging.error(
                                 f"Error in ZK proof generation for {hotkey[:8]}: {str(e)}"
