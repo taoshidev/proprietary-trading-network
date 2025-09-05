@@ -994,6 +994,8 @@ class MinerStatisticsManager:
                         raw_positions = filtered_positions.get(hotkey, [])
                         portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
+                        account_size = 1000000
+
                         try:
                             bt.logging.info(
                                 f"ZK proof params: bypass_confidence={bypass_confidence}, use_weighting={final_results_weighting}"
@@ -1121,7 +1123,6 @@ class MinerStatisticsManager:
                                 bt.logging.info("=== END PTN ANALYSIS ===")
 
                             # Get account size for this miner
-                            account_size = 1000000
                             if self.contract_manager:
                                 try:
                                     actual_account_size = (
@@ -1140,7 +1141,7 @@ class MinerStatisticsManager:
                                         )
                                 except Exception as e:
                                     bt.logging.warning(
-                                        f"Error getting account size for {hotkey[:8]}...: {e}, using default"
+                                        f"Error getting account size for {hotkey[:8]}...: {e}, using default: ${account_size:,}"
                                     )
 
                             miner_data = {
