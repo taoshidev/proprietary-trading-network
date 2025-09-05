@@ -1144,9 +1144,20 @@ class MinerStatisticsManager:
                                         f"Error getting account size for {hotkey[:8]}...: {e}, using default: ${account_size:,}"
                                     )
 
+                            # Calculate daily returns using PTN's logic
+                            ptn_daily_returns = LedgerUtils.daily_return_log(portfolio_ledger)
+                            
+                            # Calculate total PnL from checkpoints
+                            total_pnl = 0
+                            if portfolio_ledger and portfolio_ledger.cps:
+                                for cp in portfolio_ledger.cps:
+                                    total_pnl += cp.pnl_gain + cp.pnl_loss
+                            
                             miner_data = {
-                                "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},
+                                "daily_returns": ptn_daily_returns,
+                                "total_pnl": total_pnl,
                                 "positions": raw_positions,
+                                "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},  # Keep for target_duration
                             }
                             zk_result = prove(
                                 miner_data,
