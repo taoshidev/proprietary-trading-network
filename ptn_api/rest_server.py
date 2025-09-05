@@ -18,6 +18,7 @@ from flask_compress import Compress
 from bittensor_wallet import Keypair
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -70,15 +71,31 @@ class APIMetricsTracker:
         # Start logging thread
         self.start_logging_thread()
 
-    def track_request(self, api_key: str, endpoint: str, duration: float, status_code: int = 200):
+    def _jsonify_with_custom_encoder(self, data, status_code=200):
         """
-        Track a request with its associated API key, endpoint, and duration.
-
+        Create a JSON response using CustomEncoder to handle BaseModel objects.
+        
         Args:
-            api_key: The API key used for the request
-            endpoint: The endpoint that was accessed
-            duration: Request processing time in seconds
-            status_code: HTTP status code of the response
+            data: The data to jsonify
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            Flask Response object with proper JSON serialization
+        """
+        json_str = json.dumps(data, cls=CustomEncoder)
+        response = Response(json_str, content_type='application/json')
+        response.status_code = status_code
+        return response
+
+    def _get_user_id_from_api_key(self, api_key: str) -> str:
+        """
+        Get user ID from API key, handling unknown keys properly.
+        
+        Args:
+            api_key: The API key to look up
+            
+        Returns:
+            The user ID or a unique unknown_key identifier
         """
         # Get user_id from api_key if available
         user_id = self.api_key_to_alias.get(api_key, "unknown_key")
@@ -89,6 +106,21 @@ class APIMetricsTracker:
             unknown_key_id = f"unknown_key_{hash(api_key) % 10000:04d}"
             self.unknown_key_mapping[unknown_key_id] = api_key
             user_id = unknown_key_id
+            
+        return user_id
+
+    def track_request(self, api_key: str, endpoint: str, duration: float, status_code: int = 200):
+        """
+        Track a request with its associated API key, endpoint, and duration.
+
+        Args:
+            api_key: The API key used for the request
+            endpoint: The endpoint that was accessed
+            duration: Request processing time in seconds
+            status_code: HTTP status code of the response
+        """
+        # Get user_id from api_key
+        user_id = self._get_user_id_from_api_key(api_key)
 
         now = time.time()
 
@@ -389,7 +421,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_bad_request(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self._get_user_id_from_api_key(api_key)
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.warning(
                 f"Bad Request: user={user_id} endpoint={request.path} method={request.method} "
@@ -414,7 +446,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_internal_error(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self._get_user_id_from_api_key(api_key)
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Internal Error: user={user_id} endpoint={request.path} method={request.method} "
@@ -427,7 +459,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_exception(e):
             # Log unexpected errors
             api_key = self._get_api_key_safe()
-            user_id = self._get_user_id_from_api_key(api_key)
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Unhandled Exception: user={user_id} endpoint={request.path} method={request.method} "
@@ -564,7 +596,7 @@ class PTNRestServer(APIKeyMixin):
             if data is None:
                 return jsonify({'error': 'Checkpoint data not found'}), 404
             else:
-                return jsonify(data)
+                return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/statistics", methods=["GET"])
         def get_validator_checkpoint_statistics():
@@ -589,7 +621,7 @@ class PTNRestServer(APIKeyMixin):
                 for element in data.get("data", []):
                     element.pop("checkpoints", None)
 
-            return jsonify(data)
+            return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/statistics/<minerid>/", methods=["GET"])
         def get_validator_checkpoint_statistics_unique(minerid):
@@ -636,7 +668,7 @@ class PTNRestServer(APIKeyMixin):
             if data is None:
                 return jsonify({'error': 'Eliminations data not found'}), 404
             else:
-                return jsonify(data)
+                return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
