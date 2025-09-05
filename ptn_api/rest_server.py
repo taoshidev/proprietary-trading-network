@@ -71,22 +71,6 @@ class APIMetricsTracker:
         # Start logging thread
         self.start_logging_thread()
 
-    def _jsonify_with_custom_encoder(self, data, status_code=200):
-        """
-        Create a JSON response using CustomEncoder to handle BaseModel objects.
-        
-        Args:
-            data: The data to jsonify
-            status_code: HTTP status code (default 200)
-            
-        Returns:
-            Flask Response object with proper JSON serialization
-        """
-        json_str = json.dumps(data, cls=CustomEncoder)
-        response = Response(json_str, content_type='application/json')
-        response.status_code = status_code
-        return response
-
     def _get_user_id_from_api_key(self, api_key: str) -> str:
         """
         Get user ID from API key, handling unknown keys properly.
@@ -382,6 +366,22 @@ class PTNRestServer(APIKeyMixin):
         # Start API key refresh thread
         self.start_refresh_thread()
         print(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
+
+    def _jsonify_with_custom_encoder(self, data, status_code=200):
+        """
+        Create a JSON response using CustomEncoder to handle BaseModel objects.
+        
+        Args:
+            data: The data to jsonify
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            Flask Response object with proper JSON serialization
+        """
+        json_str = json.dumps(data, cls=CustomEncoder)
+        response = Response(json_str, content_type='application/json')
+        response.status_code = status_code
+        return response
 
     def _setup_metrics(self, metrics_interval_minutes):
         """Set up API metrics tracking."""
