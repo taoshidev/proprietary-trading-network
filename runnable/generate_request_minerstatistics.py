@@ -1016,7 +1016,7 @@ class MinerStatisticsManager:
                                 for i, cp in enumerate(portfolio_ledger.cps[:5]):
                                     bt.logging.info(
                                         f"  [{i}] gain={cp.gain:.6f}, loss={cp.loss:.6f}, "
-                                        f"accum_ms={cp.accum_time_ms}, last_update_ms={cp.last_update_time_ms}"
+                                        f"accum_ms={cp.accum_ms}, last_update_ms={cp.last_update_ms}"
                                     )
 
                                 if len(portfolio_ledger.cps) > 5:
@@ -1027,7 +1027,7 @@ class MinerStatisticsManager:
                                     ):
                                         bt.logging.info(
                                             f"  [{i}] gain={cp.gain:.6f}, loss={cp.loss:.6f}, "
-                                            f"accum_ms={cp.accum_time_ms}, last_update_ms={cp.last_update_time_ms}"
+                                            f"accum_ms={cp.accum_ms}, last_update_ms={cp.last_update_ms}"
                                         )
 
                                 # ==== PTN DAILY RETURNS ANALYSIS ====
