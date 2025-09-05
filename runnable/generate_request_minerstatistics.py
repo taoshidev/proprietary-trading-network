@@ -1145,14 +1145,16 @@ class MinerStatisticsManager:
                                     )
 
                             # Calculate daily returns using PTN's logic
-                            ptn_daily_returns = LedgerUtils.daily_return_log(portfolio_ledger)
-                            
+                            ptn_daily_returns = LedgerUtils.daily_return_log(
+                                portfolio_ledger
+                            )
+
                             # Calculate total PnL from checkpoints
                             total_pnl = 0
                             if portfolio_ledger and portfolio_ledger.cps:
                                 for cp in portfolio_ledger.cps:
                                     total_pnl += cp.pnl_gain + cp.pnl_loss
-                            
+
                             miner_data = {
                                 "daily_returns": ptn_daily_returns,
                                 "total_pnl": total_pnl,
@@ -1165,6 +1167,7 @@ class MinerStatisticsManager:
                                 bypass_confidence=bypass_confidence,
                                 use_weighting=final_results_weighting,
                                 account_size=account_size,
+                                verbose=True,
                             )
                             bt.logging.info(
                                 f"ZK proof result status: {zk_result.get('status') if zk_result else 'None'}"
