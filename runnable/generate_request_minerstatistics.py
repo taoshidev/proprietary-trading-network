@@ -1031,8 +1031,6 @@ class MinerStatisticsManager:
                                         )
 
                                 # ==== PTN DAILY RETURNS ANALYSIS ====
-                                from vali_objects.utils.ledger_utils import LedgerUtils
-
                                 ptn_daily_returns = LedgerUtils.daily_return_log(
                                     portfolio_ledger
                                 )
