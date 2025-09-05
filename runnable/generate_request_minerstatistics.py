@@ -1156,8 +1156,8 @@ class MinerStatisticsManager:
                             miner_data = {
                                 "daily_returns": ptn_daily_returns,
                                 "total_pnl": total_pnl,
-                                "positions": raw_positions,
-                                "perf_ledgers": {TP_ID_PORTFOLIO: portfolio_ledger},  # Keep for target_duration
+                                "positions": {hotkey: raw_positions},
+                                "perf_ledgers": {hotkey: portfolio_ledger},
                             }
                             zk_result = prove(
                                 miner_data,
