@@ -261,7 +261,19 @@ class APIMetricsTracker:
                     display_user_id = f"{user_id} ({self.unknown_key_mapping[user_id]})"
                 else:
                     display_user_id = user_id
-                log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code}]: {count} failures")
+                
+                # Add status code description for common failure codes
+                status_desc = {
+                    400: "Bad Request",
+                    401: "Unauthorized", 
+                    403: "Forbidden/Insufficient Tier",
+                    404: "Not Found",
+                    413: "Request Too Large",
+                    500: "Internal Server Error",
+                    503: "Service Unavailable"
+                }.get(status_code, "Unknown Error")
+                
+                log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code} {status_desc}]: {count} failures")
 
         # Log the complete report
         final_str = "\n".join(log_lines)
@@ -377,7 +389,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_bad_request(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self._get_user_id_from_api_key(api_key)
 
             bt.logging.warning(
                 f"Bad Request: user={user_id} endpoint={request.path} method={request.method} "
@@ -402,7 +414,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_internal_error(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Internal Error: user={user_id} endpoint={request.path} method={request.method} "
@@ -415,7 +427,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_exception(e):
             # Log unexpected errors
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Unhandled Exception: user={user_id} endpoint={request.path} method={request.method} "
