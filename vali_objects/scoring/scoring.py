@@ -338,6 +338,8 @@ class Scoring:
             portfolio_ledger = ledger.get(TP_ID_PORTFOLIO) if ledger else PerfLedger()
 
             miner_account_size = all_miner_account_sizes.get(miner, 0)
+            if miner_account_size is None:
+                miner_account_size = 0
 
             cumulative_penalty = 1
             for penalty_name, penalty_config in Scoring.penalties_config.items():

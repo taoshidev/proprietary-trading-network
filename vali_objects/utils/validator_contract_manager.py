@@ -136,7 +136,9 @@ class ValidatorContractManager:
         """Load miner account sizes from disk during initialization"""
         try:
             disk_data = ValiUtils.get_vali_json_file_dict(self.MINER_ACCOUNT_SIZES_FILE)
-            self.miner_account_sizes = self._parse_miner_account_sizes_dict(disk_data)
+            parsed_data = self._parse_miner_account_sizes_dict(disk_data)
+            self.miner_account_sizes.clear()
+            self.miner_account_sizes.update(parsed_data)
             bt.logging.info(f"Loaded {len(self.miner_account_sizes)} miner account size records from disk")
         except Exception as e:
             bt.logging.warning(f"Failed to load miner account sizes from disk: {e}")
