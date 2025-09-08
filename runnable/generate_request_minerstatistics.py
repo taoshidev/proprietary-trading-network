@@ -1155,6 +1155,9 @@ class MinerStatisticsManager:
                                 portfolio_ledger
                             )
 
+                            # Calculate daily_pnl using LedgerUtils
+                            daily_pnl = LedgerUtils.daily_pnl(portfolio_ledger)
+
                             # Calculate total PnL from checkpoints
                             total_pnl = 0
                             if portfolio_ledger and portfolio_ledger.cps:
@@ -1173,9 +1176,22 @@ class MinerStatisticsManager:
                             }
                             zk_result = prove(
                                 miner_data,
+                                daily_pnl=daily_pnl,
                                 hotkey,
-                                bypass_confidence=bypass_confidence,
+                                annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
+                                calmar_ratio_cap=ValiConfig.CALMAR_RATIO_CAP,
+                                days_in_year_crypto=ValiConfig.DAYS_IN_YEAR_CRYPTO,
+                                weighted_average_decay_max=ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX,
+                                weighted_average_decay_min=ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN,
+                                weighted_average_decay_rate=ValiConfig.WEIGHTED_AVERAGE_DECAY_RATE,
+                                omega_loss_minimum=ValiConfig.OMEGA_LOSS_MINIMUM,
+                                sharpe_stddev_minimum=ValiConfig.SHARPE_STDDEV_MINIMUM,
+                                sortino_downside_minimum=ValiConfig.SORTINO_DOWNSIDE_MINIMUM,
+                                statistical_confidence_minimum_n_ceil=ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL,
+                                annual_risk_free_decimal=ValiConfig.ANNUAL_RISK_FREE_DECIMAL,
+                                drawdown_maxvalue_percentage=ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE,
                                 use_weighting=final_results_weighting,
+                                bypass_confidence=bypass_confidence,
                                 account_size=account_size,
                                 verbose=True,
                             )
