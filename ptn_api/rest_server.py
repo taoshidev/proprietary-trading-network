@@ -604,6 +604,20 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
+            # Grab the optional "checkpoints" query param; default it to "true"
+            show_checkpoints = request.args.get("checkpoints", "true").lower()
+            include_checkpoints = show_checkpoints == "true"
+
+            # Try to use pre-compressed payload for maximum performance
+            if self.miner_statistics_manager:
+                compressed_data = self.miner_statistics_manager.get_compressed_statistics(include_checkpoints)
+                if compressed_data:
+                    # Return pre-compressed JSON directly
+                    return Response(compressed_data, content_type='application/json', headers={
+                        'Content-Encoding': 'gzip'
+                    })
+
+            # Fallback: get raw data if pre-compressed not available
             data = None
             if self.miner_statistics_manager:
                 data = self.miner_statistics_manager.get_miner_statistics_from_memory()
@@ -612,9 +626,6 @@ class PTNRestServer(APIKeyMixin):
                 data = self._get_file(f)
             if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
-
-            # Grab the optional "checkpoints" query param; default it to "true"
-            show_checkpoints = request.args.get("checkpoints", "true").lower()
 
             # If checkpoints=false, remove the "checkpoints" key from each element in data
             if show_checkpoints == "false":

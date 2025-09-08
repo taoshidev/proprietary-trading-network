@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import gzip
 
 import bittensor as bt
 from typing import List, Dict, Any
@@ -888,11 +889,46 @@ class MinerStatisticsManager:
         else:
             output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
+        
+        # Store raw data for potential modifications
         self.miner_statistics['stats'] = final_dict
+        
+        # Create version without checkpoints for API optimization
+        final_dict_no_checkpoints = self._create_statistics_without_checkpoints(final_dict)
+        
+        # Store compressed JSON payloads for immediate API response
+        json_with_checkpoints = json.dumps(final_dict, cls=CustomEncoder)
+        json_without_checkpoints = json.dumps(final_dict_no_checkpoints, cls=CustomEncoder)
+        
+        # Compress both versions for efficient storage and transfer
+        compressed_with_checkpoints = gzip.compress(json_with_checkpoints.encode('utf-8'))
+        compressed_without_checkpoints = gzip.compress(json_without_checkpoints.encode('utf-8'))
+        
+        # Store compressed payloads
+        self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
+        self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
 
+    def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a copy of statistics with checkpoints removed from all miner data."""
+        import copy
+        stats_no_checkpoints = copy.deepcopy(stats_dict)
+        
+        # Remove checkpoints from each miner's data
+        for element in stats_no_checkpoints.get("data", []):
+            element.pop("checkpoints", None)
+        
+        return stats_no_checkpoints
+    
     def get_miner_statistics_from_memory(self) -> Dict[str, Any]:
         stats = self.miner_statistics.get('stats', {})
         return stats if stats else None
+    
+    def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes:
+        """Get pre-compressed statistics payload for immediate API response."""
+        if include_checkpoints:
+            return self.miner_statistics.get('stats_compressed_with_checkpoints', None)
+        else:
+            return self.miner_statistics.get('stats_compressed_without_checkpoints', None)
 
 
 # ---------------------------------------------------------------------------
