@@ -1155,8 +1155,12 @@ class MinerStatisticsManager:
                                 for cp in portfolio_ledger.cps:
                                     total_pnl += cp.pnl_gain + cp.pnl_loss
 
+                            weights_float = Metrics.weighting_distribution(
+                                ptn_daily_returns
+                            )
                             miner_data = {
                                 "daily_returns": ptn_daily_returns,
+                                "weights": weights_float,
                                 "total_pnl": total_pnl,
                                 "positions": {hotkey: {"positions": raw_positions}},
                                 "perf_ledgers": {hotkey: portfolio_ledger},
@@ -1172,6 +1176,10 @@ class MinerStatisticsManager:
                             bt.logging.info(
                                 f"ZK proof result status: {zk_result.get('status') if zk_result else 'None'}"
                             )
+                            if zk_result and zk_result.get("status") == "error":
+                                bt.logging.error(
+                                    f"ZK proof error: {zk_result.get('message', 'No error message')}"
+                                )
                             if zk_result and "portfolio_metrics" in zk_result:
                                 bt.logging.info(
                                     f"Portfolio metrics keys: {list(zk_result['portfolio_metrics'].keys())}"
