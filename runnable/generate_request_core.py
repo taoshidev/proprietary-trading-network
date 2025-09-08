@@ -216,6 +216,16 @@ class RequestCoreManager:
             final_dict,
         )
         
+        # Also write compressed version for faster API serving
+        # This is critical for a 200MB file
+        try:
+            compressed_data = self.compress_dict(final_dict)
+            with open(vcp_output_file_path + ".gz", 'wb') as f:
+                f.write(compressed_data)
+            print(f"Wrote compressed checkpoint to {vcp_output_file_path}.gz")
+        except Exception as e:
+            print(f"Failed to write compressed checkpoint: {e}")
+        
         # Store compressed checkpoint data in IPC memory cache
         self.store_checkpoint_in_memory(final_dict)
 
