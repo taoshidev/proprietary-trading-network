@@ -301,13 +301,14 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-09-03", low=299, increment=272, interval=3, target=571)  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
+    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
     MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
     # Account Size
     COST_PER_THETA = 175  # Account size USD value per theta of collateral
+    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
     MIN_CAPITAL = 5_000   # USD minimum capital account size
     DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
