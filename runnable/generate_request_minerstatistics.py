@@ -1175,9 +1175,9 @@ class MinerStatisticsManager:
                                 "perf_ledgers": {hotkey: portfolio_ledger},
                             }
                             zk_result = prove(
-                                miner_data,
+                                miner_data=miner_data,
                                 daily_pnl=daily_pnl,
-                                hotkey,
+                                hotkey=hotkey,
                                 annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
                                 calmar_ratio_cap=ValiConfig.CALMAR_RATIO_CAP,
                                 days_in_year_crypto=ValiConfig.DAYS_IN_YEAR_CRYPTO,
