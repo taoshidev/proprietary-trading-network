@@ -214,6 +214,14 @@ class RequestCoreManager:
         vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
         compressed_data = self.compress_dict(final_dict)
         
+        # Clean up old uncompressed file if it exists
+        if os.path.exists(vcp_output_file_path):
+            try:
+                os.remove(vcp_output_file_path)
+                print(f"Removed old uncompressed checkpoint: {vcp_output_file_path}")
+            except Exception as e:
+                print(f"Failed to remove old uncompressed checkpoint: {e}")
+        
         # Write compressed file directly (no more uncompressed version)
         # Note: get_vcp_output_path() returns .json, we add .gz
         compressed_path = vcp_output_file_path + ".gz"
