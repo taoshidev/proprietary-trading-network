@@ -210,21 +210,16 @@ class RequestCoreManager:
             'perf_ledgers': perf_ledgers
         }
 
+        # Write compressed checkpoint only - saves disk space and bandwidth
         vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
-        ValiBkpUtils.write_file(
-            vcp_output_file_path,
-            final_dict,
-        )
+        compressed_data = self.compress_dict(final_dict)
         
-        # Also write compressed version for faster API serving
-        # This is critical for a 200MB file
-        try:
-            compressed_data = self.compress_dict(final_dict)
-            with open(vcp_output_file_path + ".gz", 'wb') as f:
-                f.write(compressed_data)
-            print(f"Wrote compressed checkpoint to {vcp_output_file_path}.gz")
-        except Exception as e:
-            print(f"Failed to write compressed checkpoint: {e}")
+        # Write compressed file directly (no more uncompressed version)
+        # Note: get_vcp_output_path() returns .json, we add .gz
+        compressed_path = vcp_output_file_path + ".gz"
+        with open(compressed_path, 'wb') as f:
+            f.write(compressed_data)
+        print(f"Wrote compressed checkpoint to {compressed_path}")
         
         # Store compressed checkpoint data in IPC memory cache
         self.store_checkpoint_in_memory(final_dict)

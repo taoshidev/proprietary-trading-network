@@ -590,8 +590,9 @@ class PTNRestServer(APIKeyMixin):
                 })
             
             # Fallback to file read if memory unavailable
-            # First check if a compressed version exists on disk
+            # Checkpoint is always stored as compressed file
             f_gz = ValiBkpUtils.get_vcp_output_path() + ".gz"
+            
             if os.path.exists(f_gz):
                 # Read pre-compressed file directly
                 try:
@@ -601,22 +602,10 @@ class PTNRestServer(APIKeyMixin):
                         'Content-Encoding': 'gzip'
                     })
                 except Exception as e:
-                    bt.logging.warning(f"Failed to read compressed checkpoint: {e}")
-            
-            # Fallback to uncompressed file
-            f = ValiBkpUtils.get_vcp_output_path()
-            data = self._get_file(f)
-
-            if data is None:
-                return jsonify({'error': 'Checkpoint data not found'}), 404
+                    bt.logging.error(f"Failed to read compressed checkpoint: {e}")
+                    return jsonify({'error': 'Failed to read checkpoint data'}), 500
             else:
-                # CRITICAL: Compress the data before sending!
-                # For a 200MB file, this is essential
-                json_str = json.dumps(data, cls=CustomEncoder)
-                compressed = gzip.compress(json_str.encode('utf-8'))
-                return Response(compressed, content_type='application/json', headers={
-                    'Content-Encoding': 'gzip'
-                })
+                return jsonify({'error': 'Checkpoint data not found'}), 404
 
         @self.app.route("/statistics", methods=["GET"])
         def get_validator_checkpoint_statistics():
