@@ -19,7 +19,7 @@ from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig, TradePair
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.position_penalties import PositionPenalties
