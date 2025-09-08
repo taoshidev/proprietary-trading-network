@@ -308,7 +308,7 @@ class ValiConfig:
 
     # Account Size
     COST_PER_THETA = 175  # Account size USD value per theta of collateral
-    MIN_CAPITAL = MIN_COLLATERAL_BALANCE_THETA.value() * COST_PER_THETA   # Approx $99,925
+    MIN_CAPITAL = 5_000   # USD minimum capital account size
     DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     # Miner will get a base of 50% collateral returned upon elimination
