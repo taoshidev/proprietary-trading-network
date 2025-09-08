@@ -1139,6 +1139,12 @@ class MinerStatisticsManager:
                                         bt.logging.info(
                                             f"No account size found for {hotkey[:8]}..., using default: ${account_size:,}"
                                         )
+
+                                        miner_data["account_size"] = account_size
+                                        miner_data["calmar_cap"] = (
+                                            ValiConfig.CALMAR_RATIO_CAP
+                                        )
+
                                 except Exception as e:
                                     bt.logging.warning(
                                         f"Error getting account size for {hotkey[:8]}...: {e}, using default: ${account_size:,}"
