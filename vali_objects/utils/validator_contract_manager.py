@@ -115,7 +115,7 @@ class ValidatorContractManager:
         if self.is_testnet:
             return ValiConfig.MIN_COLLATERAL_BALANCE_TESTNET
         else:
-            return ValiConfig.MIN_COLLATERAL_BALANCE_THETA.value()
+            return ValiConfig.MIN_COLLATERAL_BALANCE_THETA
 
     def load_contract_owner(self):
         """
@@ -734,7 +734,7 @@ class ValidatorContractManager:
         """
         Penalize miners who do not reach the min collateral
         """
-        if collateral >= ValiConfig.MIN_CAPITAL:
+        if collateral >= ValiConfig.MIN_COLLATERAL_VALUE:
             return 1
         return 0.01
 
