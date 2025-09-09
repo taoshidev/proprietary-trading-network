@@ -50,6 +50,29 @@ The steps detailed below regenerate the `validation/*` directory by fetching the
     ```
      If restoration fails, consult the failure log for troubleshooting steps.
 
+## Troubleshooting Common Issues
+
+**Problem: File naming mismatches**
+
+If you see an error like:
+```
+ERROR | File validator_checkpoint.json appears to contain compressed data but lacks .gz extension.
+ERROR | Solution: Add .gz extension and rename to validator_checkpoint.json.gz
+```
+**Solution**: Your file contains compressed data but is named incorrectly. Rename it to `validator_checkpoint.json.gz`.
+
+If you see an error like:
+```
+ERROR | File validator_checkpoint.json.gz has .gz extension but contains uncompressed data.
+ERROR | Solution: Remove the .gz extension and rename to validator_checkpoint.json
+```
+**Solution**: Your file contains uncompressed data but is named incorrectly. Rename it to `validator_checkpoint.json`.
+
+**Problem: No checkpoint file found**
+```
+ERROR | No checkpoint file found at validator_checkpoint.json or validator_checkpoint.json.gz
+```
+**Solution**: Ensure your checkpoint file is in the root directory with the correct name.
 
 5. **Restart Validator**: Resume your PM2 processes with `pm2 start sn8` (will launch ptn automatically).
 
