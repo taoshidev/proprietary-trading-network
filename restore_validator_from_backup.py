@@ -82,7 +82,18 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
             raise FileNotFoundError(f"No checkpoint file found at {uncompressed_path} or {compressed_path}")
             
     except Exception as e:
-        bt.logging.error(f"Unable to read validator checkpoint file. {e}")
+        error_msg = str(e)
+        
+        # Provide helpful guidance for common misnamed file scenarios
+        if "Not a gzipped file" in error_msg:
+            bt.logging.error(f"File {compressed_path} has .gz extension but contains uncompressed data.")
+            bt.logging.error("Solution: Remove the .gz extension and rename to validator_checkpoint.json")
+        elif "invalid start byte" in error_msg or "'utf-8' codec can't decode" in error_msg:
+            bt.logging.error(f"File {uncompressed_path} appears to contain compressed data but lacks .gz extension.")
+            bt.logging.error("Solution: Add .gz extension and rename to validator_checkpoint.json.gz")
+        else:
+            bt.logging.error(f"Unable to read validator checkpoint file. {error_msg}")
+        
         return False
 
     bt.logging.info("Found validator backup file with the following attributes:")
