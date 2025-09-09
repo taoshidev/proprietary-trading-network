@@ -200,8 +200,8 @@ class RequestCoreManager:
         # Write compressed checkpoint only - saves disk space and bandwidth
         compressed_data = self.compress_dict(final_dict)
         
-        # Clean up old uncompressed file if it exists
-        uncompressed_path = ValiBkpUtils.get_vcp_output_path(compressed=False)
+        # Clean up old uncompressed file if it exists (legacy cleanup)
+        uncompressed_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
         if os.path.exists(uncompressed_path):
             try:
                 os.remove(uncompressed_path)
@@ -210,7 +210,7 @@ class RequestCoreManager:
                 print(f"Failed to remove old uncompressed checkpoint: {e}")
         
         # Write compressed file directly
-        compressed_path = ValiBkpUtils.get_vcp_output_path(compressed=True)
+        compressed_path = ValiBkpUtils.get_vcp_output_path()
         with open(compressed_path, 'wb') as f:
             f.write(compressed_data)
         print(f"Wrote compressed checkpoint to {compressed_path}")

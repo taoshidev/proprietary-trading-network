@@ -64,9 +64,9 @@ def force_validator_to_restore_from_checkpoint(validator_hotkey, metagraph, conf
 
 
 def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, ignore_timestamp_checks=False):
-    # Check for compressed version first, then uncompressed
-    compressed_path = ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=backup_from_data_dir, compressed=True)
-    uncompressed_path = ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=backup_from_data_dir, compressed=False)
+    # Check for compressed version first, then fallback to uncompressed for backward compatibility
+    compressed_path = ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=backup_from_data_dir)
+    uncompressed_path = ValiBkpUtils.get_backup_file_path(use_data_dir=backup_from_data_dir)
     
     try:
         if os.path.exists(compressed_path):
