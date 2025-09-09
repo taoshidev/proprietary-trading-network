@@ -584,10 +584,13 @@ class PTNRestServer(APIKeyMixin):
                     bt.logging.debug(f"Error accessing compressed checkpoint cache: {e}")
             
             if compressed_data is not None:
-                # Return compressed data with appropriate headers
-                return Response(compressed_data, content_type='application/json', headers={
+                # Return compressed data with appropriate headers, bypass Flask-Compress
+                response = Response(compressed_data, content_type='application/json', headers={
                     'Content-Encoding': 'gzip'
                 })
+                # Mark as already compressed to prevent Flask-Compress from double-compressing
+                response.direct_passthrough = True
+                return response
             
             # Fallback to file read if memory unavailable
             # Checkpoint is always stored as compressed file
@@ -598,9 +601,12 @@ class PTNRestServer(APIKeyMixin):
                 try:
                     with open(f_gz, 'rb') as fh:
                         compressed_data = fh.read()
-                    return Response(compressed_data, content_type='application/json', headers={
+                    response = Response(compressed_data, content_type='application/json', headers={
                         'Content-Encoding': 'gzip'
                     })
+                    # Mark as already compressed to prevent Flask-Compress from double-compressing
+                    response.direct_passthrough = True
+                    return response
                 except Exception as e:
                     bt.logging.error(f"Failed to read compressed checkpoint: {e}")
                     return jsonify({'error': 'Failed to read checkpoint data'}), 500
@@ -621,10 +627,13 @@ class PTNRestServer(APIKeyMixin):
             if self.miner_statistics_manager:
                 compressed_data = self.miner_statistics_manager.get_compressed_statistics(include_checkpoints)
                 if compressed_data:
-                    # Return pre-compressed JSON directly
-                    return Response(compressed_data, content_type='application/json', headers={
+                    # Return pre-compressed JSON directly, bypass Flask-Compress
+                    response = Response(compressed_data, content_type='application/json', headers={
                         'Content-Encoding': 'gzip'
                     })
+                    # Mark as already compressed to prevent Flask-Compress from double-compressing
+                    response.direct_passthrough = True
+                    return response
 
             # Fallback: get raw data if pre-compressed not available
             data = None
