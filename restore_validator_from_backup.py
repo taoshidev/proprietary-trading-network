@@ -64,22 +64,22 @@ def force_validator_to_restore_from_checkpoint(validator_hotkey, metagraph, conf
 
 
 def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, ignore_timestamp_checks=False):
-    backup_file_path = ValiBkpUtils.get_backup_file_path(use_data_dir=backup_from_data_dir)
+    # Check for compressed version first, then uncompressed
+    compressed_path = ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=backup_from_data_dir, compressed=True)
+    uncompressed_path = ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=backup_from_data_dir, compressed=False)
     
     try:
-        # Check if compressed version exists first (.gz)
-        compressed_path = backup_file_path + ".gz"
         if os.path.exists(compressed_path):
             bt.logging.info(f"Found compressed checkpoint file: {compressed_path}")
             with gzip.open(compressed_path, 'rt', encoding='utf-8') as f:
                 data = json.load(f)
-        elif os.path.exists(backup_file_path):
-            bt.logging.info(f"Found uncompressed checkpoint file: {backup_file_path}")
-            data = json.loads(ValiBkpUtils.get_file(backup_file_path))
+        elif os.path.exists(uncompressed_path):
+            bt.logging.info(f"Found uncompressed checkpoint file: {uncompressed_path}")
+            data = json.loads(ValiBkpUtils.get_file(uncompressed_path))
             if isinstance(data, str):
                 data = json.loads(data)
         else:
-            raise FileNotFoundError(f"No checkpoint file found at {backup_file_path} or {compressed_path}")
+            raise FileNotFoundError(f"No checkpoint file found at {uncompressed_path} or {compressed_path}")
             
     except Exception as e:
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
@@ -135,7 +135,8 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     bt.logging.info(f"    oldest_backup_order_timestamp: {formatted_backup_date_largest}")
 
     if ignore_timestamp_checks:
-        bt.logging.info('Forcing validator restore no timestamp checks from backup_file_path: ' + backup_file_path)
+        checkpoint_file = compressed_path if os.path.exists(compressed_path) else uncompressed_path
+        bt.logging.info(f'Forcing validator restore no timestamp checks from: {checkpoint_file}')
         pass
     elif smallest_disk_ms >= smallest_backup_ms and largest_disk_ms <= backup_creation_time_ms:
         pass  # Ready for update!

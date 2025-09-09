@@ -591,7 +591,7 @@ class PTNRestServer(APIKeyMixin):
             
             # Fallback to file read if memory unavailable
             # Checkpoint is always stored as compressed file
-            f_gz = ValiBkpUtils.get_vcp_output_path() + ".gz"
+            f_gz = ValiBkpUtils.get_vcp_output_path(compressed=True)
             
             if os.path.exists(f_gz):
                 # Read pre-compressed file directly

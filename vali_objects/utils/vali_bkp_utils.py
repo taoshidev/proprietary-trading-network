@@ -42,9 +42,23 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/validation/tmp/"
 
     @staticmethod
+    def get_validator_checkpoint_path(use_data_dir=False, compressed=True):
+        """Get path for validator checkpoint file (input/restore).
+        
+        Args:
+            use_data_dir: If True, use data/ subdirectory, else use root directory
+            compressed: If True, append .gz extension for compressed files
+        
+        Returns:
+            Full path to validator checkpoint file
+        """
+        base_path = ValiConfig.BASE_DIR + ("/data/validator_checkpoint.json" if use_data_dir else "/validator_checkpoint.json")
+        return base_path + ".gz" if compressed else base_path
+    
+    @staticmethod
     def get_backup_file_path(use_data_dir=False):
-        return ValiConfig.BASE_DIR + "/data/validator_checkpoint.json" if use_data_dir else \
-                ValiConfig.BASE_DIR + "/validator_checkpoint.json"
+        """Legacy method for backward compatibility. Use get_validator_checkpoint_path instead."""
+        return ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=use_data_dir, compressed=False)
 
     @staticmethod
     def get_api_keys_file_path():
@@ -139,11 +153,21 @@ class ValiBkpUtils:
 
     @staticmethod
     def get_restore_file_path() -> str:
-        return ValiConfig.BASE_DIR + "/validator_checkpoint.json"
+        """Legacy method for backward compatibility. Use get_validator_checkpoint_path instead."""
+        return ValiBkpUtils.get_validator_checkpoint_path(use_data_dir=False, compressed=False)
 
     @staticmethod
-    def get_vcp_output_path() -> str:
-        return ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+    def get_vcp_output_path(compressed=True) -> str:
+        """Get path for validator checkpoint output file.
+        
+        Args:
+            compressed: If True, append .gz extension for compressed files
+        
+        Returns:
+            Full path to output validator checkpoint file
+        """
+        base_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        return base_path + ".gz" if compressed else base_path
 
     @staticmethod
     def get_miner_positions_output_path(suffix_dir: None | str = None) -> str:
