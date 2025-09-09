@@ -890,13 +890,10 @@ class MinerStatisticsManager:
             output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
         
-        # Store raw data for potential modifications
-        self.miner_statistics['stats'] = final_dict
-        
         # Create version without checkpoints for API optimization
         final_dict_no_checkpoints = self._create_statistics_without_checkpoints(final_dict)
         
-        # Store compressed JSON payloads for immediate API response
+        # Store compressed JSON payloads for immediate API response (memory efficient)
         json_with_checkpoints = json.dumps(final_dict, cls=CustomEncoder)
         json_without_checkpoints = json.dumps(final_dict_no_checkpoints, cls=CustomEncoder)
         
@@ -904,9 +901,12 @@ class MinerStatisticsManager:
         compressed_with_checkpoints = gzip.compress(json_with_checkpoints.encode('utf-8'))
         compressed_without_checkpoints = gzip.compress(json_without_checkpoints.encode('utf-8'))
         
-        # Store compressed payloads
+        # Only store compressed payloads - saves ~22MB of uncompressed data per validator
         self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
         self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
+        
+        # Store minimal uncompressed data only for compatibility (will be removed in future)
+        self.miner_statistics['stats'] = final_dict
 
     def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Create a copy of statistics with checkpoints removed from all miner data."""

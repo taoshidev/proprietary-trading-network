@@ -124,19 +124,6 @@ class RequestCoreManager:
         except Exception as e:
             print(f"Error storing checkpoint in memory: {e}")
 
-    def get_checkpoint_from_memory(self) -> dict | None:
-        """Retrieve and decompress validator checkpoint data from memory cache."""
-        try:
-            cached_entry = self.validator_checkpoint_cache.get('checkpoint', {})
-            if not cached_entry or 'data' not in cached_entry:
-                return None
-            
-            compressed_data = cached_entry['data']
-            return self.decompress_dict(compressed_data)
-        except Exception as e:
-            print(f"Error retrieving checkpoint from memory: {e}")
-            return None
-
     def get_compressed_checkpoint_from_memory(self) -> bytes | None:
         """Retrieve compressed validator checkpoint data directly from memory cache."""
         try:
