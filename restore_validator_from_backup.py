@@ -1,5 +1,7 @@
 import argparse
 import json
+import gzip
+import os
 import shutil
 import time
 
@@ -63,10 +65,22 @@ def force_validator_to_restore_from_checkpoint(validator_hotkey, metagraph, conf
 
 def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, ignore_timestamp_checks=False):
     backup_file_path = ValiBkpUtils.get_backup_file_path(use_data_dir=backup_from_data_dir)
+    
     try:
-        data = json.loads(ValiBkpUtils.get_file(backup_file_path))
-        if isinstance(data, str):
-            data = json.loads(data)
+        # Check if compressed version exists first (.gz)
+        compressed_path = backup_file_path + ".gz"
+        if os.path.exists(compressed_path):
+            bt.logging.info(f"Found compressed checkpoint file: {compressed_path}")
+            with gzip.open(compressed_path, 'rt', encoding='utf-8') as f:
+                data = json.load(f)
+        elif os.path.exists(backup_file_path):
+            bt.logging.info(f"Found uncompressed checkpoint file: {backup_file_path}")
+            data = json.loads(ValiBkpUtils.get_file(backup_file_path))
+            if isinstance(data, str):
+                data = json.loads(data)
+        else:
+            raise FileNotFoundError(f"No checkpoint file found at {backup_file_path} or {compressed_path}")
+            
     except Exception as e:
         bt.logging.error(f"Unable to read validator checkpoint file. {e}")
         return False

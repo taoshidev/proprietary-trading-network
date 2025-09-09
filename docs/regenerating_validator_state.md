@@ -3,14 +3,16 @@
 When initiating a validator for the first time or recovering from unexpected downtime, it's crucial to synchronize your validator's positions to maintain consensus. Failure to do so may result in missing orders/positions, leading to a lower VTRUST score.
 
 Note: as of 6/11/24, Taoshi added support for automatic validator restoration. Only follow these steps if you are unable to restore your validator using the automatic restoration process.
+
+**Important**: As of the latest version, validator checkpoint files are now compressed (`.gz` format) for improved efficiency and reduced storage requirements. The restoration script automatically detects and handles both compressed and uncompressed checkpoint files.
 ## Purpose
 
 The steps detailed below regenerate the `validation/*` directory by fetching the latest trade data and metrics from the mainnet, ensuring your validator remains in sync with the network.
 
 
 ## Steps 
-1. **Get Restoration File**: Ping a Taoshi team member in the Discord and they will send you a near realtime `validator_checkpoint.json` file. (Distribution limited to once a week for verified validators)
-2. **Prepare for Restoration**: Transfer the `validator_checkpoint.json` file to the root level of the `proprietary-trading-network` directory on your validator.
+1. **Get Restoration File**: Ping a Taoshi team member in the Discord and they will send you a near realtime `validator_checkpoint.json.gz` file. (Distribution limited to once a week for verified validators)
+2. **Prepare for Restoration**: Transfer the `validator_checkpoint.json.gz` file to the root level of the `proprietary-trading-network` directory on your validator.
 3. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8 ptn`
 4. **Run Restoration Script**: Within the `proprietary-trading-network` directory, execute:
 
