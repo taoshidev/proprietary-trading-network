@@ -904,9 +904,6 @@ class MinerStatisticsManager:
         # Only store compressed payloads - saves ~22MB of uncompressed data per validator
         self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
         self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
-        
-        # Store minimal uncompressed data only for compatibility (will be removed in future)
-        self.miner_statistics['stats'] = final_dict
 
     def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Create a copy of statistics with checkpoints removed from all miner data."""
