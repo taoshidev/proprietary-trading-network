@@ -138,8 +138,8 @@ class ValiConfig:
         TradePairCategory.CRYPTO: {
             "emission": 0.5,  # Total emission for crypto
             "subcategory_weights": {
-                CryptoSubcategory.MAJORS: 0.5,  # 50% of crypto emission for majors
-                CryptoSubcategory.ALTS: 0.5,  # 50% of crypto emission for alts
+                CryptoSubcategory.MAJORS: 0.8,  # 80% of crypto emission for majors
+                CryptoSubcategory.ALTS: 0.2,  # 20% of crypto emission for alts
             },
             "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
