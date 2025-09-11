@@ -2331,7 +2331,7 @@ if __name__ == "__main__":
     # Configuration flags
     use_database_positions = True  # NEW: Enable database position loading
     use_test_positions = False      # NEW: Enable test position loading
-
+    crypto_only = False # Whether to process only crypto trade pairs
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
     test_single_hotkey = '5D4gJ9QfbcMg338813wz3MKuRofTKfE6zR3iPaGHaWEnNKoo'  # Set to a specific hotkey string to test single hotkey, or None for all
@@ -2388,7 +2388,7 @@ if __name__ == "__main__":
         position_count = 0
         for hk, positions in hk_to_positions.items():
             for pos in positions:
-                if not pos.trade_pair.is_crypto:
+                if crypto_only and not pos.trade_pair.is_crypto:
                     continue
                 position_manager.save_miner_position(pos)
                 position_count += 1
