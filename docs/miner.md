@@ -41,8 +41,8 @@ Our incentive is split into a number of subcategories, each of which is competit
 ### Crypto (50% total emission)
 | Subcategory | Weight | Percentage | Effective Total |
 |-------------|--------|------------|-----------------|
-| MAJORS      | 0.7    | 70%        | 35%             |
-| ALTS        | 0.3    | 30%        | 15%             |
+| MAJORS      | 0.8    | 80%        | 40%             |
+| ALTS        | 0.2    | 20%        | 10%             |
 
 ### Forex (50% total emission)
 *Based on margin requirements on brokerage accounts*
@@ -115,12 +115,12 @@ $$
 
 | Metric                 | Scoring Weight |
 |------------------------|----------------|
-| Average Daily PnL      | 30%            |
-| Calmar Ratio           | 14%            |
-| Sharpe Ratio           | 14%            |
-| Omega Ratio            | 14%            |
-| Sortino Ratio          | 14%            |
-| Statistical Confidence | 14%            |
+| Average Daily PnL      | 50%            |
+| Calmar Ratio           | 10%            |
+| Sharpe Ratio           | 10%            |
+| Omega Ratio            | 10%            |
+| Sortino Ratio          | 10%            |
+| Statistical Confidence | 10%            |
 
 ### Scoring Penalties
 
