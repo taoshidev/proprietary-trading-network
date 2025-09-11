@@ -1193,6 +1193,11 @@ class MinerStatisticsManager:
                                 use_weighting=final_results_weighting,
                                 bypass_confidence=bypass_confidence,
                                 account_size=account_size,
+                                omega_noconfidence_value=ValiConfig.OMEGA_NOCONFIDENCE_VALUE,
+                                sharpe_noconfidence_value=ValiConfig.SHARPE_NOCONFIDENCE_VALUE,
+                                sortino_noconfidence_value=ValiConfig.SORTINO_NOCONFIDENCE_VALUE,
+                                calmar_noconfidence_value=ValiConfig.CALMAR_NOCONFIDENCE_VALUE,
+                                statistical_confidence_noconfidence_value=ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE,
                                 verbose=True,
                             )
                             bt.logging.info(
