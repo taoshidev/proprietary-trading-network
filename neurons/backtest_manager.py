@@ -201,14 +201,14 @@ class BacktestManager:
             assert len(existing_positions) <= 1, f"Found multiple positions with the same UUID: {existing_positions}"
             existing_position = existing_positions[0] if existing_positions else None
             if existing_position:
-                print(f'OQU: Added order to existing position {position.trade_pair.trade_pair_id} at {time_formatted}')
+                print(f'OQU: Added order to existing position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted}')
                 assert all(o.order_uuid != order.order_uuid for o in existing_position.orders), \
                     f"Order {order.order_uuid} already exists in position {existing_position.position_uuid}"
                 existing_position.orders.append(order)
                 existing_position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(existing_position)
             else:  # first order. position must be inserted into list
-                print(f'OQU: Created new position {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
+                print(f'OQU: Created new position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
                 position.orders = [order]
                 position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(position)
@@ -287,7 +287,7 @@ if __name__ == '__main__':
     use_database_positions = True     # NEW: Use positions from database via taoshi.ts.ptn
     run_challenge = False              # Run challenge period logic
     run_elimination = False            # Run elimination logic
-    use_slippage = False              # Apply slippage modeling
+    use_slippage = None              # Apply slippage modeling
     crypto_only = True              # Only include crypto trade pairs
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing

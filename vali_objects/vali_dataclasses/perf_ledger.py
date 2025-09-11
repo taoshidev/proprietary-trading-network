@@ -5,7 +5,7 @@ import time
 import traceback
 import datetime
 from datetime import timezone
-from collections import defaultdict
+from collections import defaultdict, Counter
 from copy import deepcopy
 from enum import Enum
 from typing import List, Dict, Tuple
@@ -751,8 +751,6 @@ class PerfLedgerManager(CacheController):
                     tp_to_carry_fee[k] *= ccf
                     tp_to_return[k] *= historical_position.return_at_close
 
-
-
         for tp_id in list(tp_to_historical_positions.keys()) + [TP_ID_PORTFOLIO]:
             pl = perf_ledger_bundle.get(tp_id)
             # Check if we need to update _prev (compare just the return value, not the tuple)
@@ -791,6 +789,7 @@ class PerfLedgerManager(CacheController):
             ans = ShortcutReason.OUTSIDE_WINDOW
 
         if 0 and ans != ShortcutReason.NO_SHORTCUT:
+            bt.logging.info('---------------------------------------------------------------------')
             for tp_id, historical_positions in tp_to_historical_positions.items():
                 positions = []
                 for i, historical_position in enumerate(historical_positions):
@@ -802,21 +801,25 @@ class PerfLedgerManager(CacheController):
                         foo = False
                     positions.append((historical_position.position_uuid, [x.price for x in historical_position.orders],
                                       historical_position.return_at_close, foo, historical_position.is_open_position))
-                print(f'{tp_id}: {positions}')
+                bt.logging.info(f'{tp_id}: {positions}')
 
             final_cp = None
             if perf_ledger_bundle and TP_ID_PORTFOLIO in perf_ledger_bundle and perf_ledger_bundle[TP_ID_PORTFOLIO].cps:
                 final_cp = perf_ledger_bundle[TP_ID_PORTFOLIO].cps[-1]
-            print('---------------------------------------------------------------------')
-            print(f' Skipping ({reason}) with n_positions: {n_positions} n_open_positions: {n_open_positions} n_closed_positions: '
+            n_orders_per_position_counter = Counter()
+            for tp_id, historical_positions in tp_to_historical_positions.items():
+                for historical_position in historical_positions:
+                    n_orders_per_position_counter[len(historical_position.orders)] += 1
+            bt.logging.info(f' Skipping ({reason}) with n_positions: {n_positions} n_open_positions: {n_open_positions} n_closed_positions: '
                   f'{n_closed_positions}, n_positions_newly_opened: {n_positions_newly_opened}, '
                   f'start_time_ms: {TimeUtil.millis_to_formatted_date_str(start_time_ms)} ({start_time_ms}) , '
                   f'end_time_ms: {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({end_time_ms}) , '
                   f'portfolio_value: {tp_to_return[TP_ID_PORTFOLIO]} '
                   f'ledger_cutoff_ms: {TimeUtil.millis_to_formatted_date_str(ledger_cutoff_ms)}, '
                   f'trade_pair_to_position_ret: {self.trade_pair_to_position_ret} '
+                  f'n_orders_per_position_counter: {n_orders_per_position_counter} '
                   f'final portfolio cp {final_cp}')
-            print('---------------------------------------------------------------------')
+            bt.logging.info('---------------------------------------------------------------------')
 
         return ans, tp_to_return, tp_to_spread_fee, tp_to_carry_fee, any_open
 
@@ -1377,12 +1380,7 @@ class PerfLedgerManager(CacheController):
         self.update_to_n_open_positions[n_open_positions] += 1
         default_mode = self.get_default_update_mode(start_time_ms, end_time_ms, n_open_positions)
 
-
-        #time_list = list(range(start_time_ms, end_time_ms, step_ms))
         accumulated_time_ms = 0
-        #mode_to_ticks = {'second': 0, 'minute': 0}
-        #snarey = False
-
         # Validate time range
         if start_time_ms > end_time_ms:
             bt.logging.error(f"Invalid time range in build_perf_ledger:")
@@ -1514,10 +1512,6 @@ class PerfLedgerManager(CacheController):
                 if tp_id in self._last_ledger_update_ms:
                     gap = perf_ledger.last_update_ms - self._last_ledger_update_ms[tp_id]
 
-                    # Special case: allow 0ms gap on first update after initialization
-                    # This happens when we start building from the exact initialization time
-                    is_first_update = accumulated_time_ms == 0 and gap == 0
-
                     # Valid gaps are 1000ms (second mode) or 60000ms (minute mode)
                     # Mode can switch during processing, so we accept either gap
                     valid_gaps = [1, 1000, 60000]
@@ -1605,7 +1599,7 @@ class PerfLedgerManager(CacheController):
         #print(f'Updated between {TimeUtil.millis_to_formatted_date_str(start_time_ms)} and {TimeUtil.millis_to_formatted_date_str(end_time_ms)} ({n_minutes_between_intervals} min). mode_to_ticks {mode_to_ticks}. Default mode {default_mode}')
         return False
 
-    def mutate_position_returns_for_continuity(self, tp_to_historical_positions, perf_ledger_bundle_candidate, t_ms):
+    def mutate_position_returns_for_continuity(self, tp_to_historical_positions, perf_ledger_bundle_candidate, t_ms, debug_str=''):
         if not perf_ledger_bundle_candidate:
             return {}
         if TP_ID_PORTFOLIO not in perf_ledger_bundle_candidate:
@@ -1621,16 +1615,11 @@ class PerfLedgerManager(CacheController):
                 last_price, last_price_ms = portfolio_ledger.last_known_prices[tp_id]
                 for position in positions_list:
                     if position.is_open_position:
-                        # Only apply if the last known price is more recent than the position's last order
-                        if t_ms < last_price_ms:
-                            bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}')
-                            continue
+
                         if not position.orders:
-                            bt.logging.warning(f'Unexpected empty orders for open position {position.position_uuid} on {tp_id} during price continuity at {t_ms}. portfolio_ledger.last_known_prices[tp_id] {portfolio_ledger.last_known_prices[tp_id]}')
+                            # Position just opened with no orders yet. We are building ledgers right up to the point before this order.
                             continue
-                        if t_ms < last_price_ms:
-                            bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. delta {last_price_ms - t_ms}')
-                            raise Exception('Time travel detected')
+
                         if last_price_ms <= position.orders[-1].processed_ms:
                             bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. Position last order at {position.orders[-1].processed_ms}')
                             continue
@@ -1649,7 +1638,8 @@ class PerfLedgerManager(CacheController):
                         continuity_applications[tp_id] = {
                             'price_change': f"{last_order_price:.6g} -> {last_price:.6g}",
                             'return_change': f"{old_return:.6g} -> {new_return:.6g}",
-                            'leverage': position.net_leverage
+                            'leverage': position.net_leverage,
+                            'position_uuid': position.position_uuid
                         }
 
         return continuity_applications
@@ -1667,7 +1657,8 @@ class PerfLedgerManager(CacheController):
             price_change = changes['price_change']
             return_change = changes['return_change']
             leverage = changes['leverage']
-            changes_parts.append(f"{tp_id}: price({price_change}), return({return_change}), lev={leverage:.2f}")
+            position_uuid = changes['position_uuid']
+            changes_parts.append(f"{tp_id}: price({price_change}), return({return_change}), lev={leverage:.2f}, position_uuid={position_uuid}")
 
         changes_str = ", ".join(changes_parts)
 
@@ -1801,7 +1792,9 @@ class PerfLedgerManager(CacheController):
 
             # Apply price continuity before building ledger (only if not already done)
             if not continuity_established:
-                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, portfolio_last_update_ms)
+                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions,
+                 perf_ledger_bundle_candidate, portfolio_last_update_ms, debug_str=f'pre-batch {batch_order_timestamp}. '
+                   f'start_time {TimeUtil.millis_to_formatted_date_str(portfolio_last_update_ms)} end_time {TimeUtil.millis_to_formatted_date_str(batch_order_timestamp)}')
                 continuity_established = True
 
                 # Log aggregate continuity info if changes were made
@@ -1835,19 +1828,9 @@ class PerfLedgerManager(CacheController):
                 # If no checkpoints exist, use initialization time
                 current_last_update = portfolio_perf_ledger.initialization_time_ms
 
-            # Debug logging for gap issues
-            gap_minutes = (now_ms - current_last_update) / 1000 / 60
-            if gap_minutes > 60:  # Log if gap is more than 1 hour
-                bt.logging.info(f"Large gap detected in final catch-up for {hotkey}:")
-                bt.logging.info(f"  Current ledger last_update: {TimeUtil.millis_to_formatted_date_str(current_last_update)}")
-                bt.logging.info(f"  Target time (now_ms): {TimeUtil.millis_to_formatted_date_str(now_ms)}")
-                bt.logging.info(f"  Gap: {gap_minutes:.1f} minutes")
-                bt.logging.info(f"  Building from new orders: {building_from_new_orders}")
-                bt.logging.info(f"  Last event time: {TimeUtil.millis_to_formatted_date_str(last_event_time_ms)}")
-
             # Apply price continuity before final build_perf_ledger call
             if not continuity_established:
-                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, current_last_update)
+                continuity_changes = self.mutate_position_returns_for_continuity(tp_to_historical_positions, perf_ledger_bundle_candidate, current_last_update, debug_str='final')
                 continuity_established = True
 
                 # Log aggregate continuity info if changes were made
@@ -1906,9 +1889,12 @@ class PerfLedgerManager(CacheController):
                 # Make a deepcopy of the entire account sizes dict
                 self.cached_miner_account_sizes = deepcopy(self.contract_manager.miner_account_sizes)
                 self.cache_last_refreshed_date = current_date
-                bt.logging.info(f"Refreshed account sizes cache for date {current_date}. "
-                                f"Cached {len(self.cached_miner_account_sizes)} miners."
-                                f"Cached miner account sizes: {self.cached_miner_account_sizes}")
+                try:
+                    bt.logging.info(f"Refreshed account sizes cache for date {current_date}. "
+                                    f"Cached {len(self.cached_miner_account_sizes)} miners."
+                                    f"Cached miner account size records: {sum(len(v) for _, v in self.cached_miner_account_sizes.items() if v)}")
+                except Exception as e:
+                    bt.logging.error(f"Error logging account sizes cache refresh: {e}")
             elif self.is_testing:
                 self.cache_last_refreshed_date = current_date
     
@@ -2395,7 +2381,7 @@ if __name__ == "__main__":
     # Initialize metagraph and managers with appropriate hotkeys
     mmg = MockMetagraph(hotkeys=hotkeys_to_process)
     elimination_manager = EliminationManager(mmg, None, None)
-    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager)
+    position_manager = PositionManager(metagraph=mmg, running_unit_tests=False, elimination_manager=elimination_manager, is_backtesting=True)
 
     # Save loaded positions to position manager if using alternative source
     if hk_to_positions:
