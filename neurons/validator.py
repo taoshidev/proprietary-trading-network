@@ -202,6 +202,7 @@ class Validator:
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
                                               auto_sync_enabled=self.auto_sync,
+                                              contract_manager=self.contract_manager,
                                               asset_selection_manager=self.asset_selection_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
@@ -371,8 +372,19 @@ class Validator:
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict, compaction_enabled=True)
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.asset_selection_manager)
-        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector)
+        self.weight_setter = SubtensorWeightSetter(
+            self.metagraph,
+            position_manager=self.position_manager,
+            use_slack_notifier=True,
+            shutdown_dict=shutdown_dict,
+            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+            config=self.config,
+            hotkey=self.wallet.hotkey.ss58_address,
+            contract_manager=self.contract_manager
+        )
+
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, self.asset_selection_manager)
+        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
@@ -404,6 +416,8 @@ class Validator:
                 rest_port=self.config.api_rest_port,
                 position_manager=self.position_manager,
                 contract_manager=self.contract_manager,
+                miner_statistics_manager=self.miner_statistics_manager,
+                request_core_manager=self.request_core_manager,
                 asset_selection_manager=self.asset_selection_manager,
                 config=self.config,
                 slack_notifier=self.slack_notifier
