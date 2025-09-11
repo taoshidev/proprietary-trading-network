@@ -23,6 +23,7 @@ Usage Examples:
     end_time_ms = 1736035200000
     test_single_hotkey = '5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
 """
+import copy
 import os
 import time
 
@@ -48,7 +49,8 @@ from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter  # 
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager  # noqa: E402
 from vali_objects.utils.vali_utils import ValiUtils  # noqa: E402
 from vali_objects.vali_config import ValiConfig  # noqa: E402
-from vali_objects.vali_dataclasses.perf_ledger import ParallelizationMode, PerfLedgerManager  # noqa: E402
+from vali_objects.vali_dataclasses.perf_ledger import ParallelizationMode, PerfLedgerManager, \
+    TP_ID_PORTFOLIO  # noqa: E402
 
 def initialize_components(hotkeys, parallel_mode, build_portfolio_ledgers_only):
     """
@@ -87,8 +89,6 @@ def save_positions_to_manager(position_manager, hk_to_positions):
         position_manager: The position manager instance
         hk_to_positions: Dictionary mapping hotkeys to Position objects
     """
-    import bittensor as bt
-
     position_count = 0
     for hk, positions in hk_to_positions.items():
         for p in positions:
@@ -201,12 +201,14 @@ class BacktestManager:
             assert len(existing_positions) <= 1, f"Found multiple positions with the same UUID: {existing_positions}"
             existing_position = existing_positions[0] if existing_positions else None
             if existing_position:
-                print(f'OQU: Added order to existing position {position.trade_pair.trade_pair_id} at {time_formatted}')
+                print(f'OQU: Added order to existing position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted}')
+                assert all(o.order_uuid != order.order_uuid for o in existing_position.orders), \
+                    f"Order {order.order_uuid} already exists in position {existing_position.position_uuid}"
                 existing_position.orders.append(order)
                 existing_position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(existing_position)
             else:  # first order. position must be inserted into list
-                print(f'OQU: Created new position {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
+                print(f'OQU: Created new position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
                 position.orders = [order]
                 position.rebuild_position_with_updated_orders()
                 self.position_manager.save_miner_position(position)
@@ -215,7 +217,7 @@ class BacktestManager:
         self.order_queue = []  # (order, position)
         for hk, positions in positions_at_t_f.items():
             for position in positions:
-                if all(o.processed_ms <= cutoff_ms for o in position.orders):
+                if position.orders[-1].processed_ms <= cutoff_ms:
                     if rebuild_all_positions:
                         position.rebuild_position_with_updated_orders()
                     self.position_manager.save_miner_position(position)
@@ -252,7 +254,7 @@ class BacktestManager:
             updated_perf_ledgers = self.perf_ledger_manager.update_perf_ledgers_parallel(self.spark, self.pool,
                  hotkey_to_positions, existing_perf_ledgers, parallel_mode=self.parallel_mode, now_ms=current_time_ms, is_backtesting=True)
 
-            PerfLedgerManager.print_bundles(updated_perf_ledgers)
+            #PerfLedgerManager.print_bundles(updated_perf_ledgers)
         if run_challenge:
             self.challengeperiod_manager.refresh(current_time=current_time_ms)
         else:
@@ -260,6 +262,22 @@ class BacktestManager:
         if run_elimination:
             self.elimination_manager.process_eliminations(self.position_locks)
         self.weight_setter.set_weights(current_time=current_time_ms)
+
+    def validate_last_update_ms(self, prev_end_time_ms):
+        perf_ledger_bundles = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+        for hk, bundles in perf_ledger_bundles.items():
+            if prev_end_time_ms:
+                for tp_id, b in bundles.items():
+                    assert b.last_update_ms == prev_end_time_ms, (f"Ledger for {hk} in {tp_id} was not updated. "
+                      f"last_update_ms={b.last_update_ms}, expected={prev_end_time_ms}, delta={prev_end_time_ms - b.last_update_ms}")
+
+    def debug_print_ledgers(self, perf_ledger_bundles):
+        for hk, v in perf_ledger_bundles.items():
+            for tp_id, bundle in v.items():
+                if tp_id != TP_ID_PORTFOLIO:
+                    continue
+                PerfLedgerManager.print_bundle(hk, v)
+
 
 
 if __name__ == '__main__':
@@ -269,7 +287,8 @@ if __name__ == '__main__':
     use_database_positions = True     # NEW: Use positions from database via taoshi.ts.ptn
     run_challenge = False              # Run challenge period logic
     run_elimination = False            # Run elimination logic
-    use_slippage = False              # Apply slippage modeling
+    use_slippage = None              # Apply slippage modeling
+    crypto_only = True              # Only include crypto trade pairs
     build_portfolio_ledgers_only = True  # Whether to build only the portfolio ledgers or per trade pair
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
 
@@ -282,9 +301,9 @@ if __name__ == '__main__':
     if use_test_positions and use_database_positions:
         raise ValueError("Cannot use both test positions and database positions. Choose one.")
 
-    start_time_ms = 1735689600000
-    end_time_ms = 1736035200000
-    test_single_hotkey ='5FmqXG5YBU1Hke9jHD5FT41CUM9gVod7nFgYvbd7PmpqcUJm'
+    start_time_ms = 1740842786000
+    end_time_ms = 1757517988000
+    test_single_hotkey ='5D4gJ9QfbcMg338813wz3MKuRofTKfE6zR3iPaGHaWEnNKoo'
 
     # Determine position source
     if use_test_positions:
@@ -293,17 +312,17 @@ if __name__ == '__main__':
         position_source = PositionSource.DATABASE
     else:
         position_source = PositionSource.DISK
-    
+
     # Create position source manager
     position_source_manager = PositionSourceManager(position_source)
-    
+
     # Load positions based on source
     if position_source == PositionSource.DISK:
         # For disk-based positions, use existing logic
         # Initialize components with specified hotkey
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             test_single_hotkey, parallel_mode, build_portfolio_ledgers_only)
-        
+
         # Get positions from disk via perf ledger manager
         hk_to_positions, _ = perf_ledger_manager.get_positions_perf_ledger(testing_one_hotkey=test_single_hotkey)
     else:
@@ -312,7 +331,7 @@ if __name__ == '__main__':
             end_time_ms=end_time_ms,
             hotkeys=[test_single_hotkey] if test_single_hotkey and position_source == PositionSource.DATABASE else None
         )
-        
+
         # For test positions, update time range based on loaded data
         if position_source == PositionSource.TEST and hk_to_positions:
             # Calculate time range from test data
@@ -323,13 +342,17 @@ if __name__ == '__main__':
             if all_order_times:
                 start_time_ms = min(all_order_times)
                 end_time_ms = max(all_order_times) + 1
-        
+
         # Initialize components with loaded hotkeys
         hotkeys_list = list(hk_to_positions.keys()) if hk_to_positions else [test_single_hotkey]
         mmg, elimination_manager, position_manager, perf_ledger_manager = initialize_components(
             hotkeys_list, parallel_mode, build_portfolio_ledgers_only)
-        
+
         # Save loaded positions to position manager
+        for hk, positions in hk_to_positions.items():
+            if crypto_only:
+                crypto_positions = [p for p in positions if p.trade_pair.is_crypto]
+                hk_to_positions[hk] = crypto_positions
         save_positions_to_manager(position_manager, hk_to_positions)
 
 
@@ -340,16 +363,22 @@ if __name__ == '__main__':
                           use_slippage=use_slippage, fetch_slippage_data=False, recalculate_slippage=False,
                           parallel_mode=parallel_mode,
                           build_portfolio_ledgers_only=build_portfolio_ledgers_only)
-    for t_ms in range(start_time_ms, end_time_ms, 1000 * 60 * 60 * 24):
+
+    perf_ledger_bundles = {}
+    interval_ms = 1000 * 60 * 60 * 24
+    prev_end_time_ms = None
+    for t_ms in range(start_time_ms, end_time_ms, interval_ms):
+        btm.validate_last_update_ms(prev_end_time_ms)
         btm.update(t_ms, run_challenge=run_challenge, run_elimination=run_elimination)
         perf_ledger_bundles = btm.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
-        hk_to_perf_ledger_tps = {}
-        for k, v in perf_ledger_bundles.items():
-            hk_to_perf_ledger_tps[k] = list(v.keys())
-        print('hk_to_perf_ledger_tps', hk_to_perf_ledger_tps)
-        print('formatted weights', btm.weight_setter.checkpoint_results)
-        for k, v in perf_ledger_bundles.items():
-            PerfLedgerManager.print_bundle(k, v)
+        #hk_to_perf_ledger_tps = {}
+        #for k, v in perf_ledger_bundles.items():
+        #    hk_to_perf_ledger_tps[k] = list(v.keys())
+        #print('hk_to_perf_ledger_tps', hk_to_perf_ledger_tps)
+        #print('formatted weights', btm.weight_setter.checkpoint_results)
+        prev_end_time_ms = t_ms
+    #btm.debug_print_ledgers(perf_ledger_bundles)
+    btm.perf_ledger_manager.debug_pl_plot(test_single_hotkey)
 
     tf = time.time()
     bt.logging.success(f'Finished backtesting in {tf - t0} seconds')

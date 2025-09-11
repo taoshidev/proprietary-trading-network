@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import gzip
 
 import bittensor as bt
 from typing import List, Dict, Any
@@ -18,7 +19,7 @@ from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig, TradePair
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.position_utils import PositionUtils
 from vali_objects.utils.position_penalties import PositionPenalties
@@ -152,7 +153,8 @@ class MinerStatisticsManager:
         subtensor_weight_setter: SubtensorWeightSetter,
         plagiarism_detector: PlagiarismDetector,
         contract_manager: ValidatorContractManager,
-        metrics: Dict[str, MetricsCalculator] = None
+        metrics: Dict[str, MetricsCalculator] = None,
+        ipc_manager = None
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -163,6 +165,10 @@ class MinerStatisticsManager:
         self.contract_manager = contract_manager
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
+        if ipc_manager:
+            self.miner_statistics = ipc_manager.dict()
+        else:
+            self.miner_statistics = {}
 
     # -------------------------------------------
     # Ranking / Percentile Helpers
@@ -874,7 +880,7 @@ class MinerStatisticsManager:
         return printable_config
 
     # -------------------------------------------
-    # Write to disk
+    # Write to disk, memory
     # -------------------------------------------
     def generate_request_minerstatistics(self, time_now: int, checkpoints: bool = True, risk_report: bool = False, bypass_confidence: bool = False, custom_output_path=None):
         final_dict = self.generate_miner_statistics_data(time_now, checkpoints=checkpoints, risk_report=risk_report, bypass_confidence=bypass_confidence)
@@ -883,6 +889,39 @@ class MinerStatisticsManager:
         else:
             output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
+        
+        # Create version without checkpoints for API optimization
+        final_dict_no_checkpoints = self._create_statistics_without_checkpoints(final_dict)
+        
+        # Store compressed JSON payloads for immediate API response (memory efficient)
+        json_with_checkpoints = json.dumps(final_dict, cls=CustomEncoder)
+        json_without_checkpoints = json.dumps(final_dict_no_checkpoints, cls=CustomEncoder)
+        
+        # Compress both versions for efficient storage and transfer
+        compressed_with_checkpoints = gzip.compress(json_with_checkpoints.encode('utf-8'))
+        compressed_without_checkpoints = gzip.compress(json_without_checkpoints.encode('utf-8'))
+        
+        # Only store compressed payloads - saves ~22MB of uncompressed data per validator
+        self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
+        self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
+
+    def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a copy of statistics with checkpoints removed from all miner data."""
+        import copy
+        stats_no_checkpoints = copy.deepcopy(stats_dict)
+        
+        # Remove checkpoints from each miner's data
+        for element in stats_no_checkpoints.get("data", []):
+            element.pop("checkpoints", None)
+        
+        return stats_no_checkpoints
+    
+    def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes:
+        """Get pre-compressed statistics payload for immediate API response."""
+        if include_checkpoints:
+            return self.miner_statistics.get('stats_compressed_with_checkpoints', None)
+        else:
+            return self.miner_statistics.get('stats_compressed_without_checkpoints', None)
 
 
 # ---------------------------------------------------------------------------

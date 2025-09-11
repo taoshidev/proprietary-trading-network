@@ -258,30 +258,33 @@ class TestPerfLedgerVoidBehavior(TestBase):
         # Test case 1: Should use bypass
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "BTCUSD", TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-            False, 1.0, 1.0, 1.0, "BTCUSD"
+            1.0, 1.0, 1.0, {"BTCUSD": None}
         )
         self.assertEqual(ret, 0.95)
         self.assertEqual(spread, 0.999)
         self.assertEqual(carry, 0.998)
         
         # Test case 2: Should NOT use bypass (position just closed)
+        # Create a mock closed position to simulate a position that just closed
+        mock_closed_position = Mock()
+        mock_closed_position.is_open_position = False
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "BTCUSD", TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-            True, 1.0, 1.0, 1.0, "BTCUSD"
+            1.0, 1.0, 1.0, {"BTCUSD": mock_closed_position}
         )
         self.assertEqual(ret, 1.0)
         
         # Test case 3: Should NOT use bypass (positions open)
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "BTCUSD", TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE,
-            False, 1.0, 1.0, 1.0, "BTCUSD"
+            1.0, 1.0, 1.0, {"BTCUSD": None}
         )
         self.assertEqual(ret, 1.0)
         
         # Test case 4: Should NOT use bypass (different TP)
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "ETHUSD", TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-            False, 1.0, 1.0, 1.0, "BTCUSD"
+            1.0, 1.0, 1.0, {"BTCUSD": None}
         )
         self.assertEqual(ret, 1.0)
 
