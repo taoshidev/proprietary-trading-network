@@ -1267,8 +1267,8 @@ class MinerStatisticsManager:
                                     }
 
                                     subnet_value = augmented_scores_dict.get(
-                                        metric, {}
-                                    ).get("value", 0.0)
+                                        "overall", {}
+                                    ).get(metric, {}).get("value", 0.0)
                                     if subnet_value is None:
                                         subnet_value = 0.0
 
