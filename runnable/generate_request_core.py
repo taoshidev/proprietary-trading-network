@@ -213,7 +213,7 @@ class RequestCoreManager:
         compressed_path = ValiBkpUtils.get_vcp_output_path()
         with open(compressed_path, 'wb') as f:
             f.write(compressed_data)
-        print(f"Wrote compressed checkpoint to {compressed_path}")
+        #print(f"Wrote compressed checkpoint to {compressed_path}")
         
         # Store compressed checkpoint data in IPC memory cache
         self.store_checkpoint_in_memory(final_dict)
