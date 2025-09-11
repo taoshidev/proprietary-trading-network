@@ -626,13 +626,9 @@ class PTNRestServer(APIKeyMixin):
                         'Content-Encoding': 'gzip'
                     })
 
-            # Fallback: get raw data if pre-compressed not available
-            data = None
-            if self.miner_statistics_manager:
-                data = self.miner_statistics_manager.get_miner_statistics_from_memory()
-            if not data:
-                f = ValiBkpUtils.get_miner_stats_dir()
-                data = self._get_file(f)
+            # Fallback: get raw data from disk if pre-compressed not available
+            f = ValiBkpUtils.get_miner_stats_dir()
+            data = self._get_file(f)
             if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
 
@@ -649,12 +645,9 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            data = None
-            if self.miner_statistics_manager:
-                data = self.miner_statistics_manager.get_miner_statistics_from_memory()
-            if not data:
-                f = ValiBkpUtils.get_miner_stats_dir()
-                data = self._get_file(f)
+            # Get statistics data from disk
+            f = ValiBkpUtils.get_miner_stats_dir()
+            data = self._get_file(f)
             if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
 

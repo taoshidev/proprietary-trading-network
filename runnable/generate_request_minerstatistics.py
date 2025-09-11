@@ -916,10 +916,6 @@ class MinerStatisticsManager:
         
         return stats_no_checkpoints
     
-    def get_miner_statistics_from_memory(self) -> Dict[str, Any]:
-        stats = self.miner_statistics.get('stats', {})
-        return stats if stats else None
-    
     def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes:
         """Get pre-compressed statistics payload for immediate API response."""
         if include_checkpoints:

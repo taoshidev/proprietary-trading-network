@@ -698,7 +698,7 @@ class PerfLedgerManager(CacheController):
             last_event_time_ms = max(p.orders[-1].processed_ms, last_event_time_ms)
 
             if p.is_closed_position and len(p.orders) < 2:
-                bt.logging.info(f"perf ledger generate_order_timeline. Skipping closed position for hk {hk} with < 2 orders: {p}")
+                bt.logging.warning(f"perf ledger generate_order_timeline. Skipping closed position for hk {hk} with < 2 orders: {p}")
                 continue
             for o in p.orders:
                 if o.processed_ms <= now_ms:
@@ -1625,23 +1625,32 @@ class PerfLedgerManager(CacheController):
                         if t_ms < last_price_ms:
                             bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}')
                             continue
-                        if position.orders and t_ms >= last_price_ms > position.orders[-1].processed_ms:
-                            # Record the price transition and return change for logging
-                            last_order_price = position.orders[-1].price
-                            old_return = position.return_at_close
+                        if not position.orders:
+                            bt.logging.warning(f'Unexpected empty orders for open position {position.position_uuid} on {tp_id} during price continuity at {t_ms}. portfolio_ledger.last_known_prices[tp_id] {portfolio_ledger.last_known_prices[tp_id]}')
+                            continue
+                        if t_ms < last_price_ms:
+                            bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. delta {last_price_ms - t_ms}')
+                            raise Exception('Time travel detected')
+                        if last_price_ms <= position.orders[-1].processed_ms:
+                            bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. Position last order at {position.orders[-1].processed_ms}')
+                            continue
 
-                            # Calculate the return at the last known price point
-                            position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
-                            position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
-                            position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                        # Record the price transition and return change for logging
+                        last_order_price = position.orders[-1].price
+                        old_return = position.return_at_close
 
-                            # Store info for aggregate logging with both price and return changes
-                            new_return = position.return_at_close
-                            continuity_applications[tp_id] = {
-                                'price_change': f"{last_order_price:.6g} -> {last_price:.6g}",
-                                'return_change': f"{old_return:.6g} -> {new_return:.6g}",
-                                'leverage': position.net_leverage
-                            }
+                        # Calculate the return at the last known price point
+                        position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
+                        position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
+                        position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+
+                        # Store info for aggregate logging with both price and return changes
+                        new_return = position.return_at_close
+                        continuity_applications[tp_id] = {
+                            'price_change': f"{last_order_price:.6g} -> {last_price:.6g}",
+                            'return_change': f"{old_return:.6g} -> {new_return:.6g}",
+                            'leverage': position.net_leverage
+                        }
 
         return continuity_applications
 
@@ -1740,8 +1749,7 @@ class PerfLedgerManager(CacheController):
             
             # Process all orders in this second and collect realtime_position_to_pop per trade pair
             tp_id_to_realtime_position_to_pop = {}
-            for event in batch_events:
-                order, position = event
+            for (order, position) in batch_events:
                 symbol = position.trade_pair.trade_pair_id
                 pos, batch_realtime_position_to_pop = self.get_historical_position(position, order.processed_ms)
                 
@@ -1757,7 +1765,7 @@ class PerfLedgerManager(CacheController):
                         pos2_no_orders = batch_realtime_position_to_pop
                         pos2_no_orders.orders = []
                         raise ValueError(f"Multiple realtime_position_to_pop for hotkey {hotkey} for same trade pair "
-                                         f"{tp_id} in same millisecond {current_millisecond}."
+                                         f"{tp_id} in same millisecond {order.processed_ms}."
                                          f" pos1 {pos1_no_orders}, pos2 {pos2_no_orders}, "
                                          f"order1 {pos1_dup_order}, order2 {pos2_dup_order}"
                     )
@@ -2098,81 +2106,88 @@ class PerfLedgerManager(CacheController):
                     del self.perf_ledger_hks_to_invalidate[x]
 
         if testing_one_hotkey and not self.running_unit_tests:
-            portfolio_ledger = perf_ledger_bundles[testing_one_hotkey][TP_ID_PORTFOLIO]
-            # print all attributes except cps: Note ledger is an object
-            print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
-                    f' max_return {portfolio_ledger.max_return}')
-            from vali_objects.utils.ledger_utils import LedgerUtils
-            daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger, return_type='simple')
-            datetime_to_daily_return = {datetime.datetime.combine(k, datetime.time.min).timestamp() :v for k, v in daily_returns.items()}
-            returns = []
-            returns_muled = []
-            times = []
-            n_contributing_tps = []
-            mdds = []
-            for i, x in enumerate(portfolio_ledger.cps):
-                returns.append(x.prev_portfolio_ret)
-                foo = 1.0
-                n_contributing = 0
-                mdds.append(x.mdd)
-                for tp_id, ledger in perf_ledger_bundles[testing_one_hotkey].items():
-                    if tp_id == TP_ID_PORTFOLIO:
-                        continue
-                    rele_cp = None
-                    for y in ledger.cps:
-                        if y.last_update_ms == x.last_update_ms:
-                            rele_cp = y
-                            break
-                    if rele_cp:
-                        n_contributing += 1
-                        foo *= rele_cp.prev_portfolio_ret
-                returns_muled.append(foo)
-                n_contributing_tps.append(n_contributing)
-                times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
-
-                last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
-                # assert the checkpoint ends on a 12 hour boundary
-                if i != len(portfolio_ledger.cps) - 1:
-                    assert x.last_update_ms % portfolio_ledger.target_cp_duration_ms == 0, x.last_update_ms
-                print(x, last_update_formated)
-            # Plot time vs return using matplotlib as well as time vs dd. use a legend.
-            import matplotlib.pyplot as plt
-
-            returns_debug = []
-            times_debug = []
-
-            for t in times:
-                ts = datetime.datetime.combine(t.date(), datetime.time.min).timestamp()
-                if ts in datetime_to_daily_return:
-                    returns_debug.append(datetime_to_daily_return[ts])
-                    times_debug.append(t)
-
-
-            # Make the plot bigger
-            plt.figure(figsize=(10, 5))
-            plt.plot(times, returns, color='red', label='Return')
-            plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
-            plt.plot(times, mdds, color='green', label='MDD')
-            #plt.plot(times_debug, returns_debug, color='orange', label='Daily Return Debug')
-            # Labels
-            plt.xlabel('Time')
-            plt.title(f'Return vs Time for HK {testing_one_hotkey}')
-            plt.legend(['Return', 'Return_Mulled', 'MDD', 'Daily Return Debug'])
-            plt.show()
-
-            for tp_id, pl in perf_ledger_bundles[testing_one_hotkey].items():
-                first_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[0].last_update_ms) if pl.cps else 'N/A'
-                last_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[-1].last_update_ms) if pl.cps else 'N/A'
-                print(f"perf ledger for {tp_id} ({first_cp_time} -> {last_cp_time})\n  first cp {pl.cps[0]}\n  last cp {pl.cps[-1]}")
-                print('    total gain product', pl.get_product_of_gains(), ' total loss product', pl.get_product_of_loss(), 'total product', pl.get_total_product())
-
-            print('validating returns:')
-            for z in zip(returns, returns_muled, n_contributing_tps):
-                print(z, z[0] - z[1])
+            self.debug_pl_plot(testing_one_hotkey)
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
+
+    def debug_pl_plot(self, testing_one_hotkey):
+        all_bundles = self.get_perf_ledgers(portfolio_only=False)
+        bundle = all_bundles[testing_one_hotkey]
+        portfolio_ledger = bundle[TP_ID_PORTFOLIO]
+        # print all attributes except cps: Note ledger is an object
+        print(f'Portfolio ledger attributes: initialization_time_ms {portfolio_ledger.initialization_time_ms},'
+              f' max_return {portfolio_ledger.max_return}')
+        from vali_objects.utils.ledger_utils import LedgerUtils
+        daily_returns = LedgerUtils.daily_return_ratio_by_date(portfolio_ledger, return_type='simple')
+        datetime_to_daily_return = {datetime.datetime.combine(k, datetime.time.min).timestamp(): v for k, v in
+                                    daily_returns.items()}
+        returns = []
+        returns_muled = []
+        times = []
+        n_contributing_tps = []
+        mdds = []
+        for i, x in enumerate(portfolio_ledger.cps):
+            returns.append(x.prev_portfolio_ret)
+            foo = 1.0
+            n_contributing = 0
+            mdds.append(x.mdd)
+            for tp_id, ledger in bundle.items():
+                if tp_id == TP_ID_PORTFOLIO:
+                    continue
+                rele_cp = None
+                for y in ledger.cps:
+                    if y.last_update_ms == x.last_update_ms:
+                        rele_cp = y
+                        break
+                if rele_cp:
+                    n_contributing += 1
+                    foo *= rele_cp.prev_portfolio_ret
+            returns_muled.append(foo)
+            n_contributing_tps.append(n_contributing)
+            times.append(TimeUtil.millis_to_timestamp(x.last_update_ms))
+
+            last_update_formated = TimeUtil.millis_to_timestamp(x.last_update_ms)
+            # assert the checkpoint ends on a 12 hour boundary
+            if i != len(portfolio_ledger.cps) - 1:
+                assert x.last_update_ms % portfolio_ledger.target_cp_duration_ms == 0, x.last_update_ms
+            print(x, last_update_formated)
+        # Plot time vs return using matplotlib as well as time vs dd. use a legend.
+        import matplotlib.pyplot as plt
+
+        returns_debug = []
+        times_debug = []
+
+        for t in times:
+            ts = datetime.datetime.combine(t.date(), datetime.time.min).timestamp()
+            if ts in datetime_to_daily_return:
+                returns_debug.append(datetime_to_daily_return[ts])
+                times_debug.append(t)
+
+        # Make the plot bigger
+        plt.figure(figsize=(10, 5))
+        plt.plot(times, returns, color='red', label='Return')
+        plt.plot(times, returns_muled, color='blue', label='Return_Mulled')
+        plt.plot(times, mdds, color='green', label='MDD')
+        # plt.plot(times_debug, returns_debug, color='orange', label='Daily Return Debug')
+        # Labels
+        plt.xlabel('Time')
+        plt.title(f'Return vs Time for HK {testing_one_hotkey}')
+        plt.legend(['Return', 'Return_Mulled', 'MDD', 'Daily Return Debug'])
+        plt.show()
+
+        for tp_id, pl in bundle.items():
+            first_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[0].last_update_ms) if pl.cps else 'N/A'
+            last_cp_time = TimeUtil.millis_to_formatted_date_str(pl.cps[-1].last_update_ms) if pl.cps else 'N/A'
+            print(
+                f"perf ledger for {tp_id} ({first_cp_time} -> {last_cp_time})\n  first cp {pl.cps[0]}\n  last cp {pl.cps[-1]}")
+            print('    total gain product', pl.get_product_of_gains(), ' total loss product', pl.get_product_of_loss(),
+                  'total product', pl.get_total_product())
+
+        print('validating returns:')
+        for z in zip(returns, returns_muled, n_contributing_tps):
+            print(z, z[0] - z[1])
 
     @timeme
     def save_perf_ledgers(self, perf_ledgers_copy: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
@@ -2333,7 +2348,7 @@ if __name__ == "__main__":
 
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5EkHD5xtLzwMh98UvxGWpabyQJA52ybzmUsavhrLyuZzc5UH'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5D4gJ9QfbcMg338813wz3MKuRofTKfE6zR3iPaGHaWEnNKoo'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 
@@ -2387,6 +2402,8 @@ if __name__ == "__main__":
         position_count = 0
         for hk, positions in hk_to_positions.items():
             for pos in positions:
+                if not pos.trade_pair.is_crypto:
+                    continue
                 position_manager.save_miner_position(pos)
                 position_count += 1
         bt.logging.info(f"Saved {position_count} positions to position manager")
@@ -2400,7 +2417,7 @@ if __name__ == "__main__":
         # Use serial update like validators do
         if test_single_hotkey:
             bt.logging.info(f"Running single-hotkey test for: {test_single_hotkey}")
-            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis() - 3 * 31 * 24 * 3600 * 1000)
+            perf_ledger_manager.update(testing_one_hotkey=test_single_hotkey, t_ms=TimeUtil.now_in_millis())
         else:
             bt.logging.info("Running standard sequential update for all hotkeys")
             perf_ledger_manager.update(regenerate_all_ledgers=regenerate_all)
