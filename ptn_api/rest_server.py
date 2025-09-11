@@ -71,10 +71,10 @@ class APIMetricsTracker:
     def _get_user_id_from_api_key(self, api_key: str) -> str:
         """
         Get user ID from API key, handling unknown keys properly.
-        
+
         Args:
             api_key: The API key to look up
-            
+
         Returns:
             The user ID or a unique unknown_key identifier
         """
@@ -100,7 +100,7 @@ class APIMetricsTracker:
         with self.metrics_lock:
             self.api_key_hits[user_id].append(now)
             self.endpoint_hits[endpoint].append((now, duration))
-            
+
             # Track per-endpoint API key usage
             self.endpoint_api_key_hits[(endpoint, user_id)].append(now)
 
@@ -185,7 +185,7 @@ class APIMetricsTracker:
             # Remove empty failed request entries
             for key in empty_failed:
                 del self.failed_requests[key]
-            
+
             # Process per-endpoint API key usage
             endpoint_api_key_counts = {}
             empty_endpoint_keys = []
@@ -232,14 +232,14 @@ class APIMetricsTracker:
                 if endpoint in endpoint_api_key_counts:
                     for user_id, count in endpoint_api_key_counts[endpoint].items():
                         api_key_breakdown[user_id] = count
-                
+
                 # Format API key breakdown
                 if api_key_breakdown:
                     breakdown_str = str(api_key_breakdown)
                     log_lines.append(f"  {endpoint}: {stats['count']} requests {breakdown_str}")
                 else:
                     log_lines.append(f"  {endpoint}: {stats['count']} requests")
-                    
+
                 log_lines.append(f"    mean: {stats['mean'] * 1000:.2f}ms")
                 log_lines.append(f"    median: {stats['median'] * 1000:.2f}ms")
                 log_lines.append(f"    min/max: {stats['min'] * 1000:.2f}ms / {stats['max'] * 1000:.2f}ms")
@@ -252,18 +252,18 @@ class APIMetricsTracker:
             for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
                                                                   key=lambda x: x[1], reverse=True):
                 display_user_id = user_id
-                
+
                 # Add status code description for common failure codes
                 status_desc = {
                     400: "Bad Request",
-                    401: "Unauthorized", 
+                    401: "Unauthorized",
                     403: "Forbidden/Insufficient Tier",
                     404: "Not Found",
                     413: "Request Too Large",
                     500: "Internal Server Error",
                     503: "Service Unavailable"
                 }.get(status_code, "Unknown Error")
-                
+
                 log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code} {status_desc}]: {count} failures")
 
         # Log the complete report
@@ -294,7 +294,9 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, asset_selection_manager=None, config=None, slack_notifier=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
+                 miner_statistics_manager=None, request_core_manager=None,
+                 asset_selection_manager=None, config=None, slack_notifier=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -327,12 +329,7 @@ class PTNRestServer(APIKeyMixin):
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
 
-        # Get vault wallet
-        self.vault_wallet = bt.wallet(
-            name=self.config.vault_wallet_name,
-            hotkey=self.config.vault_wallet_hotkey,
-            path=self.config.vault_wallet_path
-        )
+        self.contract_manager.load_contract_owner()
 
         # Flask-Compress removed to prevent double-compression of pre-compressed endpoints
         # Our critical endpoints (validator-checkpoint, minerstatistics) serve pre-compressed data
@@ -353,11 +350,11 @@ class PTNRestServer(APIKeyMixin):
     def _jsonify_with_custom_encoder(self, data, status_code=200):
         """
         Create a JSON response using CustomEncoder to handle BaseModel objects.
-        
+
         Args:
             data: The data to jsonify
             status_code: HTTP status code (default 200)
-            
+
         Returns:
             Flask Response object with proper JSON serialization
         """
@@ -565,17 +562,17 @@ class PTNRestServer(APIKeyMixin):
                     compressed_data = self.request_core_manager.get_compressed_checkpoint_from_memory()
                 except Exception as e:
                     bt.logging.debug(f"Error accessing compressed checkpoint cache: {e}")
-            
+
             if compressed_data is not None:
                 # Return pre-compressed data with appropriate headers
                 return Response(compressed_data, content_type='application/json', headers={
                     'Content-Encoding': 'gzip'
                 })
-            
+
             # Fallback to file read if memory unavailable
             # Checkpoint is always stored as compressed file
             f_gz = ValiBkpUtils.get_vcp_output_path()
-            
+
             if os.path.exists(f_gz):
                 # Read pre-compressed file directly
                 try:
@@ -712,7 +709,7 @@ class PTNRestServer(APIKeyMixin):
                             f"Network: {self.config.subtensor.network}\n",
                             level="success"
                         )
-                
+
                 # Return response
                 return jsonify(result)
                 
@@ -785,7 +782,7 @@ class PTNRestServer(APIKeyMixin):
                             f"Network: {self.config.subtensor.network}\n",
                             level="success"
                         )
-                
+
                 # Return response
                 return jsonify(result)
                 
@@ -887,26 +884,6 @@ class PTNRestServer(APIKeyMixin):
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
 
-    def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
-        """
-        Verify that a coldkey owns the specified hotkey using subtensor.
-
-        Args:
-            coldkey_ss58: The coldkey SS58 address
-            hotkey_ss58: The hotkey SS58 address to verify ownership of
-
-        Returns:
-            bool: True if coldkey owns the hotkey, False otherwise
-        """
-        try:
-            subtensor_api = self.contract_manager.collateral_manager.subtensor_api
-            coldkey_owner = subtensor_api.queries.query_subtensor("Owner", None, [hotkey_ss58])
-
-            return coldkey_owner == coldkey_ss58
-        except Exception as e:
-            bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
-            return False
-
         @self.app.route("/asset-selection", methods=["POST"])
         def asset_selection():
             """Process asset selection request."""
@@ -957,6 +934,26 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error processing asset selection: {e}")
                 return jsonify({'error': 'Internal server error processing asset selection'}), 500
+
+    def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
+        """
+        Verify that a coldkey owns the specified hotkey using subtensor.
+
+        Args:
+            coldkey_ss58: The coldkey SS58 address
+            hotkey_ss58: The hotkey SS58 address to verify ownership of
+
+        Returns:
+            bool: True if coldkey owns the hotkey, False otherwise
+        """
+        try:
+            subtensor_api = self.contract_manager.collateral_manager.subtensor_api
+            coldkey_owner = subtensor_api.queries.query_subtensor("Owner", None, [hotkey_ss58])
+
+            return coldkey_owner == coldkey_ss58
+        except Exception as e:
+            bt.logging.error(f"Error verifying coldkey-hotkey ownership: {e}")
+            return False
 
     def _get_api_key_safe(self) -> Optional[str]:
         """

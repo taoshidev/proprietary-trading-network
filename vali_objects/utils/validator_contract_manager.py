@@ -153,10 +153,10 @@ class ValidatorContractManager:
 
     def miner_account_sizes_dict(self, most_recent_only: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         """Convert miner account sizes to checkpoint format for backup/sync
-        
+
         Args:
             most_recent_only: If True, only return the most recent record for each miner
-        
+
         Returns:
             Dictionary with hotkeys as keys and list of record dicts as values
         """
@@ -333,18 +333,27 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing deposit for: {deposit_amount_theta} Theta to miner: {miner_hotkey}")
-                deposited_balance = self.collateral_manager.deposit(
-                    extrinsic=extrinsic,
-                    sender=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=vault_wallet,
-                    owner_address=self.owner_address,
-                    owner_private_key=self.owner_private_key,
-                    wallet_password=self.vault_password
-                )
-                msg = f"Deposit successful: {self.rao_to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}"
+                owner_address = self.get_secret("collateral_owner_address")
+                owner_private_key = self.get_secret("collateral_owner_private_key")
+                vault_password = self.get_secret("gcp_vali_pw_name")
+                try:
+                    deposited_balance = self.collateral_manager.deposit(
+                        extrinsic=extrinsic,
+                        source_hotkey=miner_hotkey,
+                        vault_stake=self.vault_wallet.hotkey.ss58_address,
+                        vault_wallet=self.vault_wallet,
+                        owner_address=owner_address,
+                        owner_private_key=owner_private_key,
+                        wallet_password=vault_password
+                    )
+                finally:
+                    del owner_address
+                    del owner_private_key
+                    del vault_password
+
+                msg = f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}"
                 bt.logging.info(msg)
-                print("succesfully deposited")
+                self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
                     "success_message": msg,
@@ -425,20 +434,28 @@ class ValidatorContractManager:
                 #     }
 
                 bt.logging.info(f"Processing withdrawal request from {miner_hotkey} for {amount} Theta")
-                withdrawn_balance = self.collateral_manager.withdraw(
-                    amount=self.theta_to_rao(amount),
-                    dest=miner_coldkey,
-                    source_hotkey=miner_hotkey,
-                    vault_stake=vault_stake.hotkey_ss58,
-                    vault_wallet=vault_wallet,
-                    owner_address=self.owner_address,
-                    owner_private_key=self.owner_private_key,
-                    wallet_password=self.vault_password
-                )
-                returned_theta = self.rao_to_theta(withdrawn_balance.rao)
-                msg = f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}"
+                owner_address = self.get_secret("collateral_owner_address")
+                owner_private_key = self.get_secret("collateral_owner_private_key")
+                vault_password = self.get_secret("gcp_vali_pw_name")
+                try:
+                    withdrawn_balance = self.collateral_manager.withdraw(
+                        amount=int(amount * 10**9), # convert theta to rao_theta
+                        source_coldkey=miner_coldkey,
+                        source_hotkey=miner_hotkey,
+                        vault_stake=self.vault_wallet.hotkey.ss58_address,
+                        vault_wallet=self.vault_wallet,
+                        owner_address=owner_address,
+                        owner_private_key=owner_private_key,
+                        wallet_password=vault_password
+                    )
+                finally:
+                    del owner_address
+                    del owner_private_key
+                    del vault_password
+                returned_theta = self.to_theta(withdrawn_balance.rao)
+                msg = f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}"
                 bt.logging.info(msg)
-                print(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
+                self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
                     "success_message": msg,

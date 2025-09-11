@@ -29,14 +29,16 @@ class PositionSyncResultException(Exception):
 
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
-                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None, asset_selection_manager=None,
-                 ipc_manager=None, enable_position_splitting = False, verbose=False
+                 n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
+                 ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None,
+                 asset_selection_manager=None
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
+        self.contract_manager = contract_manager
         self.asset_selection_manager = asset_selection_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
