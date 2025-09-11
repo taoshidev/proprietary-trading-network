@@ -58,6 +58,7 @@ class ScoreMetric:
     requires_weighting: bool = False
     bypass_confidence: bool = False
 
+
 class ScoreResult:
     """Class to hold score calculation results"""
 
@@ -148,7 +149,7 @@ class MetricsCalculator:
                 log_returns=log_returns,
                 ledger=ledger,
                 weighting=weighting,
-                bypass_confidence=metric.bypass_confidence
+                bypass_confidence=metric.bypass_confidence,
             )
 
             scores[hotkey] = value
@@ -166,7 +167,7 @@ class MinerStatisticsManager:
         subtensor_weight_setter: SubtensorWeightSetter,
         plagiarism_detector: PlagiarismDetector,
         contract_manager: ValidatorContractManager,
-        metrics: Dict[str, MetricsCalculator] = None
+        metrics: Dict[str, MetricsCalculator] = None,
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -269,11 +270,17 @@ class MinerStatisticsManager:
         if not miner_ledger:
             return {}
         overall_miner_ledger = miner_ledger.get(TP_ID_PORTFOLIO)
-        cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(overall_miner_ledger)
-        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(overall_miner_ledger)
+        cumulative_miner_returns_ledger: PerfLedger = LedgerUtils.cumulative(
+            overall_miner_ledger
+        )
+        miner_daily_returns: list[float] = LedgerUtils.daily_return_log(
+            overall_miner_ledger
+        )
         miner_positions: list[Position] = filtered_positions.get(hotkey, [])
 
-        extra_data = self.gather_extra_data(hotkey, overall_miner_ledger, filtered_positions)
+        extra_data = self.gather_extra_data(
+            hotkey, overall_miner_ledger, filtered_positions
+        )
 
         return {
             "positions": miner_positions,
@@ -330,12 +337,12 @@ class MinerStatisticsManager:
     # Main scoring wrapper
     # -------------------------------------------
     def calculate_all_scores(
-            self,
-            miner_data: Dict[str, Dict[str, Any]],
-            subcategory_min_days: dict[str, int],
-            score_type: ScoreType = ScoreType.BASE,
-            bypass_confidence: bool = False,
-            time_now: int = None
+        self,
+        miner_data: Dict[str, Dict[str, Any]],
+        subcategory_min_days: dict[str, int],
+        score_type: ScoreType = ScoreType.BASE,
+        bypass_confidence: bool = False,
+        time_now: int = None,
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, AUGMENTED) for all subcategories."""
         ledgers = {}
@@ -356,7 +363,9 @@ class MinerStatisticsManager:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
+            timestamp_ms=time_now
+        )
         subcategory_scores = Scoring.score_miners(
             ledger_dict=ledgers,
             positions=positions,
@@ -364,20 +373,22 @@ class MinerStatisticsManager:
             evaluation_time_ms=time_now,
             weighting=weighting,
             scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics),
-            all_miner_account_sizes=all_miner_account_sizes
+            all_miner_account_sizes=all_miner_account_sizes,
         )
 
-        metric_results = {subcategory.value: {} for subcategory in subcategory_scores.keys()}
+        metric_results = {
+            subcategory.value: {} for subcategory in subcategory_scores.keys()
+        }
         subcategory_scores["overall"] = {"metrics": self.metrics_calculator.metrics}
         metric_results["overall"] = {}
 
         for subcategory, scoring_dict in subcategory_scores.items():
-            for metric_name, metric_data in scoring_dict['metrics'].items():
+            for metric_name, metric_data in scoring_dict["metrics"].items():
                 if subcategory == "overall":
                     numeric_scores = self.metrics_calculator.calculate_metric(
                         self.metrics_calculator.metrics.get(metric_name, {}),
                         miner_data,
-                        weighting=weighting
+                        weighting=weighting,
                     )
                 else:
                     numeric_scores = metric_data.get("scores", [])
@@ -391,7 +402,8 @@ class MinerStatisticsManager:
                         value=numeric_dict[hotkey],
                         rank=ranks[hotkey],
                         percentile=percentiles[hotkey],
-                        overall_contribution=percentiles[hotkey] * self.metrics_calculator.metrics.get(metric_name, {}).weight
+                        overall_contribution=percentiles[hotkey]
+                        * self.metrics_calculator.metrics.get(metric_name, {}).weight,
                     )
                     for hotkey in numeric_dict
                 }
@@ -479,7 +491,7 @@ class MinerStatisticsManager:
     # -------------------------------------------
 
     def prepare_account_sizes(self, filtered_ledger, now_ms):
-        """Calculates percentiles for most recent account size""
+        """Calculates percentiles for most recent account size"""
         if now_ms is None:
             now_ms = TimeUtil.now_in_millis()
 
@@ -490,7 +502,9 @@ class MinerStatisticsManager:
         for hotkey, _ in filtered_ledger.items():
 
             # Fetch most recent account size even if it isn't valid yet for scoring
-            account_size = self.contract_manager.get_miner_account_size(hotkey, now_ms, most_recent=True)
+            account_size = self.contract_manager.get_miner_account_size(
+                hotkey, now_ms, most_recent=True
+            )
             if account_size is None:
                 account_size = ValiConfig.MIN_CAPITAL
             else:
@@ -501,7 +515,6 @@ class MinerStatisticsManager:
         account_size_percentiles = self.percentile_rank_dictionary(account_sizes)
         account_sizes_dict = dict(account_sizes)
 
-
         # Build result dictionary
         result = {}
         for hotkey in account_sizes_dict:
@@ -510,7 +523,7 @@ class MinerStatisticsManager:
                     "value": account_sizes_dict.get(hotkey),
                     "rank": account_size_ranks.get(hotkey),
                     "percentile": account_size_percentiles.get(hotkey),
-                "account_sizes": account_size_object.get(hotkey, [])
+                    "account_sizes": account_size_object.get(hotkey, []),
                 }
             }
 
@@ -519,11 +532,12 @@ class MinerStatisticsManager:
     # -------------------------------------------
     # Raw PnL Calculation
     # -------------------------------------------
-    def calculate_pnl_info(self, filtered_ledger: Dict[str, Dict[str, PerfLedger]]) -> Dict[str, Dict[str, float]]:
+    def calculate_pnl_info(
+        self, filtered_ledger: Dict[str, Dict[str, PerfLedger]]
+    ) -> Dict[str, Dict[str, float]]:
         """Calculate raw PnL values, rankings and percentiles for all miners."""
 
         raw_pnl_values = []
->>>>>>> d66d23cb39bd595ded9506957f449c5cd681de5d
         # Calculate raw PnL for each miner
         for hotkey, ledgers in filtered_ledger.items():
             portfolio_ledger = ledgers.get(TP_ID_PORTFOLIO)
@@ -533,12 +547,10 @@ class MinerStatisticsManager:
             else:
                 raw_pnl_values.append((hotkey, 0.0))
 
-
         # Calculate rankings and percentiles
         ranks = self.rank_dictionary(raw_pnl_values)
         percentiles = self.percentile_rank_dictionary(raw_pnl_values)
         values_dict = dict(raw_pnl_values)
-
 
         # Build result dictionary
         result = {}
@@ -547,7 +559,7 @@ class MinerStatisticsManager:
                 "raw_pnl": {
                     "value": values_dict.get(hotkey),
                     "rank": ranks.get(hotkey),
-                    "percentile": percentiles.get(hotkey)
+                    "percentile": percentiles.get(hotkey),
                 }
             }
 
@@ -557,10 +569,10 @@ class MinerStatisticsManager:
     # Asset Subcategory Performance
     # -------------------------------------------
     def miner_subcategory_scores(
-            self,
-            hotkey: str,
-            asset_softmaxed_scores: dict[str, dict[str, float]],
-            subclass_resolved_weighting: dict[str, float] = None
+        self,
+        hotkey: str,
+        asset_softmaxed_scores: dict[str, dict[str, float]],
+        subclass_resolved_weighting: dict[str, float] = None,
     ) -> dict[str, dict[str, float]]:
         """
         Extract individual miner's scores and rankings for each asset subcategory.
@@ -576,7 +588,9 @@ class MinerStatisticsManager:
 
         for subcategory, miner_scores in asset_softmaxed_scores.items():
             if hotkey in miner_scores:
-                subcategory_percentiles = self.percentile_rank_dictionary(miner_scores.items())
+                subcategory_percentiles = self.percentile_rank_dictionary(
+                    miner_scores.items()
+                )
                 subcategory_ranks = self.rank_dictionary(miner_scores.items())
 
                 # Score is the only one directly impacted by the subclass weighting, each score element should show the overall scoring contribution
@@ -587,7 +601,7 @@ class MinerStatisticsManager:
                 subcategory_data[subcategory] = {
                     "score": aggregated_score,
                     "rank": subcategory_ranks.get(hotkey, 0),
-                    "percentile": subcategory_percentiles.get(hotkey, 0.0) * 100
+                    "percentile": subcategory_percentiles.get(hotkey, 0.0) * 100,
                 }
 
         return subcategory_data
@@ -668,21 +682,28 @@ class MinerStatisticsManager:
                 maincomp_ledger, asset_subcategories
             )
         )
-        bt.logging.info(f"generate_minerstats subcategory_min_days: {subcategory_min_days}")
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
-        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_subcategories(
-            filtered_ledger,
-            filtered_positions,
-            subcategory_min_days=subcategory_min_days,
-            evaluation_time_ms=time_now,
-            weighting=final_results_weighting,
-            all_miner_account_sizes=all_miner_account_sizes
-        ) # returns asset competitiveness dict, asset softmaxed scores
+        bt.logging.info(
+            f"generate_minerstats subcategory_min_days: {subcategory_min_days}"
+        )
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
+            timestamp_ms=time_now
+        )
+        success_competitiveness, asset_softmaxed_scores = (
+            Scoring.score_miner_asset_subcategories(
+                filtered_ledger,
+                filtered_positions,
+                subcategory_min_days=subcategory_min_days,
+                evaluation_time_ms=time_now,
+                weighting=final_results_weighting,
+                all_miner_account_sizes=all_miner_account_sizes,
+            )
+        )  # returns asset competitiveness dict, asset softmaxed scores
 
-        subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(asset_softmaxed_scores)
+        subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(
+            asset_softmaxed_scores
+        )
         asset_aggregated_scores = Scoring.subclass_score_aggregation(
-            asset_softmaxed_scores,
-            subclass_resolved_weighting
+            asset_softmaxed_scores, subclass_resolved_weighting
         )
 
         # For weighting logic: gather "successful" checkpoint-based results
@@ -702,7 +723,7 @@ class MinerStatisticsManager:
             verbose=False,
             weighting=final_results_weighting,
             metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
-            all_miner_account_sizes=all_miner_account_sizes
+            all_miner_account_sizes=all_miner_account_sizes,
         )  # returns list of (hotkey, weightVal)
 
         # Only used for testing weight calculation
@@ -722,7 +743,7 @@ class MinerStatisticsManager:
             verbose=False,
             weighting=final_results_weighting,
             metrics=self.extract_scoring_config(self.metrics_calculator.metrics),
-            all_miner_account_sizes=all_miner_account_sizes
+            all_miner_account_sizes=all_miner_account_sizes,
         )
 
         challengeperiod_scores = Scoring.score_testing_miners(
@@ -779,8 +800,20 @@ class MinerStatisticsManager:
             )
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_all_scores(miner_data, subcategory_min_days, ScoreType.BASE, bypass_confidence, time_now)
-        augmented_scores = self.calculate_all_scores(miner_data, subcategory_min_days, ScoreType.AUGMENTED, bypass_confidence, time_now)
+        base_scores = self.calculate_all_scores(
+            miner_data,
+            subcategory_min_days,
+            ScoreType.BASE,
+            bypass_confidence,
+            time_now,
+        )
+        augmented_scores = self.calculate_all_scores(
+            miner_data,
+            subcategory_min_days,
+            ScoreType.AUGMENTED,
+            bypass_confidence,
+            time_now,
+        )
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(
@@ -890,7 +923,6 @@ class MinerStatisticsManager:
             # Account Size
             account_sizes = account_size_dict.get(hotkey)
 
-
             # Plagiarism
             plagiarism_val = plagiarism_scores.get(hotkey)
 
@@ -914,9 +946,7 @@ class MinerStatisticsManager:
 
             # Asset Subcategory Performance
             asset_subcategory_performance = self.miner_subcategory_scores(
-                hotkey,
-                asset_softmaxed_scores,
-                subclass_resolved_weighting
+                hotkey, asset_softmaxed_scores, subclass_resolved_weighting
             )
 
             final_miner_dict = {
@@ -1372,7 +1402,12 @@ if __name__ == "__main__":
         metagraph, None, position_manager=position_manager
     )
 
-    msm = MinerStatisticsManager(position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=contract_manager)
+    msm = MinerStatisticsManager(
+        position_manager,
+        subtensor_weight_setter,
+        plagiarism_detector,
+        contract_manager=contract_manager,
+    )
     pwd = os.getcwd()
     custom_output_path = os.path.join(pwd, "debug_miner_statistics.json")
     msm.generate_request_minerstatistics(
