@@ -59,9 +59,6 @@ class APIMetricsTracker:
         # Track failed requests: maps (user_id, endpoint, status_code) to deque of timestamps
         self.failed_requests: Dict[Tuple[str, str, int], Deque[float]] = defaultdict(lambda: deque(maxlen=1000))
 
-        # Store actual API keys for unknown keys: maps unknown_key_id to actual api_key
-        self.unknown_key_mapping: Dict[str, str] = {}
-
         # Lock for thread safety
         self.metrics_lock = threading.Lock()
 
@@ -83,14 +80,6 @@ class APIMetricsTracker:
         """
         # Get user_id from api_key if available
         user_id = self.api_key_to_alias.get(api_key, "unknown_key")
-        
-        # If it's an unknown key, store the actual API key for display
-        if user_id == "unknown_key" and api_key:
-            # Create a unique identifier for this unknown key
-            unknown_key_id = f"unknown_key_{hash(api_key) % 10000:04d}"
-            self.unknown_key_mapping[unknown_key_id] = api_key
-            user_id = unknown_key_id
-            
         return user_id
 
     def track_request(self, api_key: str, endpoint: str, duration: float, status_code: int = 200):
@@ -229,12 +218,7 @@ class APIMetricsTracker:
         log_lines.append("\nAPI Key Usage:")
         if api_counts:
             for key, count in sorted(api_counts.items(), key=lambda x: x[1], reverse=True):
-                # Show actual API key for unknown entries
-                if key.startswith("unknown_key_") and key in self.unknown_key_mapping:
-                    display_key = f"{key} ({self.unknown_key_mapping[key]})"
-                else:
-                    display_key = key
-                log_lines.append(f"  {display_key}: {count} requests")
+                log_lines.append(f"  {key}: {count} requests")
         else:
             log_lines.append("  No API requests in this period")
 
@@ -247,12 +231,7 @@ class APIMetricsTracker:
                 api_key_breakdown = {}
                 if endpoint in endpoint_api_key_counts:
                     for user_id, count in endpoint_api_key_counts[endpoint].items():
-                        # Show actual API key for unknown entries
-                        if user_id.startswith("unknown_key_") and user_id in self.unknown_key_mapping:
-                            display_key = f"{user_id} ({self.unknown_key_mapping[user_id]})"
-                        else:
-                            display_key = user_id
-                        api_key_breakdown[display_key] = count
+                        api_key_breakdown[user_id] = count
                 
                 # Format API key breakdown
                 if api_key_breakdown:
@@ -272,11 +251,7 @@ class APIMetricsTracker:
             log_lines.append("\nFailed Requests:")
             for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
                                                                   key=lambda x: x[1], reverse=True):
-                # Show actual API key for unknown entries
-                if user_id.startswith("unknown_key_") and user_id in self.unknown_key_mapping:
-                    display_user_id = f"{user_id} ({self.unknown_key_mapping[user_id]})"
-                else:
-                    display_user_id = user_id
+                display_user_id = user_id
                 
                 # Add status code description for common failure codes
                 status_desc = {
