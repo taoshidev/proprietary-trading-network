@@ -392,5 +392,65 @@ class TestAssetSegmentation(TestBase):
         self.assertEqual(timestamps, sorted(timestamps))
         self.assertEqual(timestamps, [1500, 2000, 3000])
 
+    def test_days_in_year_crypto_category(self):
+        """Test that days_in_year_from_asset_category returns correct value for CRYPTO"""
+        # Create segmentation machine similar to score_miners initialization
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
+        
+        segmentation_machine = AssetSegmentation(self.test_ledgers)
+        
+        # Test crypto asset category
+        days_in_year = segmentation_machine.days_in_year_from_asset_category(TradePairCategory.CRYPTO)
+        self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_CRYPTO)
+        self.assertEqual(days_in_year, 365)
+
+    def test_days_in_year_forex_category(self):
+        """Test that days_in_year_from_asset_category returns correct value for FOREX"""
+        # Create segmentation machine similar to score_miners initialization
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
+        
+        segmentation_machine = AssetSegmentation(self.test_ledgers)
+        
+        # Test forex asset category
+        days_in_year = segmentation_machine.days_in_year_from_asset_category(TradePairCategory.FOREX)
+        self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_FOREX)
+        self.assertEqual(days_in_year, 252)
+
+    def test_days_in_year_matches_subcategory_asset_class(self):
+        """Test that days_in_year matches the subcategory's asset class in score_miners pattern"""
+        # Initialize similar to score_miners function
+        asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
+        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
+        
+        segmentation_machine = AssetSegmentation(self.test_ledgers)
+        
+        # Test each subcategory to ensure it gets the correct days_in_year
+        for asset_subcategory in asset_subcategories:
+            # Get the days_in_year the same way as in score_miners
+            days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
+            
+            # Verify the correct days_in_year based on asset class
+            if asset_subcategory.asset_class == TradePairCategory.CRYPTO:
+                self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_CRYPTO)
+            elif asset_subcategory.asset_class == TradePairCategory.FOREX:
+                self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_FOREX)
+            # Add other asset classes if they exist in the future
+            
+    def test_days_in_year_invalid_category_raises_error(self):
+        """Test that days_in_year_from_asset_category raises error for invalid category"""
+        segmentation_machine = AssetSegmentation(self.test_ledgers)
+        
+        # Create a mock invalid category that doesn't exist in ASSET_CLASS_BREAKDOWN
+        from unittest.mock import Mock
+        invalid_category = Mock()
+        invalid_category.name = "INVALID_CATEGORY"
+        
+        with self.assertRaises(ValueError) as context:
+            segmentation_machine.days_in_year_from_asset_category(invalid_category)
+        
+        self.assertIn("Days in year must be positive", str(context.exception))
+
 if __name__ == '__main__':
     unittest.main()

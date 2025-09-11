@@ -100,7 +100,7 @@ def save_positions_to_manager(position_manager, hk_to_positions):
 class BacktestManager:
 
     def __init__(self, positions_at_t_f, start_time_ms, secrets, scoring_func,
-                 capital=ValiConfig.CAPITAL, use_slippage=None,
+                 capital=ValiConfig.DEFAULT_CAPITAL, use_slippage=None,
                  fetch_slippage_data=False, recalculate_slippage=False, rebuild_all_positions=False,
                  parallel_mode: ParallelizationMode=ParallelizationMode.PYSPARK, build_portfolio_ledgers_only=False,
                  pool_size=0, target_ledger_window_ms=ValiConfig.TARGET_LEDGER_WINDOW_MS):
@@ -158,7 +158,8 @@ class BacktestManager:
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
-                                                              is_backtesting=True)
+                                                              is_backtesting=True,
+                                                              contract_manager=self.contract_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.elimination_manager]):
@@ -169,13 +170,14 @@ class BacktestManager:
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
         self.position_manager.perf_ledger_manager = self.perf_ledger_manager
 
-        self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True)
+        self.weight_setter = SubtensorWeightSetter(self.metagraph, position_manager=self.position_manager, is_backtesting=True, contract_manager=self.contract_manager)
         self.position_locks = PositionLocks(hotkey_to_positions=positions_at_t_f, is_backtesting=True)
         self.plagiarism_detector = PlagiarismDetector(self.metagraph)
         self.miner_statistics_manager = MinerStatisticsManager(
             position_manager=self.position_manager,
             subtensor_weight_setter=self.weight_setter,
-            plagiarism_detector=self.plagiarism_detector
+            plagiarism_detector=self.plagiarism_detector,
+            contract_manager=self.contract_manager,
         )
         self.psm = PriceSlippageModel(self.live_price_fetcher, is_backtesting=True, fetch_slippage_data=fetch_slippage_data,
                                       recalculate_slippage=recalculate_slippage, capital=capital)

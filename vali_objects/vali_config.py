@@ -97,15 +97,11 @@ def _TradePair_Lookup() -> dict[str, TradePairCategory]:
     _walk(TradePairSubcategory)
     return mapping
 
-
-class InterpolatedValueFromDate:
-    def __init__(
-        self, start_date: str, *, low: int, interval: int, increment: int, target: int
-    ):
-        self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
+class InterpolatedValueFromDate():
+    def __init__(self, start_date: str, *, low: int=None, high:int=None, interval: int, increment: int, target: int):
+        self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         self.low = low
+        self.high = high
         self.interval = interval
         self.increment = increment
         self.target = target
@@ -113,8 +109,13 @@ class InterpolatedValueFromDate:
     def value(self):
         days_since_start = (datetime.now(tz=timezone.utc) - self.start_date).days
         intervals = max(0, days_since_start // self.interval)
-        new_n = self.low + self.increment * intervals
-        return min(self.target, new_n)
+
+        if self.low is not None:
+            new_n = self.low + abs(self.increment) * intervals
+            return min(self.target, new_n)
+        else:
+            new_n = self.high - abs(self.increment) * intervals
+            return max(self.target, new_n)
 
 
 class ValiConfig:
@@ -126,9 +127,10 @@ class ValiConfig:
     # Proof of Portfolio
     ENABLE_ZK_PROOFS = True
 
+    # Min number of trading days required for scoring
     STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL = 60
     STATISTICAL_CONFIDENCE_MINIMUM_N_FLOOR = 7
-    
+
     # Dynamic minimum days calculation - use Nth longest participating miner as threshold
     DYNAMIC_MIN_DAYS_NUM_MINERS = 20
 
@@ -205,10 +207,6 @@ class ValiConfig:
     EQUITIES_MIN_LEVERAGE = 0.1
     EQUITIES_MAX_LEVERAGE = 3
 
-    # Account Size
-    CAPITAL_FLOOR = 5_000
-    CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
-
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
@@ -263,13 +261,13 @@ class ValiConfig:
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
 
     # Scoring weights
-    SCORING_OMEGA_WEIGHT = 0.14
-    SCORING_SHARPE_WEIGHT = 0.14
-    SCORING_SORTINO_WEIGHT = 0.14
-    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.14
-    SCORING_CALMAR_WEIGHT = 0.14
+    SCORING_OMEGA_WEIGHT = 0.1
+    SCORING_SHARPE_WEIGHT = 0.1
+    SCORING_SORTINO_WEIGHT = 0.1
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.1
+    SCORING_CALMAR_WEIGHT = 0.1
     SCORING_RETURN_WEIGHT = 0.0
-    SCORING_PNL_WEIGHT = 0.3
+    SCORING_PNL_WEIGHT = 0.5
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.01  # Equivalent to 1% loss
@@ -281,7 +279,6 @@ class ValiConfig:
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
     PNL_NOCONFIDENCE_VALUE = -100_000
-    CALMAR_RATIO_CAP = 10
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.75
@@ -292,15 +289,10 @@ class ValiConfig:
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
-    # increment the CHALLENGE_PERIOD_MINIMUM_DAYS every 14 days by 7, until the value of 120 is reached
-    CHALLENGE_PERIOD_MINIMUM_DAYS = InterpolatedValueFromDate(
-        "2025-06-06", low=60, increment=7, interval=14, target=120
-    )
-    CHALLENGE_PERIOD_MAXIMUM_DAYS = 150
-    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
-    CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = (
-        0.75  # miners must pass 75th percentile to enter the main competition
-    )
+    CHALLENGE_PERIOD_MINIMUM_DAYS = 61
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
+    CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
     PROBATION_MAXIMUM_DAYS = 30
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
@@ -338,18 +330,21 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 50  # Required minimum total collateral balance per miner in Theta. Approx $8750 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = InterpolatedValueFromDate("2025-08-16", low=60, increment=50, interval=1, target=300)  # Begins at 60, and increases by 50 every day until limit 300 is reached.
+    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
+
+    # Account Size
+    COST_PER_THETA = 175  # Account size USD value per theta of collateral
+    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
+    MIN_CAPITAL = 5_000   # USD minimum capital account size
+    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
     # Miner will get a base of 50% collateral returned upon elimination
     BASE_COLLATERAL_RETURNED = 0.5
     # 50% of drawdown proportion is slashed
     SLASH_PROPORTION = 0.5
-
-    # Account size USD value per theta of collateral
-    COST_PER_THETA = 175
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

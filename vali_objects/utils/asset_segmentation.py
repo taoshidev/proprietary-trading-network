@@ -170,4 +170,4 @@ class AssetSegmentation:
         if days_in_year is None or days_in_year <= 0:
             raise ValueError(f"Days in year must be positive, instead of {days_in_year}")
 
-        return math.log(1 + ValiConfig.ANNUAL_RISK_FREE_DECIMAL) / days_in_year
+        return days_in_year

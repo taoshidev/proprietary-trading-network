@@ -8,6 +8,7 @@ import time
 from unittest.mock import MagicMock, patch
 import bittensor as bt
 
+from neurons.validator import Validator
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.shared_objects.test_utilities import (
@@ -31,6 +32,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 # Removed test_helpers import - using ValiConfig directly
 from vali_objects.vali_dataclasses.order import Order
@@ -85,11 +87,14 @@ class TestEliminationWeightCalculation(TestBase):
             perf_ledger_manager=self.perf_ledger_manager,
             elimination_manager=self.elimination_manager
         )
+
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         
         self.challengeperiod_manager = ChallengePeriodManager(
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.perf_ledger_manager,
+            contract_manager=self.contract_manager,
             running_unit_tests=True
         )
         
@@ -104,6 +109,7 @@ class TestEliminationWeightCalculation(TestBase):
         self.weight_setter = SubtensorWeightSetter(
             self.mock_metagraph,
             self.position_manager,
+            contract_manager=self.contract_manager,
             running_unit_tests=True
         )
         
@@ -333,7 +339,8 @@ class TestEliminationWeightCalculation(TestBase):
                 filtered_ledger,
                 filtered_positions,
                 subcategory_min_days=subcategory_min_days,
-                evaluation_time_ms=TimeUtil.now_in_millis()
+                evaluation_time_ms=TimeUtil.now_in_millis(),
+                all_miner_account_sizes={}
             )
             
             # Verify scores don't include eliminated miners

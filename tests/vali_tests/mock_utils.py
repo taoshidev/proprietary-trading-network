@@ -102,8 +102,8 @@ class EnhancedMockMetagraph(BaseMockMetagraph):
 class EnhancedMockChallengePeriodManager(BaseMockChallengePeriodManager):
     """Enhanced mock challenge period manager with full bucket support"""
     
-    def __init__(self, metagraph, position_manager, perf_ledger_manager, running_unit_tests=True):
-        super().__init__(metagraph, position_manager)
+    def __init__(self, metagraph, position_manager, perf_ledger_manager, contract_manager, running_unit_tests=True):
+        super().__init__(metagraph, position_manager, contract_manager)
         self.perf_ledger_manager = perf_ledger_manager
         
         # Initialize bucket storage

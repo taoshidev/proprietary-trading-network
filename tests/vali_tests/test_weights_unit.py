@@ -89,6 +89,7 @@ class TestWeights(TestBase):
             miner_positions,
             subcategory_min_days=self.SUBCATEGORY_MIN_DAYS,
             evaluation_time_ms=self.EVALUATION_TIME_MS,
+            all_miner_account_sizes={}
         )
 
         # Check that the result is a list of tuples with string and float elements
@@ -304,15 +305,16 @@ class TestWeights(TestBase):
 
     def test_subclass_score_aggregation_empty_input(self):
         """Test subclass_score_aggregation with empty input"""
-        result = Scoring.subclass_score_aggregation({})
+        result = Scoring.subclass_score_aggregation({}, {})
         self.assertEqual(result, [])
 
     def test_subclass_score_aggregation_single_asset(self):
         """Test subclass_score_aggregation with single asset class"""
 
         asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
+        asset_weights = {self.DEFAULT_SUBCATEGORY: 1.0}
         
-        result = Scoring.subclass_score_aggregation(asset_scores)
+        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
         
@@ -328,8 +330,8 @@ class TestWeights(TestBase):
     def test_subclass_score_aggregation_multiple_assets(self):
         """Test subclass_score_aggregation with multiple asset classes"""
         asset_scores = self.DEFAULT_ASSET_SCORES
-
-        result = Scoring.subclass_score_aggregation(asset_scores)
+        asset_weights = {sub_category : 0.5 for sub_category in self.DEFAULT_ASSET_SCORES.keys()}
+        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
         
@@ -390,7 +392,7 @@ class TestWeights(TestBase):
         ledger = {"miner1": self.DEFAULT_LEDGER}
         positions = {"miner1": [self.DEFAULT_POSITION]}
         
-        result = Scoring.score_miners(ledger, positions, self.SUBCATEGORY_MIN_DAYS, self.EVALUATION_TIME_MS)
+        result = Scoring.score_miners(ledger, positions, self.SUBCATEGORY_MIN_DAYS, self.EVALUATION_TIME_MS, all_miner_account_sizes={})
         self.assertIsInstance(result, dict)
         
         # Check that result contains asset subcategories
@@ -422,7 +424,7 @@ class TestWeights(TestBase):
 
     def test_miner_penalties_empty_input(self):
         """Test miner_penalties with empty input"""
-        result = Scoring.miner_penalties({}, {})
+        result = Scoring.miner_penalties({}, {}, {})
         self.assertEqual(result, {})
 
     def test_miner_penalties_with_ledger(self):
@@ -430,7 +432,7 @@ class TestWeights(TestBase):
         positions = {"miner1": [self.DEFAULT_POSITION]}
         ledger = {"miner1": self.DEFAULT_LEDGER}
         
-        result = Scoring.miner_penalties(positions, ledger)
+        result = Scoring.miner_penalties(positions, ledger, {})
         self.assertIsInstance(result, dict)
         self.assertIn("miner1", result)
         self.assertIsInstance(result["miner1"], float)
@@ -442,7 +444,7 @@ class TestWeights(TestBase):
         positions = {"miner1": [self.DEFAULT_POSITION]}
         ledger = {"miner1": None}
         
-        result = Scoring.miner_penalties(positions, ledger)
+        result = Scoring.miner_penalties(positions, ledger, {})
         self.assertEqual(result, {})
 
     def test_normalize_scores_empty_input(self):

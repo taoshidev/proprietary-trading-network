@@ -54,7 +54,7 @@ class ValidatorContractManager:
         self.is_backtesting = is_backtesting
         self.metagraph = metagraph
         self._account_sizes_lock = None
-        
+
         # Store network type for dynamic max_theta property
         if config is not None:
             self.is_testnet = config.subtensor.network == "test"
@@ -102,7 +102,7 @@ class ValidatorContractManager:
         if self.is_testnet:
             return ValiConfig.MAX_COLLATERAL_BALANCE_TESTNET
         else:
-            return ValiConfig.MAX_COLLATERAL_BALANCE_THETA.value()
+            return ValiConfig.MAX_COLLATERAL_BALANCE_THETA
 
     @property
     def min_theta(self) -> float:
@@ -136,7 +136,9 @@ class ValidatorContractManager:
         """Load miner account sizes from disk during initialization"""
         try:
             disk_data = ValiUtils.get_vali_json_file_dict(self.MINER_ACCOUNT_SIZES_FILE)
-            self.miner_account_sizes = self._parse_miner_account_sizes_dict(disk_data)
+            parsed_data = self._parse_miner_account_sizes_dict(disk_data)
+            self.miner_account_sizes.clear()
+            self.miner_account_sizes.update(parsed_data)
             bt.logging.info(f"Loaded {len(self.miner_account_sizes)} miner account size records from disk")
         except Exception as e:
             bt.logging.warning(f"Failed to load miner account sizes from disk: {e}")
@@ -149,11 +151,22 @@ class ValidatorContractManager:
         except Exception as e:
             bt.logging.error(f"Failed to save miner account sizes to disk: {e}")
 
-    def miner_account_sizes_dict(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Convert miner account sizes to checkpoint format for backup/sync"""
+    def miner_account_sizes_dict(self, most_recent_only: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+        """Convert miner account sizes to checkpoint format for backup/sync
+        
+        Args:
+            most_recent_only: If True, only return the most recent record for each miner
+        
+        Returns:
+            Dictionary with hotkeys as keys and list of record dicts as values
+        """
         json_dict = {}
         for hotkey, records in self.miner_account_sizes.items():
-            json_dict[hotkey] = [vars(record) for record in records]
+            if most_recent_only and records:
+                # Only include the most recent (last) record
+                json_dict[hotkey] = [vars(records[-1])]
+            else:
+                json_dict[hotkey] = [vars(record) for record in records]
         return json_dict
 
     @staticmethod
@@ -677,7 +690,7 @@ class ValidatorContractManager:
 
         # Use provided records_dict or default to self.miner_account_sizes
         source_records = records_dict if records_dict is not None else self.miner_account_sizes
-        
+
         if hotkey not in source_records or not source_records[hotkey]:
             return None
 
@@ -693,13 +706,37 @@ class ValidatorContractManager:
             most_recent_record = source_records[hotkey][-1]
             return most_recent_record.account_size
 
-        # Iteate in reversed order, and return the first record that is valid for or before the requested day
+        # Iterate in reversed order, and return the first record that is valid for or before the requested day
         for record in reversed(source_records[hotkey]):
             if record.valid_date_timestamp <= start_of_day_ms:
                 return record.account_size
 
         # No applicable records found
         return None
+
+    def get_all_miner_account_sizes(self, miner_account_sizes:dict[str, List[CollateralRecord]]=None, timestamp_ms:int=None) -> dict[str, float]:
+        """
+        Return a dict of all miner account sizes at a timestamp_ms
+        """
+        if miner_account_sizes is None:
+            miner_account_sizes = self.miner_account_sizes
+
+        if timestamp_ms is None:
+            timestamp_ms = TimeUtil.now_in_millis()
+
+        all_miner_account_sizes = {}
+        for hotkey in miner_account_sizes.keys():
+            all_miner_account_sizes[hotkey] = self.get_miner_account_size(hotkey, timestamp_ms=timestamp_ms, records_dict=miner_account_sizes)
+        return all_miner_account_sizes
+
+    @staticmethod
+    def min_collateral_penalty(collateral:float) -> float:
+        """
+        Penalize miners who do not reach the min collateral
+        """
+        if collateral >= ValiConfig.MIN_COLLATERAL_VALUE:
+            return 1
+        return 0.01
 
     def _broadcast_collateral_record_update_to_validators(self, hotkey: str, collateral_record: CollateralRecord):
         """
@@ -711,7 +748,7 @@ class ValidatorContractManager:
                 asyncio.run(self._async_broadcast_collateral_record(hotkey, collateral_record))
             except Exception as e:
                 bt.logging.error(f"Failed to broadcast collateral record for {hotkey}: {e}")
-        
+
         thread = threading.Thread(target=run_broadcast, daemon=True)
         thread.start()
 
@@ -729,7 +766,7 @@ class ValidatorContractManager:
             if not validator_axons:
                 bt.logging.debug("No other validators to broadcast CollateralRecord to")
                 return
-            
+
             # Create CollateralRecord synapse with the data
             collateral_record_data = {
                 "hotkey": hotkey,
@@ -737,17 +774,17 @@ class ValidatorContractManager:
                 "account_size_theta": collateral_record.account_size_theta,
                 "update_time_ms": collateral_record.update_time_ms
             }
-            
+
             collateral_synapse = template.protocol.CollateralRecord(
                 collateral_record=collateral_record_data
             )
-            
+
             bt.logging.info(f"Broadcasting CollateralRecord for {hotkey} to {len(validator_axons)} validators")
-            
+
             # Send to other validators using dendrite
             async with bt.dendrite(wallet=self.vault_wallet) as dendrite:
                 responses = await dendrite.aquery(validator_axons, collateral_synapse)
-                
+
                 # Log results
                 success_count = 0
                 for response in responses:
@@ -755,9 +792,9 @@ class ValidatorContractManager:
                         success_count += 1
                     elif response.error_message:
                         bt.logging.warning(f"Failed to send CollateralRecord to {response.axon.hotkey}: {response.error_message}")
-                
+
                 bt.logging.info(f"CollateralRecord broadcast completed: {success_count}/{len(responses)} validators updated")
-                
+
         except Exception as e:
             bt.logging.error(f"Error in async broadcast collateral record: {e}")
             import traceback
@@ -766,10 +803,10 @@ class ValidatorContractManager:
     def receive_collateral_record_update(self, collateral_record_data: dict) -> bool:
         """
         Process an incoming CollateralRecord synapse and update miner_account_sizes.
-        
+
         Args:
             collateral_record_data: Dictionary containing hotkey, account_size, update_time_ms, valid_date_timestamp
-            
+
         Returns:
             bool: True if successful, False otherwise
         """
@@ -808,7 +845,7 @@ class ValidatorContractManager:
 
                 bt.logging.info(f"Updated miner account size for {hotkey}: ${account_size} (valid from {collateral_record.valid_date_str})")
                 return True
-            
+
         except Exception as e:
             bt.logging.error(f"Error processing collateral record update: {e}")
             import traceback
