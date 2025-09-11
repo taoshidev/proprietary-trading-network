@@ -558,9 +558,20 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to compute slash amount for {miner_hotkey}: {e}")
             return 0.0
 
-    def slash_miner_collateral(self, miner_hotkey: str, slash_amount=None) -> bool:
+    def slash_miner_collateral_proportion(self, miner_hotkey: str, slash_proportion:float) -> bool:
         """
-        Slash miner's collateral
+        Slash miner's collateral by a proportion
+        """
+        current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
+        if current_balance_theta is None or current_balance_theta <= 0:
+            return False
+
+        slash_amount = current_balance_theta * slash_proportion
+        return self.slash_miner_collateral(miner_hotkey, slash_amount)
+
+    def slash_miner_collateral(self, miner_hotkey: str, slash_amount:float=None) -> bool:
+        """
+        Slash miner's collateral by a raw theta amount
 
         Args:
             miner_hotkey: miner hotkey to slash from
