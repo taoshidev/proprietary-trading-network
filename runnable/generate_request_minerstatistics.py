@@ -1149,9 +1149,6 @@ class MinerStatisticsManager:
                                         )
 
                                         miner_data["account_size"] = account_size
-                                        miner_data["calmar_cap"] = (
-                                            ValiConfig.CALMAR_RATIO_CAP
-                                        )
 
                                 except Exception as e:
                                     bt.logging.warning(
@@ -1187,7 +1184,6 @@ class MinerStatisticsManager:
                                 daily_pnl=daily_pnl,
                                 hotkey=hotkey,
                                 annual_risk_free_percentage=ValiConfig.ANNUAL_RISK_FREE_PERCENTAGE,
-                                calmar_ratio_cap=ValiConfig.CALMAR_RATIO_CAP,
                                 days_in_year_crypto=ValiConfig.DAYS_IN_YEAR_CRYPTO,
                                 weighted_average_decay_max=ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX,
                                 weighted_average_decay_min=ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN,
