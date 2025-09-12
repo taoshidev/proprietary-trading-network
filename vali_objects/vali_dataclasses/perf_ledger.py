@@ -1632,7 +1632,7 @@ class PerfLedgerManager(CacheController):
                         # Calculate the return at the last known price point
                         position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
                         position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
-                        position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                        position.set_returns(last_price, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
 
                         # Store info for aggregate logging with both price and return changes
                         new_return = position.return_at_close
