@@ -418,9 +418,7 @@ class Validator:
                 contract_manager=self.contract_manager,
                 miner_statistics_manager=self.miner_statistics_manager,
                 request_core_manager=self.request_core_manager,
-                asset_selection_manager=self.asset_selection_manager,
-                config=self.config,
-                slack_notifier=self.slack_notifier
+                asset_selection_manager=self.asset_selection_manager
             )
 
             # Start the API Manager in a separate process

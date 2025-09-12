@@ -296,7 +296,7 @@ class PTNRestServer(APIKeyMixin):
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
                  port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
                  miner_statistics_manager=None, request_core_manager=None,
-                 asset_selection_manager=None, config=None, slack_notifier=None):
+                 asset_selection_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -308,7 +308,6 @@ class PTNRestServer(APIKeyMixin):
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
             contract_manager: Optional contract manager for handling collateral operations
-            slack_notifier: Optional slack notifier for event notifications
         """
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
@@ -321,8 +320,6 @@ class PTNRestServer(APIKeyMixin):
         self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
         self.asset_selection_manager = asset_selection_manager
-        self.config = config
-        self.slack_notifier = slack_notifier
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -700,15 +697,6 @@ class PTNRestServer(APIKeyMixin):
                 result = self.contract_manager.process_deposit_request(
                     extrinsic_hex=extrinsic
                 )
-                
-                # Send Slack notification
-                if self.slack_notifier:
-                    if result.get('successfully_processed', False):
-                        self.slack_notifier.send_message(
-                            f"{result.get('success_message')}"
-                            f"Network: {self.config.subtensor.network}\n",
-                            level="success"
-                        )
 
                 # Return response
                 return jsonify(result)
@@ -773,15 +761,6 @@ class PTNRestServer(APIKeyMixin):
                     miner_coldkey=data['miner_coldkey'],
                     miner_hotkey=data['miner_hotkey']
                 )
-
-                # Send Slack notification
-                if self.slack_notifier:
-                    if result.get('successfully_processed', False):
-                        self.slack_notifier.send_message(
-                            f"{result.get('success_message')}"
-                            f"Network: {self.config.subtensor.network}\n",
-                            level="success"
-                        )
 
                 # Return response
                 return jsonify(result)
@@ -918,15 +897,6 @@ class PTNRestServer(APIKeyMixin):
                     asset_selection=data['asset_selection'],
                     miner=data['miner_hotkey']
                 )
-
-                # Send Slack notification
-                if self.slack_notifier:
-                    if result.get('successfully_processed', False):
-                        self.slack_notifier.send_message(
-                            f"{result.get('success_message')}"
-                            f"Network: {self.config.subtensor.network}\n",
-                            level="success"
-                        )
 
                 # Return response
                 return jsonify(result)

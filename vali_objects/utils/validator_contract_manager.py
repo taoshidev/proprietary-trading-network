@@ -356,7 +356,6 @@ class ValidatorContractManager:
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
-                    "success_message": msg,
                     "error_message": ""
                 }
                 
@@ -458,7 +457,6 @@ class ValidatorContractManager:
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
-                    "success_message": msg,
                     "error_message": "",
                     "returned_amount": returned_theta,
                     "returned_to": miner_coldkey
