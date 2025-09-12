@@ -24,7 +24,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
+from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
 TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
@@ -682,7 +682,7 @@ class PositionManager(CacheController):
                                        trade_pair=position.trade_pair,
                                        order_type=OrderType.FLAT,
                                        leverage=0,
-                                       src=ORDER_SRC_DEPRECATION_FLAT)
+                                       src=OrderSource.DEPRECATION_FLAT)
 
                     position.add_order(flat_order, self.live_price_fetcher)
                     self.save_miner_position(position, delete_open_position_if_exists=True)

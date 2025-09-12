@@ -25,9 +25,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import (
-    ORDER_SRC_DEPRECATION_FLAT,
-    ORDER_SRC_ELIMINATION_FLAT,
-    ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT,
+    OrderSource,
     Order,
 )
 from vali_objects.vali_dataclasses.price_source import PriceSource
@@ -792,7 +790,7 @@ class TestPositions(TestBase):
 
         self.add_order_to_position_and_save(position, o2)
         assert len(position.orders) == 3, position.orders
-        assert position.orders[2].src == ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
+        assert position.orders[2].src == OrderSource.PRICE_FILLED_ELIMINATION_FLAT
         assert position.orders[2].price_sources == \
                [PriceSource(source='unknown', timespan_ms=0, open=1.0, close=1.0, vwap=None, high=1.0, low=1.0, start_ms=0, websocket=False, lag_ms=0, bid=1.0, ask=1.0)]
         self.validate_intermediate_position_state(position, {
@@ -884,7 +882,7 @@ class TestPositions(TestBase):
 
         self.add_order_to_position_and_save(position, o2)
         assert len(position.orders) == 3, position.orders
-        assert position.orders[2].src == ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
+        assert position.orders[2].src == OrderSource.PRICE_FILLED_ELIMINATION_FLAT
         assert position.orders[2].price_sources == \
                [PriceSource(source='unknown', timespan_ms=0, open=1.0, close=1.0, vwap=None, high=1.0, low=1.0,
                             start_ms=0, websocket=False, lag_ms=0, bid=1.0, ask=1.0)]
@@ -2569,7 +2567,7 @@ class TestPositions(TestBase):
                            trade_pair=position.trade_pair,
                            order_type=OrderType.FLAT,
                            leverage=0,
-                           src=ORDER_SRC_ELIMINATION_FLAT)
+                           src=OrderSource.ELIMINATION_FLAT)
         position.add_order(fake_flat_order, self.live_price_fetcher)
         assert orig_return == position.return_at_close
         assert len(position.orders) == n_orders_orig + 1
@@ -2606,7 +2604,7 @@ class TestPositions(TestBase):
         print(position)
         assert len(position.orders) == 4
         assert position.is_closed_position
-        assert position.orders[-1].src == ORDER_SRC_DEPRECATION_FLAT
+        assert position.orders[-1].src == OrderSource.DEPRECATION_FLAT
 
 
 if __name__ == '__main__':

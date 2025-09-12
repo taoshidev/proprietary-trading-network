@@ -6,7 +6,7 @@ from pydantic import model_validator, BaseModel, Field
 
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.vali_dataclasses.order import Order, ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT, ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
+from vali_objects.vali_dataclasses.order import Order, OrderSource
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils import leverage_utils
 import bittensor as bt
@@ -497,13 +497,13 @@ class Position(BaseModel):
                 order_type=OrderType.FLAT,
                 position=position
             )
-            src = ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT
+            src = OrderSource.PRICE_FILLED_ELIMINATION_FLAT
         else:
             bt.logging.warning(f'Unexpectedly unable to fetch price for trade pair {position.trade_pair.trade_pair_id}'
                                f' at time {TimeUtil.millis_to_formatted_date_str(elimination_time_ms)} during fake flat order'
-                               f'creation. Setting price to 0. and src to ORDER_SRC_ELIMINATION_FLAT')
+                               f'creation. Setting price to 0. and src to OrderSource.ELIMINATION_FLAT')
             price = 0
-            src = ORDER_SRC_ELIMINATION_FLAT
+            src = OrderSource.ELIMINATION_FLAT
 
 
         flat_order = Order(price=price,
@@ -567,7 +567,7 @@ class Position(BaseModel):
         realtime_price = order.price
         assert self.initial_entry_price > 0, self.initial_entry_price
         new_net_leverage = self.net_leverage + delta_leverage
-        if order.src in (ORDER_SRC_ELIMINATION_FLAT, ORDER_SRC_DEPRECATION_FLAT):
+        if order.src in (OrderSource.ELIMINATION_FLAT, OrderSource.DEPRECATION_FLAT):
             self.net_leverage = 0.0
             return  # Don't set returns since the price is zero'd out.
         self.set_returns(realtime_price, live_price_fetcher, time_ms=order.processed_ms, order=order)
