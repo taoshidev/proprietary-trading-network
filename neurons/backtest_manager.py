@@ -32,7 +32,6 @@ import bittensor as bt
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 # Set environment variables for database access
 os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
