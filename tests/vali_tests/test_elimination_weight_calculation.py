@@ -266,13 +266,20 @@ class TestEliminationWeightCalculation(TestBase):
                 self.assertIsNotNone(healthy_weight)
                 self.assertGreater(healthy_weight, 0.0)
 
-    def test_zombie_miners_excluded_from_weights(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_zombie_miners_excluded_from_weights(self, mock_candle_fetcher):
         """Test that zombie miners (not in metagraph) are excluded"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Remove zombie miner from metagraph
         self.mock_metagraph.remove_hotkey(self.ZOMBIE_MINER)
         
         # Process eliminations to mark as zombie
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Compute weights
         current_time = TimeUtil.now_in_millis()

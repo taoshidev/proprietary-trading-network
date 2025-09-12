@@ -5,9 +5,6 @@ Consolidated core elimination tests combining basic and comprehensive eliminatio
 Tests all elimination types, persistence, and core operations.
 """
 import os
-import json
-import time
-from copy import deepcopy
 from unittest.mock import patch, MagicMock
 
 from tests.shared_objects.mock_classes import MockPositionManager
@@ -28,12 +25,8 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
-from vali_objects.vali_dataclasses.price_source import PriceSource
-from shared_objects.cache_controller import CacheController
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_utils import ValiUtils
-# Removed test_helpers import - using ValiConfig directly
-
 
 class TestEliminationCore(TestBase):
     """Core elimination manager functionality combining basic and comprehensive tests"""
@@ -185,13 +178,25 @@ class TestEliminationCore(TestBase):
 
     # ========== Basic Elimination Tests (from test_elimination_manager.py) ==========
     
-    def test_basic_mdd_elimination(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_basic_mdd_elimination(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test basic MDD elimination functionality"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Initially no eliminations
         self.assertEqual(len(self.challengeperiod_manager.get_success_miners()), 5)
         
         # Process eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Check MDD miner was eliminated
         eliminations = self.elimination_manager.get_eliminations_from_disk()
@@ -199,8 +204,17 @@ class TestEliminationCore(TestBase):
         self.assertEqual(eliminations[0]["hotkey"], self.MDD_MINER)
         self.assertEqual(eliminations[0]["reason"], EliminationReason.MAX_TOTAL_DRAWDOWN.value)
 
-    def test_zombie_elimination_basic(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_zombie_elimination_basic(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test basic zombie elimination when miner leaves metagraph"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Process initial eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
         
@@ -209,6 +223,9 @@ class TestEliminationCore(TestBase):
         
         # Process eliminations again
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Check all miners are now eliminated
         eliminations = self.elimination_manager.get_eliminations_from_disk()
@@ -228,10 +245,22 @@ class TestEliminationCore(TestBase):
 
     # ========== Comprehensive Elimination Tests (from test_elimination_manager_comprehensive.py) ==========
     
-    def test_mdd_elimination_comprehensive(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_mdd_elimination_comprehensive(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test comprehensive MDD elimination with position closure"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Process MDD eliminations
         self.elimination_manager.handle_mdd_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Verify elimination
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -247,8 +276,17 @@ class TestEliminationCore(TestBase):
             self.assertTrue(pos.is_closed_position)
             self.assertEqual(pos.orders[-1].order_type, OrderType.FLAT)
 
-    def test_challenge_period_elimination(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_challenge_period_elimination(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test elimination for miners failing challenge period"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Set up challenge period failure
         self.challengeperiod_manager.eliminations_with_reasons = {
             self.CHALLENGE_FAIL_MINER: (
@@ -260,6 +298,9 @@ class TestEliminationCore(TestBase):
         # Process eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
         
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
+        
         # Verify elimination
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         challenge_elim = next((e for e in eliminations if e["hotkey"] == self.CHALLENGE_FAIL_MINER), None)
@@ -267,8 +308,17 @@ class TestEliminationCore(TestBase):
         self.assertEqual(challenge_elim["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value)
         self.assertEqual(challenge_elim["dd"], 0.08)
 
-    def test_plagiarism_elimination(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_plagiarism_elimination(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test elimination for plagiarism"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Mock high plagiarism score
         self.challengeperiod_manager.miner_plagiarism_scores = {
             self.PLAGIARIST_MINER: ValiConfig.MAX_MINER_PLAGIARISM_SCORE + 0.1
@@ -280,14 +330,26 @@ class TestEliminationCore(TestBase):
         # Call plagiarism elimination directly
         self.elimination_manager._handle_plagiarism_eliminations(self.position_locks)
         
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
+        
         # Check that plagiarist was eliminated
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         plagiarism_elim = next((e for e in eliminations if e["hotkey"] == self.PLAGIARIST_MINER), None)
         self.assertIsNotNone(plagiarism_elim)
         self.assertEqual(plagiarism_elim["reason"], EliminationReason.PLAGIARISM.value)
 
-    def test_perf_ledger_elimination(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_perf_ledger_elimination(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test elimination triggered by perf ledger manager"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Create a perf ledger elimination
         pl_elimination = {
             'hotkey': self.LIQUIDATED_MINER,
@@ -305,6 +367,9 @@ class TestEliminationCore(TestBase):
         
         # Process eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Check that liquidated miner was eliminated
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -460,8 +525,17 @@ class TestEliminationCore(TestBase):
         # Verify it works with IPC manager
         self.assertEqual(len(ipc_elimination_manager.eliminations), 1)
 
-    def test_multiple_eliminations_same_miner(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_multiple_eliminations_same_miner(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test that a miner can only be eliminated once"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # First elimination
         self.elimination_manager.eliminations.append({
             'hotkey': self.MDD_MINER,
@@ -474,13 +548,25 @@ class TestEliminationCore(TestBase):
         # Process eliminations should not duplicate
         self.elimination_manager.process_eliminations(self.position_locks)
         
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
+        
         # Should still have only one elimination for this miner
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         mdd_eliminations = [e for e in eliminations if e['hotkey'] == self.MDD_MINER]
         self.assertEqual(len(mdd_eliminations), 1)
 
-    def test_elimination_deletion_after_timeout(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_elimination_deletion_after_timeout(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test that old eliminations are cleaned up after timeout"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Create an old elimination
         old_time = TimeUtil.now_in_millis() - ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS - MS_IN_8_HOURS
         
@@ -502,6 +588,9 @@ class TestEliminationCore(TestBase):
         # Process eliminations (should clean up)
         self.elimination_manager.process_eliminations(self.position_locks)
         
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
+        
         # Verify cleanup
         eliminations = self.elimination_manager.get_eliminations_from_memory()
         old_miner_elim = next((e for e in eliminations if e['hotkey'] == 'old_miner'), None)
@@ -521,8 +610,17 @@ class TestEliminationCore(TestBase):
         mdd_elim = next((e for e in eliminations if e['hotkey'] == self.MDD_MINER), None)
         self.assertIsNotNone(mdd_elim)
 
-    def test_elimination_first_refresh_handling(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_elimination_first_refresh_handling(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test first refresh behavior after validator start"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Create new elimination manager
         new_manager = EliminationManager(
             self.mock_metagraph,
@@ -536,6 +634,9 @@ class TestEliminationCore(TestBase):
         
         # Process eliminations
         new_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Flag should be set
         self.assertTrue(new_manager.first_refresh_ran)

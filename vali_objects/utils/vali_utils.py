@@ -14,6 +14,9 @@ class ValiUtils:
     @staticmethod
     def get_secrets(running_unit_tests=False) -> Dict:
         # wrapping here to allow simpler error handling & original for other error handling
+        if running_unit_tests:
+            return {'polygon_apikey': "", 'tiingo_apikey': ""}
+
         ans = {}
         try:
             secrets = ValiBkpUtils.get_file(ValiBkpUtils.get_secrets_dir())
@@ -23,14 +26,7 @@ class ValiUtils:
                     if k not in ans:
                         ans[k] = ""
         except FileNotFoundError:
-            if not running_unit_tests:
-                raise ValiFileMissingException("Vali secrets file is missing")
-
-        if running_unit_tests:
-            for k in ['polygon_apikey', 'tiingo_apikey']:
-                if k not in ans:
-                    # Free API key made for tests
-                    ans[k] = "aa45e119baef5759d66004903aaff3b0b0e30205" if k == "tiingo_apikey" else ""
+            raise ValiFileMissingException("Vali secrets file is missing")
 
         return ans
     @staticmethod

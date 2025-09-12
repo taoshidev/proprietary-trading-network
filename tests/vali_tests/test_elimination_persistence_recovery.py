@@ -166,8 +166,12 @@ class TestEliminationPersistenceRecovery(TestBase):
             self.assertEqual(saved_elim['hotkey'], eliminations[i]['hotkey'])
             self.assertEqual(saved_elim['reason'], eliminations[i]['reason'])
 
-    def test_elimination_recovery_on_restart(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_elimination_recovery_on_restart(self, mock_candle_fetcher):
         """Test that eliminations are recovered correctly on validator restart"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Create and save eliminations
         test_eliminations = [
             {
@@ -206,6 +210,9 @@ class TestEliminationPersistenceRecovery(TestBase):
         
         # Verify first refresh handles recovered eliminations
         new_elimination_manager.handle_first_refresh(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Check that positions were closed for eliminated miners
         for elim in test_eliminations:

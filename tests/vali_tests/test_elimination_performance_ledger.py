@@ -303,8 +303,12 @@ class TestPerfLedgerEliminations(TestBase):
         # dd_percentage is returned as percentage (0-100), not decimal
         self.assertAlmostEqual(dd_percentage, 12.0, places=0)
 
-    def test_perf_ledger_update_with_eliminations(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_perf_ledger_update_with_eliminations(self, mock_candle_fetcher):
         """Test that perf ledger update handles eliminations correctly"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Set up positions and ledgers
         ledgers = {}
         for miner in [self.HEALTHY_MINER, self.MDD_MINER]:
@@ -324,6 +328,9 @@ class TestPerfLedgerEliminations(TestBase):
         
         # Process eliminations through elimination manager
         self.elimination_manager.handle_perf_ledger_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Verify elimination was processed
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -374,8 +381,12 @@ class TestPerfLedgerEliminations(TestBase):
         self.assertIsNotNone(miner_ledger)
         self.assertEqual(len(miner_ledger.cps), 2)
 
-    def test_concurrent_elimination_handling(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_concurrent_elimination_handling(self, mock_candle_fetcher):
         """Test handling of concurrent eliminations from multiple sources"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Add elimination from perf ledger
         pl_elim = {
             'hotkey': self.LIQUIDATED_MINER,
@@ -388,6 +399,9 @@ class TestPerfLedgerEliminations(TestBase):
         
         # Process through elimination manager
         self.elimination_manager.handle_perf_ledger_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Try to add another elimination for same miner (should be prevented)
         initial_count = len(self.elimination_manager.get_eliminations_from_memory())

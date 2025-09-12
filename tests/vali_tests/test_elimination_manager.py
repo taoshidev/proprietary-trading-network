@@ -1,3 +1,4 @@
+from unittest.mock import patch
 from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
@@ -87,11 +88,18 @@ class TestEliminationManager(TestBase):
         self.challengeperiod_manager._clear_challengeperiod_in_memory_and_disk()
         self.elimination_manager.clear_eliminations()
 
-    def test_elimination_for_mdd(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_elimination_for_mdd(self, mock_candle_fetcher):
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Neither miner has been eliminated
         self.assertEqual(len(self.challengeperiod_manager.get_success_miners()), 2)
 
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
 
         eliminations = self.elimination_manager.get_eliminations_from_disk()
         self.assertEqual(len(eliminations), 1)
