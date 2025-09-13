@@ -949,7 +949,19 @@ class PTNRestServer(APIKeyMixin):
         """Start the REST server using Waitress."""
         print(f"[{current_process().name}] Starting REST server at http://{self.host}:{self.port}")
         setproctitle(f"vali_{self.__class__.__name__}")
-        serve(self.app, host=self.host, port=self.port)
+        serve(
+            self.app, 
+            host=self.host, 
+            port=self.port, 
+            connection_limit=1000,
+            threads=10,  # Increased from 6 to handle queue depth
+            channel_timeout=60,  # Reduced from 120 to close stuck connections faster
+            cleanup_interval=10,  # Reduced from 30 for more aggressive cleanup
+            backlog=2048,  # Increased to handle bursts better
+            send_bytes=65536,  # Increase send buffer from default 1 byte
+            outbuf_overflow=1048576,  # 1MB output buffer overflow size
+            asyncore_use_poll=True  # Use poll() instead of select() for better performance
+        )
 
 
 # This allows the module to be run directly for testing

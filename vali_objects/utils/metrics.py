@@ -59,8 +59,8 @@ class Metrics:
 
         if indices is not None and len(indices) != 0:
             indices = [i for i in indices if i in range(len(log_returns))]
-            log_returns = [log_returns[i] for i in indices]
-            weighting_distribution = [weighting_distribution[i] for i in indices]
+            log_returns = np.array(log_returns)[indices]
+            weighting_distribution = np.array(weighting_distribution)[indices]
 
         if weighting:
             avg_value = np.average(log_returns, weights=weighting_distribution)

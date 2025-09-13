@@ -24,10 +24,14 @@ Usage Examples:
     test_single_hotkey = '5HDmzyhrEco9w6Jv8eE3hDMcXSE4AGg1MuezPR4u2covxKwZ'
 """
 import copy
+import logging
 import os
 import time
 
 import bittensor as bt
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 # Set environment variables for database access
 os.environ["TAOSHI_TS_DEPLOYMENT"] = "DEVELOPMENT"
@@ -201,16 +205,16 @@ class BacktestManager:
             assert len(existing_positions) <= 1, f"Found multiple positions with the same UUID: {existing_positions}"
             existing_position = existing_positions[0] if existing_positions else None
             if existing_position:
-                print(f'OQU: Added order to existing position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted}')
+                logger.debug(f'OQU: Added order to existing position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted}')
                 assert all(o.order_uuid != order.order_uuid for o in existing_position.orders), \
                     f"Order {order.order_uuid} already exists in position {existing_position.position_uuid}"
                 existing_position.orders.append(order)
-                existing_position.rebuild_position_with_updated_orders()
+                existing_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 self.position_manager.save_miner_position(existing_position)
             else:  # first order. position must be inserted into list
-                print(f'OQU: Created new position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
+                logger.debug(f'OQU: Created new position ({position.position_uuid}) with tp {position.trade_pair.trade_pair_id} at {time_formatted} for hk {position.miner_hotkey}')
                 position.orders = [order]
-                position.rebuild_position_with_updated_orders()
+                position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 self.position_manager.save_miner_position(position)
 
     def init_order_queue_and_current_positions(self, cutoff_ms, positions_at_t_f, rebuild_all_positions=False):
@@ -219,7 +223,7 @@ class BacktestManager:
             for position in positions:
                 if position.orders[-1].processed_ms <= cutoff_ms:
                     if rebuild_all_positions:
-                        position.rebuild_position_with_updated_orders()
+                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                     self.position_manager.save_miner_position(position)
                     continue
                 orders_to_keep = []
@@ -231,12 +235,12 @@ class BacktestManager:
                 if orders_to_keep:
                     if len(orders_to_keep) != len(position.orders):
                         position.orders = orders_to_keep
-                        position.rebuild_position_with_updated_orders()
+                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                     self.position_manager.save_miner_position(position)
 
         self.order_queue.sort(key=lambda x: x[0].processed_ms, reverse=True)
         current_hk_to_positions = self.position_manager.get_positions_for_all_miners()
-        print(f'Order queue size: {len(self.order_queue)},'
+        logger.debug(f'Order queue size: {len(self.order_queue)},'
               f' Current positions n hotkeys: {len(current_hk_to_positions)},'
               f' Current positions n total: {sum(len(v) for v in current_hk_to_positions.values())}')
 

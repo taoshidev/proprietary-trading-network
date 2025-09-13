@@ -1,12 +1,7 @@
 # developer: trdougherty
 import copy
-
-from tests.vali_tests.base_objects.test_base import TestBase
-from vali_objects.scoring.scoring import Scoring
-from vali_objects.position import Position
-from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.asset_segmentation import AssetSegmentation
-from vali_objects.vali_config import TradePair, ValiConfig, ForexSubcategory, CryptoSubcategory
+from vali_objects.vali_config import ForexSubcategory, CryptoSubcategory
 
 from tests.shared_objects.test_utilities import generate_ledger
 from tests.vali_tests.base_objects.test_base import TestBase

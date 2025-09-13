@@ -25,10 +25,10 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import (
-    ORDER_SRC_DEPRECATION_FLAT,
-    ORDER_SRC_ELIMINATION_FLAT,
+    OrderSource,
     Order,
 )
+from vali_objects.vali_dataclasses.price_source import PriceSource
 
 
 class TestPositions(TestBase):
@@ -57,7 +57,7 @@ class TestPositions(TestBase):
         self.position_manager.clear_all_miner_positions()
 
     def add_order_to_position_and_save(self, position, order):
-        position.add_order(order, self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
+        position.add_order(order, self.live_price_fetcher, self.position_manager.calculate_net_portfolio_leverage(self.DEFAULT_MINER_HOTKEY))
         self.position_manager.save_miner_position(position)
 
     def _find_disk_position_from_memory_position(self, position):
@@ -127,16 +127,16 @@ class TestPositions(TestBase):
             orders=[],
             account_size=ValiConfig.DEFAULT_CAPITAL
         )
-        closed_position.add_order(open_order)
-        closed_position.add_order(reduce_size_order)
-        closed_position.add_order(increase_size_order)
-        closed_position.add_order(close_order)
+        closed_position.add_order(open_order, self.live_price_fetcher)
+        closed_position.add_order(reduce_size_order, self.live_price_fetcher)
+        closed_position.add_order(increase_size_order, self.live_price_fetcher)
+        closed_position.add_order(close_order, self.live_price_fetcher)
 
         old_returns_calc = closed_position.current_return
 
         position_file.ALWAYS_USE_SLIPPAGE = True
 
-        closed_position.rebuild_position_with_updated_orders()
+        closed_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         new_returns_calc = closed_position.current_return
 
         assert old_returns_calc == new_returns_calc
@@ -196,16 +196,16 @@ class TestPositions(TestBase):
             orders=[],
             account_size=ValiConfig.DEFAULT_CAPITAL
         )
-        closed_position.add_order(open_order)
-        closed_position.add_order(reduce_size_order)
-        closed_position.add_order(increase_size_order)
-        closed_position.add_order(close_order)
+        closed_position.add_order(open_order, self.live_price_fetcher)
+        closed_position.add_order(reduce_size_order, self.live_price_fetcher)
+        closed_position.add_order(increase_size_order, self.live_price_fetcher)
+        closed_position.add_order(close_order, self.live_price_fetcher)
 
         old_returns_calc = closed_position.current_return
 
         position_file.ALWAYS_USE_SLIPPAGE = True
 
-        closed_position.rebuild_position_with_updated_orders()
+        closed_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         new_returns_calc = closed_position.current_return
 
         assert old_returns_calc == new_returns_calc
@@ -241,8 +241,8 @@ class TestPositions(TestBase):
             orders=[],
             account_size=ValiConfig.DEFAULT_CAPITAL
         )
-        closed_position.add_order(open_order)
-        closed_position.add_order(close_order)
+        closed_position.add_order(open_order, self.live_price_fetcher)
+        closed_position.add_order(close_order, self.live_price_fetcher)
         assert closed_position.current_return == 1.0045269066025986
 
     def test_position_returns_one_order(self):
@@ -270,11 +270,11 @@ class TestPositions(TestBase):
         )
         assert open_position.current_return == 1
 
-        open_position.set_returns(90)
+        open_position.set_returns(90, live_price_fetcher=self.live_price_fetcher)
         r1 = open_position.current_return
         assert r1 != 1.0
 
-        open_position.set_returns(80)
+        open_position.set_returns(80, live_price_fetcher=self.live_price_fetcher)
         r2 = open_position.current_return
         assert r2 != 1.0
         assert r1 < r2
@@ -290,7 +290,7 @@ class TestPositions(TestBase):
                       processed_ms=1000 + i * 10,
                       order_uuid=str(i))
             position.orders.append(o)
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         # Test various intervals
         test_intervals = [
@@ -359,7 +359,7 @@ class TestPositions(TestBase):
                       processed_ms=1000 + i * 10,
                       order_uuid=str(i))
             position.orders.append(o)
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         # Test various intervals
         test_intervals = [
@@ -498,7 +498,7 @@ class TestPositions(TestBase):
                    trade_pair=TradePair.BTCUSD,
                    processed_ms=t0,
                    order_uuid="1000")
-        position.add_order(o1)
+        position.add_order(o1, self.live_price_fetcher)
         carry_fee, next_update_time_ms = position.get_carry_fee(timestamp_ms_july_24_2024_4am)
         self.assertNotEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am)
         self.assertEqual(next_update_time_ms, timestamp_ms_july_24_2024_4am + MS_IN_8_HOURS,
@@ -790,7 +790,9 @@ class TestPositions(TestBase):
 
         self.add_order_to_position_and_save(position, o2)
         assert len(position.orders) == 3, position.orders
-        assert position.orders[2].src == ORDER_SRC_ELIMINATION_FLAT
+        assert position.orders[2].src == OrderSource.PRICE_FILLED_ELIMINATION_FLAT
+        assert position.orders[2].price_sources == \
+               [PriceSource(source='unknown', timespan_ms=0, open=1.0, close=1.0, vwap=None, high=1.0, low=1.0, start_ms=0, websocket=False, lag_ms=0, bid=1.0, ask=1.0)]
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
@@ -880,7 +882,11 @@ class TestPositions(TestBase):
 
         self.add_order_to_position_and_save(position, o2)
         assert len(position.orders) == 3, position.orders
-        assert position.orders[2].src == ORDER_SRC_ELIMINATION_FLAT
+        assert position.orders[2].src == OrderSource.PRICE_FILLED_ELIMINATION_FLAT
+        assert position.orders[2].price_sources == \
+               [PriceSource(source='unknown', timespan_ms=0, open=1.0, close=1.0, vwap=None, high=1.0, low=1.0,
+                            start_ms=0, websocket=False, lag_ms=0, bid=1.0, ask=1.0)]
+
         self.validate_intermediate_position_state(position, {
             'orders': [o1, o2, position.orders[2]],
             'position_type': OrderType.FLAT,
@@ -1005,7 +1011,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
@@ -1013,7 +1019,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
@@ -1021,7 +1027,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
@@ -1029,7 +1035,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
@@ -1037,14 +1043,14 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
                                         leverage=0.0,
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.SHORT,
@@ -1052,7 +1058,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.SHORT,
@@ -1060,7 +1066,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
@@ -1068,14 +1074,14 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=1000,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
                                         leverage=-1.0,
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v1.add_order(Order(order_type=OrderType.LONG,
@@ -1083,7 +1089,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS - 1,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
         with self.assertRaises(ValueError):
             position_v2.add_order(Order(order_type=OrderType.LONG,
@@ -1091,7 +1097,7 @@ class TestPositions(TestBase):
                                         price=100,
                                         trade_pair=TradePair.BTCUSD,
                                         processed_ms=LEVERAGE_BOUNDS_V2_START_TIME_MS,
-                                        order_uuid="1000"))
+                                        order_uuid="1000"), self.live_price_fetcher)
 
     def test_invalid_prices_zero(self):
         position = deepcopy(self.default_position)
@@ -1102,7 +1108,7 @@ class TestPositions(TestBase):
                    processed_ms=1000,
                    order_uuid="1000")
         with self.assertRaises(ValueError):
-            position.add_order(o1)
+            position.add_order(o1, self.live_price_fetcher)
 
     def test_invalid_prices_negative(self):
         with self.assertRaises(ValueError):
@@ -1554,7 +1560,7 @@ class TestPositions(TestBase):
 
         for order in [o1, o2, o3]:
             with self.assertRaises(ValueError):
-                position.add_order(order)
+                position.add_order(order, self.live_price_fetcher)
 
     def test_two_positions_no_collisions(self):
         weekday_time_ms = FEE_V6_TIME_MS + 1000 * 60 * 60 * 24 * 3
@@ -2550,7 +2556,7 @@ class TestPositions(TestBase):
                       processed_ms=1000 + i * 10,
                       order_uuid=str(i))
             position.orders.append(o)
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         orig_return = position.return_at_close
         n_orders_orig = len(position.orders)
 
@@ -2561,12 +2567,12 @@ class TestPositions(TestBase):
                            trade_pair=position.trade_pair,
                            order_type=OrderType.FLAT,
                            leverage=0,
-                           src=ORDER_SRC_ELIMINATION_FLAT)
-        position.add_order(fake_flat_order)
+                           src=OrderSource.ELIMINATION_FLAT)
+        position.add_order(fake_flat_order, self.live_price_fetcher)
         assert orig_return == position.return_at_close
         assert len(position.orders) == n_orders_orig + 1
 
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         assert orig_return == position.return_at_close
         assert len(position.orders) == n_orders_orig + 1
 
@@ -2589,7 +2595,7 @@ class TestPositions(TestBase):
                       processed_ms=1000 + i * 10,
                       order_uuid=str(i))
             self.add_order_to_position_and_save(position, o)
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         assert len(position.orders) == 3
         assert not position.is_closed_position
@@ -2598,7 +2604,7 @@ class TestPositions(TestBase):
         print(position)
         assert len(position.orders) == 4
         assert position.is_closed_position
-        assert position.orders[-1].src == ORDER_SRC_DEPRECATION_FLAT
+        assert position.orders[-1].src == OrderSource.DEPRECATION_FLAT
 
 
 if __name__ == '__main__':

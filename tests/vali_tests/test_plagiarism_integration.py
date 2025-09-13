@@ -2,7 +2,7 @@ import uuid
 
 from tests.shared_objects.mock_classes import (
     MockPlagiarismDetector,
-    MockPositionManager,
+    MockPositionManager, MockLivePriceFetcher,
 )
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -10,6 +10,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.plagiarism_events import PlagiarismEvents
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 
@@ -27,7 +28,8 @@ class TestPlagiarismIntegration(TestBase):
         self.N_MINERS = 6
         self.MINER_NAMES = [f"test_miner{i}" for i in range(self.N_MINERS)]
 
-
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
         self.current_time = ValiConfig.PLAGIARISM_LOOKBACK_RANGE_MS
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
@@ -156,7 +158,7 @@ class TestPlagiarismIntegration(TestBase):
                                    open_ms=self.ONE_MIN_MS * 10)
 
     def add_order_to_position_and_save_to_disk(self, position, order):
-        position.add_order(order)
+        position.add_order(order, self.live_price_fetcher)
         self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
 
     def generate_one_position(self, hotkey, trade_pair, leverages, times_apart, open_ms, close_ms=None, times_after=None):

@@ -21,7 +21,9 @@ from time_util.time_util import TimeUtil, MS_IN_24_HOURS, MS_IN_8_HOURS
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -39,6 +41,8 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
 
     def setUp(self):
         super().setUp()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.test_hotkey = "test_miner_edge"
         self.now_ms = TimeUtil.now_in_millis()
         
@@ -118,7 +122,7 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             position_type=OrderType.FLAT,
             is_closed_position=True,
         )
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         self.position_manager.save_miner_position(position)
         
         # Should handle gracefully
@@ -502,7 +506,7 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             position_type=OrderType.FLAT,
             is_closed_position=True,
         )
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         self.position_manager.save_miner_position(position)
         
         # Update
@@ -555,7 +559,7 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             position_type=OrderType.FLAT,
             is_closed_position=True,
         )
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         return position
 
 

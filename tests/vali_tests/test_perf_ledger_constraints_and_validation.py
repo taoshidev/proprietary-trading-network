@@ -11,6 +11,8 @@ This file contains tests that explicitly validate business rules and constraints
 import unittest
 from unittest.mock import patch, Mock
 
+from tests.shared_objects.mock_classes import MockLivePriceFetcher
+
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_24_HOURS
@@ -18,6 +20,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -36,6 +39,8 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         super().setUp()
         self.test_hotkey = "test_miner_constraints"
         self.now_ms = TimeUtil.now_in_millis()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         
         self.mmg = MockMetagraph(hotkeys=[self.test_hotkey])
         self.elimination_manager = EliminationManager(self.mmg, None, None)
@@ -43,6 +48,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             metagraph=self.mmg,
             running_unit_tests=True,
             elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
         self.position_manager.clear_all_miner_positions()
 
@@ -264,8 +270,8 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             is_closed_position=False,
         )
         
-        position1.rebuild_position_with_updated_orders()
-        position2.rebuild_position_with_updated_orders()
+        position1.rebuild_position_with_updated_orders(self.live_price_fetcher)
+        position2.rebuild_position_with_updated_orders(self.live_price_fetcher)
         
         # First position should save successfully
         self.position_manager.save_miner_position(position1)
@@ -1635,7 +1641,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             is_closed_position=True,
         )
         
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         return position
 
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
@@ -1736,7 +1742,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 )],
                 position_type=OrderType.LONG,
             )
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
             positions.append(position)
             self.position_manager.save_miner_position(position)
         
@@ -1868,7 +1874,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             position_type=OrderType.FLAT,
             is_closed_position=True
         )
-        closed_eth_position.rebuild_position_with_updated_orders()
+        closed_eth_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         self.position_manager.save_miner_position(closed_eth_position)
         
         # Do another update to verify prices are still tracked for open positions only
@@ -1945,7 +1951,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             )],
             position_type=OrderType.LONG,
         )
-        btc_position.rebuild_position_with_updated_orders()
+        btc_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         
         eth_position = Position(
             miner_hotkey=self.test_hotkey,
@@ -1962,7 +1968,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             )],
             position_type=OrderType.SHORT,
         )
-        eth_position.rebuild_position_with_updated_orders()
+        eth_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         
         # Store original returns
         btc_original_return = btc_position.return_at_close
@@ -2032,9 +2038,9 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 order_type=OrderType.LONG,
                 leverage=1.0
             )
-            position.add_order(order)
+            position.add_order(order, self.live_price_fetcher)
         
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         self.position_manager.save_miner_position(position)
         
         # Clear call count before our test

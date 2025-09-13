@@ -105,10 +105,8 @@ class EliminationManager(CacheController):
                     f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
                 fake_flat_order_time = position.orders[-1].processed_ms + 1
 
-            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time)
-            position.add_order(flat_order)
-            if source_for_elimination:
-                position.orders[-1].price_sources.append(source_for_elimination)
+            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time, self.position_manager.live_price_fetcher, source_for_elimination)
+            position.add_order(flat_order, self.position_manager.live_price_fetcher)
             self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
             if self.shared_queue_websockets:
                 self.shared_queue_websockets.put(position.to_websocket_dict())

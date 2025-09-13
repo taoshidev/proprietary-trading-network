@@ -17,9 +17,11 @@ from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.ledger_utils import LedgerUtils
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -51,6 +53,11 @@ class TestPerfLedgerEliminations(TestBase):
         
         # Initialize components
         self.mock_metagraph = MockMetagraph(self.all_miners)
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        
         self.position_locks = PositionLocks()
         
         # Create perf ledger manager with IPC manager for testing
@@ -68,7 +75,7 @@ class TestPerfLedgerEliminations(TestBase):
         # Create elimination manager
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
-            None,  # position_manager set later
+            self.live_price_fetcher,  # live_price_fetcher
             None,  # challengeperiod_manager set later
             running_unit_tests=True
         )
@@ -77,7 +84,8 @@ class TestPerfLedgerEliminations(TestBase):
         self.position_manager = MockPositionManager(
             self.mock_metagraph,
             perf_ledger_manager=self.perf_ledger_manager,
-            elimination_manager=self.elimination_manager
+            elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
         
         # Create challenge period manager
@@ -295,8 +303,12 @@ class TestPerfLedgerEliminations(TestBase):
         # dd_percentage is returned as percentage (0-100), not decimal
         self.assertAlmostEqual(dd_percentage, 12.0, places=0)
 
-    def test_perf_ledger_update_with_eliminations(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_perf_ledger_update_with_eliminations(self, mock_candle_fetcher):
         """Test that perf ledger update handles eliminations correctly"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Set up positions and ledgers
         ledgers = {}
         for miner in [self.HEALTHY_MINER, self.MDD_MINER]:
@@ -316,6 +328,9 @@ class TestPerfLedgerEliminations(TestBase):
         
         # Process eliminations through elimination manager
         self.elimination_manager.handle_perf_ledger_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Verify elimination was processed
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -366,8 +381,12 @@ class TestPerfLedgerEliminations(TestBase):
         self.assertIsNotNone(miner_ledger)
         self.assertEqual(len(miner_ledger.cps), 2)
 
-    def test_concurrent_elimination_handling(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_concurrent_elimination_handling(self, mock_candle_fetcher):
         """Test handling of concurrent eliminations from multiple sources"""
+        # Mock the API call to return empty list (no price data needed for this test)
+        mock_candle_fetcher.return_value = []
+        
         # Add elimination from perf ledger
         pl_elim = {
             'hotkey': self.LIQUIDATED_MINER,
@@ -380,6 +399,9 @@ class TestPerfLedgerEliminations(TestBase):
         
         # Process through elimination manager
         self.elimination_manager.handle_perf_ledger_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Try to add another elimination for same miner (should be prevented)
         initial_count = len(self.elimination_manager.get_eliminations_from_memory())

@@ -12,7 +12,7 @@ on what logic may need to be added or verified.
 
 import unittest
 
-from tests.shared_objects.mock_classes import MockPositionManager
+from tests.shared_objects.mock_classes import MockPositionManager, MockLivePriceFetcher
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.shared_objects.test_utilities import (
     generate_losing_ledger,
@@ -27,6 +27,7 @@ from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, PerfLedgerManager
@@ -68,10 +69,14 @@ class TestProbationComprehensive(TestBase):
         self.mock_metagraph = MockMetagraph(self.ALL_MINER_NAMES)
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
-                                                    elimination_manager=self.elimination_manager)
+                                                    elimination_manager=self.elimination_manager,
+                                                    live_price_fetcher=self.live_price_fetcher)
         self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,

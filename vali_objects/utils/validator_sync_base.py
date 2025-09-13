@@ -30,7 +30,8 @@ class PositionSyncResultException(Exception):
 class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
-                 ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None
+                 ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None,
+                 live_price_fetcher=None
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
@@ -43,6 +44,7 @@ class ValidatorSyncBase():
         self.signal_sync_lock = signal_sync_lock
         self.signal_sync_condition = signal_sync_condition
         self.n_orders_being_processed = n_orders_being_processed
+        self.live_price_fetcher = live_price_fetcher
         if ipc_manager:
             self.perf_ledger_hks_to_invalidate = ipc_manager.dict()
         else:
@@ -178,7 +180,7 @@ class ValidatorSyncBase():
                     full_traceback = traceback.format_exc()
                     # Slice the last 1000 characters of the traceback
                     limited_traceback = full_traceback[-1000:]
-                    bt.logging.error(f"Error syncing positions for hotkey {hotkey} trade pair {trade_pair.trade_pair}. Error: {e} traceback: {limited_traceback}")
+                    bt.logging.error(f"Error syncing positions for hotkey {hotkey} trade pair {trade_pair}. Error: {e} traceback: {limited_traceback}")
                     # If this is PositionSyncResultException, throw it up. Otherwise, log the error and continue.
                     if isinstance(e, PositionSyncResultException):
                         raise e
@@ -588,7 +590,7 @@ class ValidatorSyncBase():
 
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
-                        e.rebuild_position_with_updated_orders()
+                        e.rebuild_position_with_updated_orders(self.live_price_fetcher)
                         min_timestamp_of_change = min(min_timestamp_of_change, min_timestamp_of_order_change)
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
@@ -620,7 +622,7 @@ class ValidatorSyncBase():
 
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
-                        e.rebuild_position_with_updated_orders()
+                        e.rebuild_position_with_updated_orders(self.live_price_fetcher)
                         min_timestamp_of_change = min(min_timestamp_of_change, min_timestamp_of_order_change)
                         position_to_sync_status[e] = PositionSyncResult.UPDATED
                     else:
