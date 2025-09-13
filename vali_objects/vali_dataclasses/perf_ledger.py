@@ -503,10 +503,10 @@ class PerfLedgerManager(CacheController):
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.target_ledger_window_ms = target_ledger_window_ms
+        bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
         if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
             pass
         else:
-            bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
             for k, v in initial_perf_ledgers.items():
                 self.hotkey_to_perf_bundle[k] = v
@@ -522,7 +522,13 @@ class PerfLedgerManager(CacheController):
             self.secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
 
 
-
+    def clear_all_ledger_data(self):
+        # Clear in-memory and on-disk ledgers. Only for unit tests.
+        assert self.running_unit_tests, 'this is only valid for unit tests'
+        self.hotkey_to_perf_bundle.clear()
+        self.clear_perf_ledgers_from_disk()  # Also clears in-memory
+        self.pl_elimination_rows.clear()
+        self.clear_perf_ledger_eliminations_from_disk()
 
     @staticmethod
     def print_bundles(ans: dict[str, dict[str, PerfLedger]]):
@@ -635,6 +641,12 @@ class PerfLedgerManager(CacheController):
         for k in list(self.hotkey_to_perf_bundle.keys()):
             del self.hotkey_to_perf_bundle[k]
 
+    def clear_perf_ledger_eliminations_from_disk(self):
+        assert self.running_unit_tests, 'this is only valid for unit tests'
+        self.pl_elimination_rows = []
+        file_path = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        if os.path.exists(file_path):
+            ValiBkpUtils.write_file(file_path, [])
 
     @staticmethod
     def clear_perf_ledgers_from_disk_autosync(hotkeys:list):

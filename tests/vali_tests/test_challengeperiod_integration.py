@@ -1,5 +1,6 @@
 # developer: trdougherty
 from copy import deepcopy
+from unittest.mock import patch
 
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
@@ -109,6 +110,9 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
+        self.ledger_manager.clear_all_ledger_data()
+        # Ensure no perf ledgers present
+        assert len(self.ledger_manager.get_perf_ledgers()) == 0, self.ledger_manager.get_perf_ledgers()
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager,
@@ -150,6 +154,10 @@ class TestChallengePeriodIntegration(TestBase):
             self.POSITIONS[miner] = positions
 
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
+        n_perf_ledgers_saved_disk = len(self.ledger_manager.get_perf_ledgers(from_disk=True))
+        n_perf_ledgers_saved_memory = len(self.ledger_manager.get_perf_ledgers(from_disk=False))
+        assert n_perf_ledgers_saved_disk == len(self.MINER_NAMES), (n_perf_ledgers_saved_disk, self.LEDGERS, self.MINER_NAMES)
+        assert n_perf_ledgers_saved_memory == len(self.MINER_NAMES), (n_perf_ledgers_saved_memory, self.LEDGERS, self.MINER_NAMES)
 
         for miner, positions in self.POSITIONS.items():
             for position in positions:
@@ -265,7 +273,16 @@ class TestChallengePeriodIntegration(TestBase):
 
         self.assertListEqual(sorted(list(eliminations)), sorted(elimination_keys))
 
-    def test_single_position_no_ledger(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_single_position_no_ledger(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
+        
         # Cleanup all positions first
         self.position_manager.clear_all_miner_positions()
         self.ledger_manager.clear_perf_ledgers_from_disk()
@@ -312,6 +329,9 @@ class TestChallengePeriodIntegration(TestBase):
             hk_to_first_order_time=self.HK_TO_OPEN_MS,
         )
         self.elimination_manager.process_eliminations(PositionLocks())
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
 
         # There should be no promotion or demotion
         self.assertListEqual(challenge_success, [])
