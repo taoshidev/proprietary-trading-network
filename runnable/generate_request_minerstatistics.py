@@ -1191,7 +1191,7 @@ class MinerStatisticsManager:
                                 omega_loss_minimum=ValiConfig.OMEGA_LOSS_MINIMUM,
                                 sharpe_stddev_minimum=ValiConfig.SHARPE_STDDEV_MINIMUM,
                                 sortino_downside_minimum=ValiConfig.SORTINO_DOWNSIDE_MINIMUM,
-                                statistical_confidence_minimum_n_ceil=ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL,
+                                statistical_confidence_minimum_n_ceil=subcategory_min_days,
                                 annual_risk_free_decimal=ValiConfig.ANNUAL_RISK_FREE_DECIMAL,
                                 drawdown_maxvalue_percentage=ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE,
                                 use_weighting=final_results_weighting,
@@ -1251,6 +1251,26 @@ class MinerStatisticsManager:
                             bt.logging.info(
                                 f"=== Circuit vs Subnet Comparison for {hotkey[:8]} ==="
                             )
+
+                            # Debug: Log checkpoint vs daily return info
+                            bt.logging.info(
+                                f"Daily returns count: {len(ptn_daily_returns)}"
+                            )
+                            if portfolio_ledger and portfolio_ledger.cps:
+                                checkpoint_count_debug = len(portfolio_ledger.cps)
+                                bt.logging.info(
+                                    f"Checkpoint count: {checkpoint_count_debug}"
+                                )
+
+                                # Sample of checkpoint data
+                                bt.logging.info("Sample checkpoint returns:")
+                                for i in range(min(3, checkpoint_count_debug)):
+                                    cp = portfolio_ledger.cps[i]
+                                    cp_return = cp.gain + cp.loss
+                                    bt.logging.info(
+                                        f"  CP[{i}]: gain={cp.gain:.6f}, loss={cp.loss:.6f}, total={cp_return:.6f}"
+                                    )
+
                             bt.logging.info(
                                 "Metric           Circuit    Subnet     Diff"
                             )
@@ -1266,9 +1286,11 @@ class MinerStatisticsManager:
                                         "percentile": None,
                                     }
 
-                                    subnet_value = augmented_scores_dict.get(
-                                        "overall", {}
-                                    ).get(metric, {}).get("value", 0.0)
+                                    subnet_value = (
+                                        augmented_scores_dict.get("overall", {})
+                                        .get(metric, {})
+                                        .get("value", 0.0)
+                                    )
                                     if subnet_value is None:
                                         subnet_value = 0.0
 
