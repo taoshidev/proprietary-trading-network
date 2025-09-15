@@ -1191,7 +1191,7 @@ class MinerStatisticsManager:
                                 omega_loss_minimum=ValiConfig.OMEGA_LOSS_MINIMUM,
                                 sharpe_stddev_minimum=ValiConfig.SHARPE_STDDEV_MINIMUM,
                                 sortino_downside_minimum=ValiConfig.SORTINO_DOWNSIDE_MINIMUM,
-                                statistical_confidence_minimum_n_ceil=subcategory_min_days,
+                                statistical_confidence_minimum_n_ceil=ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL,
                                 annual_risk_free_decimal=ValiConfig.ANNUAL_RISK_FREE_DECIMAL,
                                 drawdown_maxvalue_percentage=ValiConfig.DRAWDOWN_MAXVALUE_PERCENTAGE,
                                 use_weighting=final_results_weighting,
