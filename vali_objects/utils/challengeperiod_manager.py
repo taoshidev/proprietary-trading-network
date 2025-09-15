@@ -159,7 +159,7 @@ class ChallengePeriodManager(CacheController):
         # The refresh should just read the current eliminations
         eliminations = self.elimination_manager.get_eliminations_from_memory()
 
-        self.update_plagiarism_miners(current_time)
+        self.update_plagiarism_miners(current_time) #TODO potentially do this less frequently than every minute
         # Collect challenge period and update with new eliminations criteria
         self.remove_eliminated(eliminations=eliminations)
 
