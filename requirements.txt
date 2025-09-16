@@ -17,5 +17,5 @@ holidays == 0.67
 Flask-Compress == 1.17
 google-cloud-secret-manager==2.21.1
 collateral-sdk @ git+https://github.com/taoshidev/collateral_sdk.git@1.0.6
-ptn-cli @ git+https://github.com/taoshidev/ptncli.git@1.0.5
+ptn-cli @ git+https://github.com/taoshidev/ptncli.git@1.0.4
 

@@ -194,7 +194,7 @@ class Validator:
                                                       ipc_manager=self.ipc_manager,
                                                       shared_queue_websockets=self.shared_queue_websockets)
 
-        self.asset_selection_manager = AssetSelectionManager(ipc_manager=self.ipc_manager)
+        self.asset_selection_manager = AssetSelectionManager(config=self.config, metagraph=self.metagraph, ipc_manager=self.ipc_manager)
 
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
@@ -317,6 +317,12 @@ class Validator:
         def cr_priority_fn(synapse: template.protocol.CollateralRecord) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def as_blacklist_fn(synapse: template.protocol.AssetSelection) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def as_priority_fn(synapse: template.protocol.AssetSelection) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -341,6 +347,11 @@ class Validator:
             forward_fn=self.receive_collateral_record,
             blacklist_fn=cr_blacklist_fn,
             priority_fn=cr_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_asset_selection,
+            blacklist_fn=as_blacklist_fn,
+            priority_fn=as_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -1104,6 +1115,32 @@ class Validator:
             synapse.successfully_processed = False
             synapse.error_message = f"Error processing collateral record: {str(e)}"
             bt.logging.error(f"Exception in receive_collateral_record: {e}")
+
+        return synapse
+
+    def receive_asset_selection(self, synapse: template.protocol.AssetSelection) -> template.protocol.AssetSelection:
+        """
+        receive miner's asset selection
+        """
+        try:
+            # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received miner asset selection from validator hotkey [{sender_hotkey}].")
+            success = self.asset_selection_manager.receive_asset_selection_update(synapse.asset_selection)
+
+            if success:
+                synapse.successfully_processed = True
+                synapse.error_message = ""
+                bt.logging.info(f"Successfully processed AssetSelection synapse from {sender_hotkey}")
+            else:
+                synapse.successfully_processed = False
+                synapse.error_message = "Failed to process miner's asset selection"
+                bt.logging.warning(f"Failed to process AssetSelection synapse from {sender_hotkey}")
+
+        except Exception as e:
+            synapse.successfully_processed = False
+            synapse.error_message = f"Error processing asset selection: {str(e)}"
+            bt.logging.error(f"Exception in receive_asset_selection: {e}")
 
         return synapse
 
