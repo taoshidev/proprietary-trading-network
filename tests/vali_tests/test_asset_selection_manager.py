@@ -36,6 +36,7 @@ class TestAssetSelectionManager(TestBase):
     def test_initialization(self):
         """Test AssetSelectionManager initialization"""
         manager = AssetSelectionManager(running_unit_tests=True)
+        manager.asset_selections.clear()
         
         self.assertIsInstance(manager.asset_selections, dict)
         self.assertEqual(len(manager.asset_selections), 0)

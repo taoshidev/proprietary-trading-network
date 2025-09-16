@@ -28,11 +28,16 @@ class AssetSelectionManager:
             running_unit_tests: Whether the manager is being used in unit tests
         """
         self.running_unit_tests = running_unit_tests
-        self.is_testnet = config.netuid == 116
         self.metagraph = metagraph
-        self.wallet = bt.wallet(config=config)
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self._asset_selection_lock = None
+
+        if not self.running_unit_tests and config is not None:
+            self.is_testnet = config.netuid == 116
+            self.wallet = bt.wallet(config=config)
+        else:
+            self.is_testnet = False
+            self.wallet = None
 
         if ipc_manager:
             self.asset_selections = ipc_manager.dict()
