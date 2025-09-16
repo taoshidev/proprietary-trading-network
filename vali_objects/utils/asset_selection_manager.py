@@ -1,6 +1,10 @@
+import asyncio
+import threading
+
 import bittensor as bt
 from typing import Dict, Optional
 
+import template.protocol
 from time_util.time_util import TimeUtil
 from vali_objects.exceptions.signal_exception import SignalException
 from vali_objects.vali_config import TradePairCategory, ValiConfig
@@ -16,7 +20,7 @@ class AssetSelectionManager:
     Asset selections are persisted to disk and loaded on startup.
     """
 
-    def __init__(self, ipc_manager=None, running_unit_tests=False):
+    def __init__(self, config=None, metagraph=None, ipc_manager=None, running_unit_tests=False):
         """
         Initialize the AssetSelectionManager.
         
@@ -24,6 +28,12 @@ class AssetSelectionManager:
             running_unit_tests: Whether the manager is being used in unit tests
         """
         self.running_unit_tests = running_unit_tests
+        self.is_testnet = config.netuid == 116
+        self.metagraph = metagraph
+        self.wallet = bt.wallet(config=config)
+        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self._asset_selection_lock = None
+
         if ipc_manager:
             self.asset_selections = ipc_manager.dict()
         else:
@@ -31,6 +41,12 @@ class AssetSelectionManager:
 
         self.ASSET_SELECTIONS_FILE = ValiBkpUtils.get_asset_selections_file_location(running_unit_tests=running_unit_tests)
         self._load_asset_selections_from_disk()
+
+    @property
+    def asset_selection_lock(self):
+        if not self._asset_selection_lock:
+            self._asset_selection_lock = threading.RLock()
+        return self._asset_selection_lock
 
     def _load_asset_selections_from_disk(self) -> None:
         """Load asset selections from disk into memory using ValiUtils pattern."""
@@ -144,6 +160,7 @@ class AssetSelectionManager:
             asset_class = TradePairCategory(asset_selection.lower())
             self.asset_selections[miner] = asset_class
             self._save_asset_selections_to_disk()
+            self._broadcast_asset_selection_to_validators(miner, asset_class)
             
             bt.logging.info(f"Miner {miner} selected asset class: {asset_selection}")
             
@@ -158,6 +175,110 @@ class AssetSelectionManager:
                 'successfully_processed': False,
                 'error_message': 'Internal server error processing asset selection request'
             }
+
+    def _broadcast_asset_selection_to_validators(self, hotkey: str, asset_selection: str):
+        """
+        Broadcast AssetSelection synapse to other validators.
+        Runs in a separate thread to avoid blocking the main process.
+        """
+        def run_broadcast():
+            try:
+                asyncio.run(self._async_broadcast_asset_selection(hotkey, asset_selection))
+            except Exception as e:
+                bt.logging.error(f"Failed to broadcast asset selection for {hotkey}: {e}")
+
+        thread = threading.Thread(target=run_broadcast, daemon=True)
+        thread.start()
+
+    async def _async_broadcast_asset_selection(self, hotkey: str, asset_selection: str):
+        """
+        Asynchronously broadcast AssetSelection synapse to other validators.
+        """
+        try:
+            # Get other validators to broadcast to
+            if self.is_testnet:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
+            else:
+                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
+
+            if not validator_axons:
+                bt.logging.debug("No other validators to broadcast CollateralRecord to")
+                return
+
+            # Create AssetSelection synapse with the data
+            asset_selection_data = {
+                "hotkey": hotkey,
+                "asset_selection": asset_selection
+            }
+
+            asset_selection_synapse = template.protocol.AssetSelection(
+                asset_selection=asset_selection_data
+            )
+
+            bt.logging.info(f"Broadcasting AssetSelection for {hotkey} to {len(validator_axons)} validators")
+
+            # Send to other validators using dendrite
+            async with bt.dendrite(wallet=self.wallet) as dendrite:
+                responses = await dendrite.aquery(validator_axons, asset_selection_synapse)
+
+                # Log results
+                success_count = 0
+                for response in responses:
+                    if response.successfully_processed:
+                        success_count += 1
+                    elif response.error_message:
+                        bt.logging.warning(f"Failed to send CollateralRecord to {response.axon.hotkey}: {response.error_message}")
+
+                bt.logging.info(f"CollateralRecord broadcast completed: {success_count}/{len(responses)} validators updated")
+
+        except Exception as e:
+            bt.logging.error(f"Error in async broadcast collateral record: {e}")
+            import traceback
+            bt.logging.error(traceback.format_exc())
+
+    def receive_asset_selection_update(self, asset_selection_data: dict) -> bool:
+        """
+        Process an incoming AssetSelection synapse and update miner asset selection.
+
+        Args:
+            asset_selection_data: Dictionary containing hotkey, asset selection
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if self.is_mothership:
+                return False
+            with self.asset_selection_lock:
+                # Extract data from the synapse
+                hotkey = asset_selection_data.get("hotkey")
+                asset_selection = asset_selection_data.get("asset_selection")
+                bt.logging.info(f"Processing asset selection for miner {hotkey}")
+
+                if not all([hotkey, asset_selection is not None]):
+                    bt.logging.warning(f"Invalid asset selection data received: {asset_selection_data}")
+                    return False
+
+                # Check if we already have this record (avoid duplicates)
+                if hotkey in self.asset_selections:
+                    bt.logging.debug(f"Asset selection for {hotkey} already exists")
+                    return True
+
+                # Add the new record
+                self.asset_selections[hotkey] = asset_selection
+
+                # Save to disk
+                self._save_asset_selections_to_disk()
+
+                bt.logging.info(f"Updated miner asset selection for {hotkey}: {asset_selection}")
+                return True
+
+        except Exception as e:
+            bt.logging.error(f"Error processing collateral record update: {e}")
+            import traceback
+            bt.logging.error(traceback.format_exc())
+            return False
+
 
     def clear_all_selections(self) -> None:
         """
