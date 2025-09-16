@@ -11,7 +11,7 @@ from vali_objects.vali_config import TradePairCategory, ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
-ASSET_CLASS_SELECTION_TIME_MS = 1758092400000
+ASSET_CLASS_SELECTION_TIME_MS = 1758326340000
 
 class AssetSelectionManager:
     """
