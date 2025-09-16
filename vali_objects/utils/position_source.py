@@ -107,7 +107,7 @@ class PositionSourceManager:
             miner_hotkeys=hotkeys if hotkeys else []
         )
 
-        bt.logging.info(f"Retrieved {len(filtered_positions)} positions from database")
+        bt.logging.info(f"Retrieved {len(filtered_positions)}/{sum(len(v) for _, v in filtered_positions.items())} hotkeys/positions from database")
 
 
         return filtered_positions

@@ -331,7 +331,7 @@ class Scoring:
         for miner, ledger in ledger_dict.items():
             positions = hotkey_positions.get(miner, [])
 
-            if not ledger:
+            if not ledger and len(positions):
                 empty_ledger_miners.append((miner, len(positions)))
                 continue
 

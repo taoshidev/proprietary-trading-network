@@ -257,25 +257,29 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
         )
         ledger.cps.append(prev_cp)
         
+        # Create a mock closed position for testing
+        mock_closed_position = Mock()
+        mock_closed_position.is_open_position = False
+        
         # Test various bypass conditions
         test_cases = [
-            # (any_open, position_just_closed, tp_id, tp_id_rtp, should_bypass)
-            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "BTCUSD", "BTCUSD", True),
-            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, True, "BTCUSD", "BTCUSD", False),
-            (TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE, False, "BTCUSD", "BTCUSD", False),
-            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "ETHUSD", "BTCUSD", False),
-            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "BTCUSD", None, True),
+            # (any_open, position_just_closed, tp_id, tp_id_rtp_data, should_bypass)
+            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "BTCUSD", {"BTCUSD": None}, True),
+            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, True, "BTCUSD", {"BTCUSD": mock_closed_position}, False),
+            (TradePairReturnStatus.TP_MARKET_OPEN_PRICE_CHANGE, False, "BTCUSD", {"BTCUSD": None}, False),
+            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "ETHUSD", {"BTCUSD": None}, False),
+            (TradePairReturnStatus.TP_NO_OPEN_POSITIONS, False, "BTCUSD", {}, True),
         ]
         
-        for any_open, pos_closed, tp_id, tp_id_rtp, should_bypass in test_cases:
+        for any_open, pos_closed, tp_id, tp_id_rtp_data, should_bypass in test_cases:
             ret, spread, carry = plm.get_bypass_values_if_applicable(
-                ledger, tp_id, any_open, pos_closed, 1.0, 1.0, 1.0, tp_id_rtp
+                ledger, tp_id, any_open, 1.0, 1.0, 1.0, tp_id_rtp_data
             )
             
             if should_bypass:
-                self.assertEqual(ret, 0.95, f"Should bypass for {any_open}, {pos_closed}, {tp_id}, {tp_id_rtp}")
+                self.assertEqual(ret, 0.95, f"Should bypass for {any_open}, {pos_closed}, {tp_id}, {tp_id_rtp_data}")
             else:
-                self.assertEqual(ret, 1.0, f"Should not bypass for {any_open}, {pos_closed}, {tp_id}, {tp_id_rtp}")
+                self.assertEqual(ret, 1.0, f"Should not bypass for {any_open}, {pos_closed}, {tp_id}, {tp_id_rtp_data}")
 
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_checkpoint_boundary_edge_cases(self, mock_lpf):
@@ -411,10 +415,14 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
         ]
         
         for i, (name, open_price, close_price) in enumerate(losses):
+            # Add small offset to prevent timestamp collisions between positions
+            open_time = base_time + (i * MS_IN_24_HOURS) + (i * 1000)  # Add 1 second offset per position
+            close_time = base_time + ((i + 1) * MS_IN_24_HOURS) - 1000  # Close 1 second before next position starts
+            
             position = self._create_position(
                 name, TradePair.BTCUSD,
-                base_time + (i * MS_IN_24_HOURS),
-                base_time + ((i + 1) * MS_IN_24_HOURS),
+                open_time,
+                close_time,
                 open_price, close_price, OrderType.LONG
             )
             self.position_manager.save_miner_position(position)
@@ -431,6 +439,8 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
         
         # Check MDD
         bundles = plm.get_perf_ledgers(portfolio_only=False)
+        self.assertIn(self.test_hotkey, bundles, f"Should have bundles for test miner {self.test_hotkey}")
+        self.assertIn(TradePair.BTCUSD.trade_pair_id, bundles[self.test_hotkey], "Should have BTC ledger")
         btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
         
         # MDD should be less than 1.0 (indicating drawdown)

@@ -153,8 +153,8 @@ class ValiConfig:
         TradePairCategory.CRYPTO: {
             "emission": 0.5,  # Total emission for crypto
             "subcategory_weights": {
-                CryptoSubcategory.MAJORS: 0.5,  # 50% of crypto emission for majors
-                CryptoSubcategory.ALTS: 0.5,  # 50% of crypto emission for alts
+                CryptoSubcategory.MAJORS: 0.8,  # 80% of crypto emission for majors
+                CryptoSubcategory.ALTS: 0.2,  # 20% of crypto emission for alts
             },
             "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
@@ -278,7 +278,7 @@ class ValiConfig:
     SORTINO_NOCONFIDENCE_VALUE = -100
     STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE = -100
     CALMAR_NOCONFIDENCE_VALUE = -100
-    PNL_NOCONFIDENCE_VALUE = -100_000
+    PNL_NOCONFIDENCE_VALUE = 0
 
     # MDD penalty calculation
     APPROXIMATE_DRAWDOWN_PERCENTILE = 0.75
@@ -358,51 +358,18 @@ assert ValiConfig.EQUITIES_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 
 class TradePair(Enum):
     # crypto
-    BTCUSD = [
-        "BTCUSD",
-        "BTC/USD",
-        0.001,
-        ValiConfig.CRYPTO_MIN_LEVERAGE,
-        ValiConfig.CRYPTO_MAX_LEVERAGE,
-        TradePairCategory.CRYPTO,
-        CryptoSubcategory.MAJORS,
-    ]
-    ETHUSD = [
-        "ETHUSD",
-        "ETH/USD",
-        0.001,
-        ValiConfig.CRYPTO_MIN_LEVERAGE,
-        ValiConfig.CRYPTO_MAX_LEVERAGE,
-        TradePairCategory.CRYPTO,
-        CryptoSubcategory.MAJORS,
-    ]
-    SOLUSD = [
-        "SOLUSD",
-        "SOL/USD",
-        0.001,
-        ValiConfig.CRYPTO_MIN_LEVERAGE,
-        ValiConfig.CRYPTO_MAX_LEVERAGE,
-        TradePairCategory.CRYPTO,
-        CryptoSubcategory.ALTS,
-    ]
-    XRPUSD = [
-        "XRPUSD",
-        "XRP/USD",
-        0.001,
-        ValiConfig.CRYPTO_MIN_LEVERAGE,
-        ValiConfig.CRYPTO_MAX_LEVERAGE,
-        TradePairCategory.CRYPTO,
-        CryptoSubcategory.ALTS,
-    ]
-    DOGEUSD = [
-        "DOGEUSD",
-        "DOGE/USD",
-        0.001,
-        ValiConfig.CRYPTO_MIN_LEVERAGE,
-        ValiConfig.CRYPTO_MAX_LEVERAGE,
-        TradePairCategory.CRYPTO,
-        CryptoSubcategory.ALTS,
-    ]
+    BTCUSD = ["BTCUSD", "BTC/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO, CryptoSubcategory.MAJORS]
+    ETHUSD = ["ETHUSD", "ETH/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO, CryptoSubcategory.MAJORS]
+    SOLUSD = ["SOLUSD", "SOL/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+    XRPUSD = ["XRPUSD", "XRP/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+    DOGEUSD = ["DOGEUSD", "DOGE/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+    ADAUSD = ["ADAUSD", "ADA/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+               TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
 
     # forex
     AUDCAD = [

@@ -14,10 +14,11 @@ import gzip
 import traceback
 from setproctitle import setproctitle
 from waitress import serve
-from flask_compress import Compress
+# from flask_compress import Compress  # Removed: causes double-compression of pre-compressed data
 from bittensor_wallet import Keypair
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.vali_bkp_utils import CustomEncoder
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -52,6 +53,9 @@ class APIMetricsTracker:
         # Maps endpoint to deque of (timestamp, latency) tuples
         self.endpoint_hits: Dict[str, Deque[Tuple[float, float]]] = defaultdict(lambda: deque(maxlen=10000))
 
+        # Track per-endpoint API key usage: maps (endpoint, user_id) to deque of timestamps
+        self.endpoint_api_key_hits: Dict[Tuple[str, str], Deque[float]] = defaultdict(lambda: deque(maxlen=10000))
+
         # Track failed requests: maps (user_id, endpoint, status_code) to deque of timestamps
         self.failed_requests: Dict[Tuple[str, str, int], Deque[float]] = defaultdict(lambda: deque(maxlen=1000))
 
@@ -64,6 +68,20 @@ class APIMetricsTracker:
         # Start logging thread
         self.start_logging_thread()
 
+    def _get_user_id_from_api_key(self, api_key: str) -> str:
+        """
+        Get user ID from API key, handling unknown keys properly.
+        
+        Args:
+            api_key: The API key to look up
+            
+        Returns:
+            The user ID or a unique unknown_key identifier
+        """
+        # Get user_id from api_key if available
+        user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+        return user_id
+
     def track_request(self, api_key: str, endpoint: str, duration: float, status_code: int = 200):
         """
         Track a request with its associated API key, endpoint, and duration.
@@ -74,14 +92,17 @@ class APIMetricsTracker:
             duration: Request processing time in seconds
             status_code: HTTP status code of the response
         """
-        # Get user_id from api_key if available
-        user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+        # Get user_id from api_key
+        user_id = self._get_user_id_from_api_key(api_key)
 
         now = time.time()
 
         with self.metrics_lock:
             self.api_key_hits[user_id].append(now)
             self.endpoint_hits[endpoint].append((now, duration))
+            
+            # Track per-endpoint API key usage
+            self.endpoint_api_key_hits[(endpoint, user_id)].append(now)
 
             # Track failed requests
             if status_code >= 400:
@@ -164,6 +185,26 @@ class APIMetricsTracker:
             # Remove empty failed request entries
             for key in empty_failed:
                 del self.failed_requests[key]
+            
+            # Process per-endpoint API key usage
+            endpoint_api_key_counts = {}
+            empty_endpoint_keys = []
+            for (endpoint, user_id), timestamps in self.endpoint_api_key_hits.items():
+                # Remove outdated entries
+                while timestamps and timestamps[0] < cutoff_time:
+                    timestamps.popleft()
+
+                count = len(timestamps)
+                if count > 0:
+                    if endpoint not in endpoint_api_key_counts:
+                        endpoint_api_key_counts[endpoint] = {}
+                    endpoint_api_key_counts[endpoint][user_id] = count
+                else:
+                    empty_endpoint_keys.append((endpoint, user_id))
+
+            # Remove empty endpoint-key combinations
+            for key in empty_endpoint_keys:
+                del self.endpoint_api_key_hits[key]
 
         # Skip logging if there's no activity
         if not api_counts and not endpoint_stats and not failed_stats:
@@ -186,7 +227,19 @@ class APIMetricsTracker:
         if endpoint_stats:
             for endpoint, stats in sorted(endpoint_stats.items(),
                                           key=lambda x: x[1]["count"], reverse=True):
-                log_lines.append(f"  {endpoint}: {stats['count']} requests")
+                # Create API key breakdown for this endpoint
+                api_key_breakdown = {}
+                if endpoint in endpoint_api_key_counts:
+                    for user_id, count in endpoint_api_key_counts[endpoint].items():
+                        api_key_breakdown[user_id] = count
+                
+                # Format API key breakdown
+                if api_key_breakdown:
+                    breakdown_str = str(api_key_breakdown)
+                    log_lines.append(f"  {endpoint}: {stats['count']} requests {breakdown_str}")
+                else:
+                    log_lines.append(f"  {endpoint}: {stats['count']} requests")
+                    
                 log_lines.append(f"    mean: {stats['mean'] * 1000:.2f}ms")
                 log_lines.append(f"    median: {stats['median'] * 1000:.2f}ms")
                 log_lines.append(f"    min/max: {stats['min'] * 1000:.2f}ms / {stats['max'] * 1000:.2f}ms")
@@ -198,7 +251,20 @@ class APIMetricsTracker:
             log_lines.append("\nFailed Requests:")
             for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
                                                                   key=lambda x: x[1], reverse=True):
-                log_lines.append(f"  {user_id} -> {endpoint} [{status_code}]: {count} failures")
+                display_user_id = user_id
+                
+                # Add status code description for common failure codes
+                status_desc = {
+                    400: "Bad Request",
+                    401: "Unauthorized", 
+                    403: "Forbidden/Insufficient Tier",
+                    404: "Not Found",
+                    413: "Request Too Large",
+                    500: "Internal Server Error",
+                    503: "Service Unavailable"
+                }.get(status_code, "Unknown Error")
+                
+                log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code} {status_desc}]: {count} failures")
 
         # Log the complete report
         final_str = "\n".join(log_lines)
@@ -228,7 +294,8 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
+                 miner_statistics_manager=None, request_core_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -248,6 +315,8 @@ class PTNRestServer(APIKeyMixin):
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
         self.contract_manager = contract_manager
+        self.miner_statistics_manager = miner_statistics_manager
+        self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
@@ -257,8 +326,8 @@ class PTNRestServer(APIKeyMixin):
 
         self.contract_manager.load_contract_owner()
 
-        # Initialize Flask-Compress for GZIP compression
-        Compress(self.app)
+        # Flask-Compress removed to prevent double-compression of pre-compressed endpoints
+        # Our critical endpoints (validator-checkpoint, minerstatistics) serve pre-compressed data
 
         # Initialize metrics tracking
         self._setup_metrics(metrics_interval_minutes)
@@ -272,6 +341,22 @@ class PTNRestServer(APIKeyMixin):
         # Start API key refresh thread
         self.start_refresh_thread()
         print(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
+
+    def _jsonify_with_custom_encoder(self, data, status_code=200):
+        """
+        Create a JSON response using CustomEncoder to handle BaseModel objects.
+        
+        Args:
+            data: The data to jsonify
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            Flask Response object with proper JSON serialization
+        """
+        json_str = json.dumps(data, cls=CustomEncoder)
+        response = Response(json_str, content_type='application/json')
+        response.status_code = status_code
+        return response
 
     def _setup_metrics(self, metrics_interval_minutes):
         """Set up API metrics tracking."""
@@ -311,7 +396,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_bad_request(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.warning(
                 f"Bad Request: user={user_id} endpoint={request.path} method={request.method} "
@@ -336,7 +421,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_internal_error(e):
             # Log the error with user context
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Internal Error: user={user_id} endpoint={request.path} method={request.method} "
@@ -349,7 +434,7 @@ class PTNRestServer(APIKeyMixin):
         def handle_exception(e):
             # Log unexpected errors
             api_key = self._get_api_key_safe()
-            user_id = self.api_key_to_alias.get(api_key, "unknown_key")
+            user_id = self.metrics._get_user_id_from_api_key(api_key)
 
             bt.logging.error(
                 f"Unhandled Exception: user={user_id} endpoint={request.path} method={request.method} "
@@ -465,13 +550,37 @@ class PTNRestServer(APIKeyMixin):
             if not self.can_access_tier(api_key, 100):
                 return jsonify({'error': 'Validator checkpoint data requires tier 100 access'}), 403
 
-            f = ValiBkpUtils.get_vcp_output_path()
-            data = self._get_file(f)
-
-            if data is None:
-                return jsonify({'error': 'Checkpoint data not found'}), 404
+            # Try to get compressed data from memory cache first
+            compressed_data = None
+            if self.request_core_manager:
+                try:
+                    compressed_data = self.request_core_manager.get_compressed_checkpoint_from_memory()
+                except Exception as e:
+                    bt.logging.debug(f"Error accessing compressed checkpoint cache: {e}")
+            
+            if compressed_data is not None:
+                # Return pre-compressed data with appropriate headers
+                return Response(compressed_data, content_type='application/json', headers={
+                    'Content-Encoding': 'gzip'
+                })
+            
+            # Fallback to file read if memory unavailable
+            # Checkpoint is always stored as compressed file
+            f_gz = ValiBkpUtils.get_vcp_output_path()
+            
+            if os.path.exists(f_gz):
+                # Read pre-compressed file directly
+                try:
+                    with open(f_gz, 'rb') as fh:
+                        compressed_data = fh.read()
+                    return Response(compressed_data, content_type='application/json', headers={
+                        'Content-Encoding': 'gzip'
+                    })
+                except Exception as e:
+                    bt.logging.error(f"Failed to read compressed checkpoint: {e}")
+                    return jsonify({'error': 'Failed to read checkpoint data'}), 500
             else:
-                return jsonify(data)
+                return jsonify({'error': 'Checkpoint data not found'}), 404
 
         @self.app.route("/statistics", methods=["GET"])
         def get_validator_checkpoint_statistics():
@@ -479,20 +588,31 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
-            f = ValiBkpUtils.get_miner_stats_dir()
-            data = self._get_file(f)
-            if data is None:
-                return jsonify({'error': 'Statistics data not found'}), 404
-
             # Grab the optional "checkpoints" query param; default it to "true"
             show_checkpoints = request.args.get("checkpoints", "true").lower()
+            include_checkpoints = show_checkpoints == "true"
+
+            # Try to use pre-compressed payload for maximum performance
+            if self.miner_statistics_manager:
+                compressed_data = self.miner_statistics_manager.get_compressed_statistics(include_checkpoints)
+                if compressed_data:
+                    # Return pre-compressed JSON directly
+                    return Response(compressed_data, content_type='application/json', headers={
+                        'Content-Encoding': 'gzip'
+                    })
+
+            # Fallback: get raw data from disk if pre-compressed not available
+            f = ValiBkpUtils.get_miner_stats_dir()
+            data = self._get_file(f)
+            if not data:
+                return jsonify({'error': 'Statistics data not found'}), 404
 
             # If checkpoints=false, remove the "checkpoints" key from each element in data
             if show_checkpoints == "false":
                 for element in data.get("data", []):
                     element.pop("checkpoints", None)
 
-            return jsonify(data)
+            return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/statistics/<minerid>/", methods=["GET"])
         def get_validator_checkpoint_statistics_unique(minerid):
@@ -500,9 +620,10 @@ class PTNRestServer(APIKeyMixin):
             if not self.is_valid_api_key(api_key):
                 return jsonify({'error': 'Unauthorized access'}), 401
 
+            # Get statistics data from disk
             f = ValiBkpUtils.get_miner_stats_dir()
             data = self._get_file(f)
-            if data is None:
+            if not data:
                 return jsonify({'error': 'Statistics data not found'}), 404
 
             data_summary = data.get("data", [])
@@ -535,7 +656,7 @@ class PTNRestServer(APIKeyMixin):
             if data is None:
                 return jsonify({'error': 'Eliminations data not found'}), 404
             else:
-                return jsonify(data)
+                return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():

@@ -1780,6 +1780,11 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         
         # Get ledgers and verify price tracking
         bundles_1 = plm.get_perf_ledgers(portfolio_only=False)
+        
+        # Check if the test_hotkey exists in bundles
+        if self.test_hotkey not in bundles_1:
+            self.fail(f"Test hotkey '{self.test_hotkey}' not found in bundles. Available keys: {list(bundles_1.keys())}")
+        
         portfolio_ledger_1 = bundles_1[self.test_hotkey][TP_ID_PORTFOLIO]
         
         # Debug: Print what we have

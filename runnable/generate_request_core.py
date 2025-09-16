@@ -26,7 +26,7 @@ PERCENT_NEW_POSITIONS_TIERS = [100, 50, 30, 0]
 assert sorted(PERCENT_NEW_POSITIONS_TIERS, reverse=True) == PERCENT_NEW_POSITIONS_TIERS, 'needs to be sorted for efficient pruning'
 
 class RequestCoreManager:
-    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=None):
+    def __init__(self, position_manager, subtensor_weight_setter, plagiarism_detector, contract_manager=None, ipc_manager=None):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
         self.elimination_manager = position_manager.elimination_manager
@@ -34,6 +34,12 @@ class RequestCoreManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
         self.contract_manager = contract_manager
+        
+        # Initialize IPC-managed dictionary for validator checkpoint caching
+        if ipc_manager:
+            self.validator_checkpoint_cache = ipc_manager.dict()
+        else:
+            self.validator_checkpoint_cache = {}
 
     def hash_string_to_int(self, s: str) -> int:
         # Create a SHA-256 hash object
@@ -107,6 +113,29 @@ class RequestCoreManager:
         data = json.loads(decompressed.decode("utf-8"))
         return data
 
+    def store_checkpoint_in_memory(self, checkpoint_data: dict):
+        """Store compressed validator checkpoint data in IPC memory cache."""
+        try:
+            compressed_data = self.compress_dict(checkpoint_data)
+            self.validator_checkpoint_cache['checkpoint'] = {
+                'data': compressed_data,
+                'timestamp_ms': TimeUtil.now_in_millis()
+            }
+        except Exception as e:
+            print(f"Error storing checkpoint in memory: {e}")
+
+    def get_compressed_checkpoint_from_memory(self) -> bytes | None:
+        """Retrieve compressed validator checkpoint data directly from memory cache."""
+        try:
+            cached_entry = self.validator_checkpoint_cache.get('checkpoint', {})
+            if not cached_entry or 'data' not in cached_entry:
+                return None
+            
+            return cached_entry['data']
+        except Exception as e:
+            print(f"Error retrieving compressed checkpoint from memory: {e}")
+            return None
+
     def upload_checkpoint_to_gcloud(self, final_dict):
         """
         The idea is to upload a zipped, time lagged validator checkpoint to google cloud for auto restoration
@@ -168,11 +197,26 @@ class RequestCoreManager:
             'perf_ledgers': perf_ledgers
         }
 
-        vcp_output_file_path = ValiBkpUtils.get_vcp_output_path()
-        ValiBkpUtils.write_file(
-            vcp_output_file_path,
-            final_dict,
-        )
+        # Write compressed checkpoint only - saves disk space and bandwidth
+        compressed_data = self.compress_dict(final_dict)
+        
+        # Clean up old uncompressed file if it exists (legacy cleanup)
+        uncompressed_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
+        if os.path.exists(uncompressed_path):
+            try:
+                os.remove(uncompressed_path)
+                print(f"Removed old uncompressed checkpoint: {uncompressed_path}")
+            except Exception as e:
+                print(f"Failed to remove old uncompressed checkpoint: {e}")
+        
+        # Write compressed file directly
+        compressed_path = ValiBkpUtils.get_vcp_output_path()
+        with open(compressed_path, 'wb') as f:
+            f.write(compressed_data)
+        #print(f"Wrote compressed checkpoint to {compressed_path}")
+        
+        # Store compressed checkpoint data in IPC memory cache
+        self.store_checkpoint_in_memory(final_dict)
 
         # Write positions data (sellable via RN) at the different tiers. Each iteration, the number of orders (possibly) decreases
         for t in PERCENT_NEW_POSITIONS_TIERS:
