@@ -51,3 +51,10 @@ class CollateralRecord(bt.Synapse):
     error_message: str = Field("", title="Error Message", frozen=False, max_length=4096)
     computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
 GetDashData.required_hash_fields = ["collateral_record"]
+
+class AssetSelection(bt.Synapse):
+    asset_selection: typing.Dict = Field(default_factory=dict, title="Asset Selection", frozen=False, max_length=4096)
+    successfully_processed: bool = Field(False, title="Successfully Processed", frozen=False)
+    error_message: str = Field("", title="Error Message", frozen=False, max_length=4096)
+    computed_body_hash: str = Field("", title="Computed Body Hash", frozen=False)
+GetDashData.required_hash_fields = ["asset_selection"]

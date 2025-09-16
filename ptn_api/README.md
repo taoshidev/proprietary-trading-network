@@ -332,7 +332,11 @@ Process a collateral withdrawal request.
 
 **Parameters:**
 - `amount` (float): Amount to withdraw in theta tokens
-- `miner_address` (string): Miner's coldkey SS58 address
+- `miner_coldkey` (string): Miner's coldkey SS58 address
+- `miner_hotkey` (string): Miner's hotkey SS58 address
+- `nonce` (string): Request nonce
+- `timestamp` (int): Request timestamp
+- `signature` (string): Request signature
 
 ### Get Collateral Balance
 
@@ -347,6 +351,41 @@ Retrieve a miner's current collateral balance.
   "balance_theta": 15.5
 }
 ```
+
+## Asset Class Selection
+
+The asset class selection endpoint allows miners to permanently select their asset class (forex, crypto). This selection cannot be undone.
+
+### Asset Selection
+
+`POST /asset-selection`
+
+Process an asset class selection.
+
+**Request Body:**
+```json
+{
+  "asset_selection": "forex",
+  "miner_coldkey": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2",
+  "miner_hotkey": "5FrLxJsyJ5x9n2rmxFwosFraxFCKcXZDngEP9H7qjkKgHLcK",
+  "signature": "0x1234567890abcdef..."
+}
+```
+
+**Response:**
+```json
+{
+  "successfully_processed": true,
+  "success_message": "Miner 5FrLxJsyJ5x9n2rmxFwosFraxFCKcXZDngEP9H7qjkKgHLcK successfully selected asset class: forex",
+  "error_message": ""
+}
+```
+
+**Parameters:**
+- `asset_selection` (string): Miner's asset class selection
+- `miner_coldkey` (string): Miner's coldkey SS58 address
+- `miner_hotkey` (string): Miner's hotkey SS58 address
+- `signature` (string): Request signature
 
 ## Compression Support
 
