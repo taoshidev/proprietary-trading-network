@@ -194,7 +194,7 @@ class Validator:
                                                       ipc_manager=self.ipc_manager,
                                                       shared_queue_websockets=self.shared_queue_websockets)
 
-        self.asset_selection_manager = AssetSelectionManager()
+        self.asset_selection_manager = AssetSelectionManager(ipc_manager=self.ipc_manager)
 
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
