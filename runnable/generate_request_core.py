@@ -9,7 +9,9 @@ from google.cloud import storage
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -34,6 +36,7 @@ class RequestCoreManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
         self.contract_manager = contract_manager
+        self.live_price_fetcher = None
         
         # Initialize IPC-managed dictionary for validator checkpoint caching
         if ipc_manager:
@@ -70,7 +73,9 @@ class RequestCoreManager:
 
         def truncate_position(position_to_truncate: Position) -> Position:
             nonlocal stale_date_threshold_ms
-            # 24 hours in milliseconds
+            if not self.live_price_fetcher:
+                secrets = ValiUtils.get_secrets()
+                self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
             new_orders = []
             for order in position_to_truncate.orders:
@@ -79,7 +84,7 @@ class RequestCoreManager:
 
             if len(new_orders):
                 position_to_truncate.orders = new_orders
-                position_to_truncate.rebuild_position_with_updated_orders()
+                position_to_truncate.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 return position_to_truncate
             else:  # no orders left. erase position
                 return None
