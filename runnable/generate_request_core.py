@@ -9,7 +9,9 @@ from google.cloud import storage
 from time_util.time_util import TimeUtil
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -34,6 +36,7 @@ class RequestCoreManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
         self.contract_manager = contract_manager
+        self.live_price_fetcher = None
         self.asset_selection_manager = asset_selection_manager
 
         # Initialize IPC-managed dictionary for validator checkpoint caching
@@ -71,7 +74,9 @@ class RequestCoreManager:
 
         def truncate_position(position_to_truncate: Position) -> Position:
             nonlocal stale_date_threshold_ms
-            # 24 hours in milliseconds
+            if not self.live_price_fetcher:
+                secrets = ValiUtils.get_secrets()
+                self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
             new_orders = []
             for order in position_to_truncate.orders:
@@ -80,7 +85,7 @@ class RequestCoreManager:
 
             if len(new_orders):
                 position_to_truncate.orders = new_orders
-                position_to_truncate.rebuild_position_with_updated_orders()
+                position_to_truncate.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 return position_to_truncate
             else:  # no orders left. erase position
                 return None
@@ -131,7 +136,7 @@ class RequestCoreManager:
             cached_entry = self.validator_checkpoint_cache.get('checkpoint', {})
             if not cached_entry or 'data' not in cached_entry:
                 return None
-
+            
             return cached_entry['data']
         except Exception as e:
             print(f"Error retrieving compressed checkpoint from memory: {e}")
@@ -207,7 +212,7 @@ class RequestCoreManager:
 
         # Write compressed checkpoint only - saves disk space and bandwidth
         compressed_data = self.compress_dict(final_dict)
-
+        
         # Clean up old uncompressed file if it exists (legacy cleanup)
         uncompressed_path = ValiBkpUtils.get_vali_outputs_dir() + "validator_checkpoint.json"
         if os.path.exists(uncompressed_path):
@@ -216,13 +221,13 @@ class RequestCoreManager:
                 print(f"Removed old uncompressed checkpoint: {uncompressed_path}")
             except Exception as e:
                 print(f"Failed to remove old uncompressed checkpoint: {e}")
-
+        
         # Write compressed file directly
         compressed_path = ValiBkpUtils.get_vcp_output_path()
         with open(compressed_path, 'wb') as f:
             f.write(compressed_data)
         #print(f"Wrote compressed checkpoint to {compressed_path}")
-
+        
         # Store compressed checkpoint data in IPC memory cache
         self.store_checkpoint_in_memory(final_dict)
 
