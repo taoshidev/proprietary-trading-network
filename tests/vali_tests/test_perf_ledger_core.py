@@ -13,6 +13,8 @@ from unittest.mock import patch, Mock
 import math
 from decimal import Decimal
 
+from tests.shared_objects.mock_classes import MockLivePriceFetcher
+
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_24_HOURS, MS_IN_8_HOURS
@@ -20,6 +22,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -37,6 +40,8 @@ class TestPerfLedgerCore(TestBase):
 
     def setUp(self):
         super().setUp()
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         self.test_hotkey = "test_miner_core"
         self.now_ms = TimeUtil.now_in_millis()
         
@@ -46,6 +51,7 @@ class TestPerfLedgerCore(TestBase):
             metagraph=self.mmg,
             running_unit_tests=True,
             elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
         self.position_manager.clear_all_miner_positions()
 
@@ -437,7 +443,7 @@ class TestPerfLedgerCore(TestBase):
             is_closed_position=True,
         )
         
-        position.rebuild_position_with_updated_orders()
+        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         return position
 
 

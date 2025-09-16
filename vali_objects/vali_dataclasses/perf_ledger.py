@@ -503,10 +503,10 @@ class PerfLedgerManager(CacheController):
         self.update_to_n_open_positions = {}
         self.position_uuid_to_cache = defaultdict(FeeCache)
         self.target_ledger_window_ms = target_ledger_window_ms
+        bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
         if self.is_backtesting or self.parallel_mode != ParallelizationMode.SERIAL:
             pass
         else:
-            bt.logging.info(f"Running performance ledger manager with mode {self.parallel_mode.name}")
             initial_perf_ledgers = self.get_perf_ledgers(from_disk=True, portfolio_only=False)
             for k, v in initial_perf_ledgers.items():
                 self.hotkey_to_perf_bundle[k] = v
@@ -522,7 +522,13 @@ class PerfLedgerManager(CacheController):
             self.secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
 
 
-
+    def clear_all_ledger_data(self):
+        # Clear in-memory and on-disk ledgers. Only for unit tests.
+        assert self.running_unit_tests, 'this is only valid for unit tests'
+        self.hotkey_to_perf_bundle.clear()
+        self.clear_perf_ledgers_from_disk()  # Also clears in-memory
+        self.pl_elimination_rows.clear()
+        self.clear_perf_ledger_eliminations_from_disk()
 
     @staticmethod
     def print_bundles(ans: dict[str, dict[str, PerfLedger]]):
@@ -635,6 +641,12 @@ class PerfLedgerManager(CacheController):
         for k in list(self.hotkey_to_perf_bundle.keys()):
             del self.hotkey_to_perf_bundle[k]
 
+    def clear_perf_ledger_eliminations_from_disk(self):
+        assert self.running_unit_tests, 'this is only valid for unit tests'
+        self.pl_elimination_rows = []
+        file_path = ValiBkpUtils.get_perf_ledger_eliminations_dir(running_unit_tests=self.running_unit_tests)
+        if os.path.exists(file_path):
+            ValiBkpUtils.write_file(file_path, [])
 
     @staticmethod
     def clear_perf_ledgers_from_disk_autosync(hotkeys:list):
@@ -678,9 +690,9 @@ class PerfLedgerManager(CacheController):
                 new_orders.append(o)
 
         position_at_start_timestamp.orders = new_orders[:-1]
-        position_at_start_timestamp.rebuild_position_with_updated_orders()
+        position_at_start_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         position_at_end_timestamp.orders = new_orders
-        position_at_end_timestamp.rebuild_position_with_updated_orders()
+        position_at_end_timestamp.rebuild_position_with_updated_orders(self.live_price_fetcher)
         # Handle position that was forced closed due to realtime data (liquidated)
         if len(new_orders) == len(position.orders) and position.return_at_close == 0:
             position_at_end_timestamp.return_at_close = 0
@@ -972,10 +984,10 @@ class PerfLedgerManager(CacheController):
                 if historical_position.is_open_position and price_at_t_ms is not None:
                     # Always update returns for open positions when we have a price
                     # This ensures returns are always current and prevents stale values
-                    historical_position.set_returns(price_at_t_ms, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                    historical_position.set_returns(price_at_t_ms, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
                 else:
                     # Closed positions or no price available - just update fees
-                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms)
+                    historical_position.set_returns_with_updated_fees(position_spread_fee * position_carry_fee, t_ms, self.live_price_fetcher)
 
                 # Track last known prices for portfolio ledger to maintain continuity
                 if price_at_t_ms is not None:
@@ -1624,6 +1636,7 @@ class PerfLedgerManager(CacheController):
                             bt.logging.warning(f'Unexpected price continuity rejection for {tp_id} at {t_ms} with last known price {last_price} at {last_price_ms}. Position last order at {position.orders[-1].processed_ms}')
                             continue
 
+
                         # Record the price transition and return change for logging
                         last_order_price = position.orders[-1].price
                         old_return = position.return_at_close
@@ -1631,7 +1644,7 @@ class PerfLedgerManager(CacheController):
                         # Calculate the return at the last known price point
                         position_spread_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_spread_fee(position, t_ms)
                         position_carry_fee, _ = self.position_uuid_to_cache[position.position_uuid].get_carry_fee(t_ms, position)
-                        position.set_returns(last_price, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
+                        position.set_returns(last_price, self.live_price_fetcher, time_ms=t_ms, total_fees=position_spread_fee * position_carry_fee)
 
                         # Store info for aggregate logging with both price and return changes
                         new_return = position.return_at_close

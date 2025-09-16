@@ -12,6 +12,8 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, PerfLedgerManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
 
 bt.logging.enable_info()
 
@@ -22,6 +24,10 @@ class TestPerfLedgers(TestBase):
         self.DEFAULT_MINER_HOTKEY = "test_miner"
         self.DEFAULT_OPEN_MS = TimeUtil.now_in_millis() - 1000 * 60 * 60 * 24 * 60  # 60 days ago
         self.DEFAULT_TRADE_PAIR = TradePair.BTCUSD
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         self.default_btc_order = Order(price=60000, processed_ms=self.DEFAULT_OPEN_MS, order_uuid="test_order_btc", trade_pair=self.DEFAULT_TRADE_PAIR,
                                      order_type=OrderType.LONG, leverage=.5)
         self.default_nvda_order = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS + 1000 * 60 * 60 * 24 * 5, order_uuid="test_order_nvda", trade_pair=TradePair.NVDA,
@@ -37,7 +43,7 @@ class TestPerfLedgers(TestBase):
             orders=[self.default_btc_order],
             position_type=OrderType.LONG,
         )
-        self.default_btc_position.rebuild_position_with_updated_orders()
+        self.default_btc_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         self.default_nvda_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
@@ -47,7 +53,7 @@ class TestPerfLedgers(TestBase):
             orders=[self.default_nvda_order],
             position_type=OrderType.LONG,
         )
-        self.default_nvda_position.rebuild_position_with_updated_orders()
+        self.default_nvda_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         self.default_usdjpy_position = Position(
             miner_hotkey=self.DEFAULT_MINER_HOTKEY,
@@ -57,10 +63,12 @@ class TestPerfLedgers(TestBase):
             orders=[self.default_usdjpy_order],
             position_type=OrderType.LONG,
         )
-        self.default_usdjpy_position.rebuild_position_with_updated_orders()
+        self.default_usdjpy_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
         mmg = MockMetagraph(hotkeys=[self.DEFAULT_MINER_HOTKEY])
-        elimination_manager = EliminationManager(mmg, None, None)
-        position_manager = PositionManager(metagraph=mmg, running_unit_tests=True, elimination_manager=elimination_manager)
+        position_manager = PositionManager(metagraph=mmg, running_unit_tests=True, 
+                                          elimination_manager=None, live_price_fetcher=self.live_price_fetcher)
+        elimination_manager = EliminationManager(mmg, position_manager, None)
+        position_manager.elimination_manager = elimination_manager
         position_manager.clear_all_miner_positions()
 
         for p in [self.default_usdjpy_position, self.default_nvda_position, self.default_btc_position]:
@@ -229,7 +237,7 @@ class TestPerfLedgers(TestBase):
         # Close the btc position now
         close_order = Order(price=61000, processed_ms=last_update_portfolio, order_uuid="test_order_btc_close",
                                      trade_pair=self.DEFAULT_TRADE_PAIR, order_type=OrderType.FLAT, leverage=0)
-        self.default_btc_position.add_order(close_order)
+        self.default_btc_position.add_order(close_order, self.live_price_fetcher)
         self.perf_ledger_manager.position_manager.save_miner_position(self.default_btc_position)
 
         # Waiting a few days

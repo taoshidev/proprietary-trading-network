@@ -7,11 +7,20 @@ from pydantic import field_validator
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order_signal import Signal
 from vali_objects.vali_dataclasses.price_source import PriceSource
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 
-ORDER_SRC_ORGANIC = 0               # order generated from a miner's signal
-ORDER_SRC_ELIMINATION_FLAT = 1      # order inserted when a miner is eliminated
-ORDER_SRC_DEPRECATION_FLAT = 2      # order inserted when a trade pair is removed
+class OrderSource(IntEnum):
+    """Enum representing the source/origin of an order."""
+    ORGANIC = 0                         # order generated from a miner's signal
+    ELIMINATION_FLAT = 1               # order inserted when a miner is eliminated (0 used for price. DEPRECATED)
+    DEPRECATION_FLAT = 2               # order inserted when a trade pair is removed (0 used for price)
+    PRICE_FILLED_ELIMINATION_FLAT = 3  # order inserted when a miner is eliminated but we price fill it accurately.
+
+# Backward compatibility constants - to be removed after migration
+ORDER_SRC_ORGANIC = OrderSource.ORGANIC
+ORDER_SRC_ELIMINATION_FLAT = OrderSource.ELIMINATION_FLAT
+ORDER_SRC_DEPRECATION_FLAT = OrderSource.DEPRECATION_FLAT
+ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT = OrderSource.PRICE_FILLED_ELIMINATION_FLAT
 
 class Order(Signal):
     price: float

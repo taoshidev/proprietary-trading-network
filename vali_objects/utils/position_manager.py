@@ -24,7 +24,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
 from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_dataclasses.order import OrderStatus, ORDER_SRC_DEPRECATION_FLAT, Order
+from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
 TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
@@ -67,8 +67,8 @@ class PositionManager(CacheController):
         else:
             self.hotkey_to_positions = {}
         self.secrets = secrets
-        self._populate_memory_positions_for_first_time()
         self.live_price_fetcher = live_price_fetcher
+        self._populate_memory_positions_for_first_time()
 
     def _default_split_stats(self):
         """Default split statistics for each miner. Used to make defaultdict pickleable."""
@@ -267,7 +267,7 @@ class PositionManager(CacheController):
                 pos.orders[i].price = prices[i]
 
             old_return = pos.return_at_close  # noqa: F841
-            pos.rebuild_position_with_updated_orders()
+            pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
             self.save_miner_position(pos, delete_open_position_if_exists=False)
             unique_corrections.add(pos.position_uuid)
             n_corrections += 1
@@ -285,7 +285,7 @@ class PositionManager(CacheController):
                     f"Deleting position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id} nl {position.net_leverage}")
                 self.delete_position(position)
                 position.reopen_position()
-                position.rebuild_position_with_updated_orders()
+                position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 print('rac2:', position.return_at_close)
                 self.save_miner_position(position, delete_open_position_if_exists=False)
                 print(f"Reopened position {position.position_uuid} for trade pair {position.trade_pair.trade_pair_id}")
@@ -347,7 +347,7 @@ class PositionManager(CacheController):
                         order_uuid_to_dedup[order.order_uuid] = order
                 if any_orders_deleted:
                     position.orders = new_orders
-                    position.rebuild_position_with_updated_orders()
+                    position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                     self.save_miner_position(position, delete_open_position_if_exists=False)
                     n_positions_rebuilt_with_new_orders += 1
         if n_positions_deleted or n_orders_deleted or n_positions_rebuilt_with_new_orders:
@@ -466,7 +466,7 @@ class PositionManager(CacheController):
                     else:
                         if any(o.src == 1 for o in pos.orders):
                             pos.orders = [o for o in pos.orders if o.src != 1]
-                            pos.rebuild_position_with_updated_orders()
+                            pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
                             self.save_miner_position(pos)
                             print(f'Removed eliminated orders from position {pos}')
                 if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
@@ -682,9 +682,9 @@ class PositionManager(CacheController):
                                        trade_pair=position.trade_pair,
                                        order_type=OrderType.FLAT,
                                        leverage=0,
-                                       src=ORDER_SRC_DEPRECATION_FLAT)
+                                       src=OrderSource.DEPRECATION_FLAT)
 
-                    position.add_order(flat_order)
+                    position.add_order(flat_order, self.live_price_fetcher)
                     self.save_miner_position(position, delete_open_position_if_exists=True)
                     if self.shared_queue_websockets:
                         self.shared_queue_websockets.put(position.to_websocket_dict())
@@ -1347,7 +1347,7 @@ class PositionManager(CacheController):
 
             # Update the original position with the first group
             position.orders = order_groups[0]
-            position.rebuild_position_with_updated_orders()
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
             positions = [position]
 
@@ -1358,7 +1358,7 @@ class PositionManager(CacheController):
                                         open_ms=0,
                                         trade_pair=position.trade_pair,
                                         orders=order_group)
-                new_position.rebuild_position_with_updated_orders()
+                new_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 positions.append(new_position)
 
             split_info = {
@@ -1389,10 +1389,13 @@ if __name__ == '__main__':
     from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
     from vali_objects.utils.elimination_manager import EliminationManager
     from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
+    from vali_utils import ValiUtils
     bt.logging.enable_info()
 
     plm = PerfLedgerManager(None)
-    pm = PositionManager(perf_ledger_manager=plm)
+    secrets = ValiUtils.get_secrets()
+    lpf = LivePriceFetcher(secrets, disable_ws=True)
+    pm = PositionManager(perf_ledger_manager=plm, live_price_fetcher=lpf)
     elimination_manager = EliminationManager(None, pm, None)
     cpm = ChallengePeriodManager(None, position_manager=pm)
     pm.challengeperiod_manager = cpm
