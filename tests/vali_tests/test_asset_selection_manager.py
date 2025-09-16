@@ -63,8 +63,8 @@ class TestAssetSelectionManager(TestBase):
         """Test successful asset selection request"""
         result = self.asset_manager.process_asset_selection_request('crypto', self.test_miner_1)
         
-        self.assertTrue(result['success'])
-        self.assertIn('Successfully selected asset class: crypto', result['message'])
+        self.assertTrue(result['successfully_processed'])
+        self.assertIn('successfully selected asset class: crypto', result['success_message'])
         
         # Verify selection was stored
         selected = self.asset_manager.asset_selections.get(self.test_miner_1)
@@ -74,9 +74,9 @@ class TestAssetSelectionManager(TestBase):
         """Test asset selection request with invalid asset class"""
         result = self.asset_manager.process_asset_selection_request('invalid_class', self.test_miner_1)
         
-        self.assertFalse(result['success'])
-        self.assertIn('Invalid asset class', result['message'])
-        self.assertIn('crypto, forex, indices, equities', result['message'])
+        self.assertFalse(result['successfully_processed'])
+        self.assertIn('Invalid asset class', result['error_message'])
+        self.assertIn('crypto, forex, indices, equities', result['error_message'])
         
         # Verify no selection was stored
         self.assertNotIn(self.test_miner_1, self.asset_manager.asset_selections)
@@ -85,13 +85,13 @@ class TestAssetSelectionManager(TestBase):
         """Test that miners cannot change their asset class selection"""
         # First selection
         result1 = self.asset_manager.process_asset_selection_request('crypto', self.test_miner_1)
-        self.assertTrue(result1['success'])
+        self.assertTrue(result1['successfully_processed'])
         
         # Attempt to change selection
         result2 = self.asset_manager.process_asset_selection_request('forex', self.test_miner_1)
-        self.assertFalse(result2['success'])
-        self.assertIn('Asset class already selected: crypto', result2['message'])
-        self.assertIn('Cannot change selection', result2['message'])
+        self.assertFalse(result2['successfully_processed'])
+        self.assertIn('Asset class already selected: crypto', result2['error_message'])
+        self.assertIn('Cannot change selection', result2['error_message'])
         
         # Verify original selection unchanged
         selected = self.asset_manager.asset_selections.get(self.test_miner_1)
@@ -101,15 +101,15 @@ class TestAssetSelectionManager(TestBase):
         """Test that different miners can select different asset classes"""
         # Miner 1 selects crypto
         result1 = self.asset_manager.process_asset_selection_request('crypto', self.test_miner_1)
-        self.assertTrue(result1['success'])
+        self.assertTrue(result1['successfully_processed'])
         
         # Miner 2 selects forex
         result2 = self.asset_manager.process_asset_selection_request('forex', self.test_miner_2)
-        self.assertTrue(result2['success'])
+        self.assertTrue(result2['successfully_processed'])
 
         # Miner 3 selects indices
         result3 = self.asset_manager.process_asset_selection_request('indices', self.test_miner_3)
-        self.assertTrue(result3['success'])
+        self.assertTrue(result3['successfully_processed'])
         
         # Verify all selections
         self.assertEqual(self.asset_manager.asset_selections[self.test_miner_1], TradePairCategory.CRYPTO)
@@ -259,7 +259,7 @@ class TestAssetSelectionManager(TestBase):
         for i, case in enumerate(test_cases):
             miner = f'5TestMiner{i}'
             result = self.asset_manager.process_asset_selection_request(case, miner)
-            self.assertTrue(result['success'], f"Failed for case: {case}")
+            self.assertTrue(result['successfully_processed'], f"Failed for case: {case}")
             
             # All should be stored as the same enum value
             self.assertEqual(self.asset_manager.asset_selections[miner], TradePairCategory.CRYPTO)
@@ -268,10 +268,10 @@ class TestAssetSelectionManager(TestBase):
         """Test error handling in process_asset_selection_request"""
         # Test with None values
         result = self.asset_manager.process_asset_selection_request(None, self.test_miner_1)
-        self.assertFalse(result['success'])
+        self.assertFalse(result['successfully_processed'])
         
         # Should handle gracefully without crashing
-        self.assertIn('message', result)
+        self.assertIn('error_message', result)
         
     @patch.object(AssetSelectionManager, '_save_asset_selections_to_disk')
     def test_save_error_handling(self, mock_save):
@@ -280,8 +280,8 @@ class TestAssetSelectionManager(TestBase):
         
         # Should handle save errors gracefully
         result = self.asset_manager.process_asset_selection_request('crypto', self.test_miner_1)
-        self.assertFalse(result['success'])
-        self.assertIn('Internal server error', result['message'])
+        self.assertFalse(result['successfully_processed'])
+        self.assertIn('Internal server error', result['error_message'])
         
 
 if __name__ == '__main__':

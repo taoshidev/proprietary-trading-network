@@ -383,7 +383,7 @@ class Validator:
             contract_manager=self.contract_manager
         )
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, self.asset_selection_manager)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, asset_selection_manager=self.asset_selection_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
@@ -706,7 +706,8 @@ class Validator:
                 if not self.asset_selection_manager.validate_order_asset_class(miner_hotkey, trade_pair.trade_pair_category, order_time_ms):
                     raise SignalException(
                         f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
-                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey).value}]. Only trade pairs from your selected asset class are allowed."
+                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
+                        f"See https://docs.taoshi.io/ptn/collateral/ptncli/ for more information."
                     )
 
                 open_position = Position(
