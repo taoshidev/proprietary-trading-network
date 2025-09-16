@@ -92,6 +92,22 @@ class AssetSelectionManager:
                 
         return parsed_selections
 
+    def sync_miner_asset_selection_data(self, asset_selection_data: Dict[str, str]):
+        """Sync miner asset selection data from external source (backup/sync)"""
+        if not asset_selection_data:
+            bt.logging.warning("asset_selection_data appears empty or invalid")
+            return
+        try:
+            with self.asset_selections:
+                synced_data = self._parse_asset_selections_dict(asset_selection_data)
+                self.asset_selections.clear()
+                self.asset_selections.update(synced_data)
+                self._save_asset_selections_to_disk()
+                bt.logging.info(f"Synced {len(self.asset_selections)} miner account size records")
+        except Exception as e:
+            bt.logging.error(f"Failed to sync miner account sizes data: {e}")
+
+
     def is_valid_asset_class(self, asset_class: str) -> bool:
         """
         Validate if the provided asset class is valid.
@@ -278,12 +294,3 @@ class AssetSelectionManager:
             import traceback
             bt.logging.error(traceback.format_exc())
             return False
-
-
-    def clear_all_selections(self) -> None:
-        """
-        Clear all asset selections
-        """
-        self.asset_selections.clear()
-        self._save_asset_selections_to_disk()
-        bt.logging.warning("Cleared all asset selections")

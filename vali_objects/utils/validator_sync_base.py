@@ -191,18 +191,12 @@ class ValidatorSyncBase():
         # Sync asset selections if available
         asset_selections_data = candidate_data.get('asset_selections', {})
         if asset_selections_data and self.asset_selection_manager:
-            bt.logging.info(f"Syncing {len(asset_selections_data)} miner asset selections")
-            try:
-                # Parse and update asset selections
-                restored_selections = self.asset_selection_manager._parse_asset_selections_dict(asset_selections_data)
-                self.asset_selection_manager.asset_selections.clear()
-                self.asset_selection_manager.asset_selections.update(restored_selections)
-                self.asset_selection_manager._save_asset_selections_to_disk()
-                bt.logging.info(f"Successfully synced {len(restored_selections)} asset selections")
-            except Exception as e:
-                bt.logging.error(f"Error syncing asset selections: {e}")
+            bt.logging.info(f"Syncing {len(asset_selections_data)} miner asset selections from auto sync")
+            if not shadow_mode:
+                bt.logging.info(f"Syncing {len(asset_selections_data)} miner asset selection records from auto sync")
+                self.asset_selection_manager.sync_miner_asset_selection_data(asset_selections_data)
         elif asset_selections_data:
-            bt.logging.warning("Asset selections found in backup but no AssetSelectionManager available")
+            bt.logging.warning("Asset selections data found but no AssetSelectionManager available for sync")
 
         # Reorganized stats with clear, grouped naming
         # Overview

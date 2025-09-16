@@ -115,6 +115,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     contract_manager = ValidatorContractManager(config=None, running_unit_tests=False)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     perf_ledger_manager = PerfLedgerManager(None, contract_manager=contract_manager)
+    asset_selection_manager = AssetSelectionManager()
 
     if DEBUG:
         position_manager.pre_run_setup()
@@ -223,16 +224,8 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     ## Restore asset selections
     asset_selections_data = data.get('asset_selections', {})
     if asset_selections_data:
-        bt.logging.info(f"Restoring {len(asset_selections_data)} miner asset selections")
-        asset_selection_manager = AssetSelectionManager()
-        # Clear existing selections and restore from backup
-        asset_selection_manager.clear_all_selections()
-        # Restore selections by parsing the data
-        restored_selections = AssetSelectionManager._parse_asset_selections_dict(asset_selections_data)
-        asset_selection_manager.asset_selections.clear()
-        asset_selection_manager.asset_selections.update(restored_selections)
-        asset_selection_manager._save_asset_selections_to_disk()
-        bt.logging.info(f"Successfully restored {len(restored_selections)} asset selections")
+        bt.logging.info(f"syncing {len(asset_selections_data)} miner asset selection records")
+        asset_selection_manager.sync_miner_asset_selection_data(asset_selections_data)
     else:
         bt.logging.info("No asset selections found in backup data")
     

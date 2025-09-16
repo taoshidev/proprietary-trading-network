@@ -17,7 +17,7 @@ class TestAssetSelectionManager(TestBase):
         self.asset_manager = AssetSelectionManager(running_unit_tests=True)
         
         # Clear any existing selections for clean test state
-        self.asset_manager.clear_all_selections()
+        self.asset_manager.asset_selections.clear()
         
         # Test miners
         self.test_miner_1 = '5TestMiner1234567890'
@@ -30,7 +30,7 @@ class TestAssetSelectionManager(TestBase):
         
     def tearDown(self):
         """Clean up test data"""
-        self.asset_manager.clear_all_selections()
+        self.asset_manager.asset_selections.clear()
         super().tearDown()
         
     def test_initialization(self):
@@ -236,21 +236,6 @@ class TestAssetSelectionManager(TestBase):
         self.assertNotIn(self.test_miner_1, parsed)
         self.assertNotIn('bad_miner', parsed)
 
-    def test_clear_all_selections(self):
-        """Test clearing all asset selections"""
-        # Add selections
-        self.asset_manager.process_asset_selection_request('crypto', self.test_miner_1)
-        self.asset_manager.process_asset_selection_request('forex', self.test_miner_2)
-        self.assertEqual(len(self.asset_manager.asset_selections), 2)
-        
-        # Clear all
-        self.asset_manager.clear_all_selections()
-        self.assertEqual(len(self.asset_manager.asset_selections), 0)
-        
-        # Verify disk was also cleared by creating new manager
-        new_manager = AssetSelectionManager(running_unit_tests=True)
-        self.assertEqual(len(new_manager.asset_selections), 0)
-        
     def test_case_insensitive_asset_selection(self):
         """Test that asset selection is case insensitive"""
         # Test various cases
