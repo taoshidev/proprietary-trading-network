@@ -203,6 +203,7 @@ class Validator:
                                               position_manager=None,
                                               auto_sync_enabled=self.auto_sync,
                                               contract_manager=self.contract_manager,
+                                              live_price_fetcher=self.live_price_fetcher,
                                               asset_selection_manager=self.asset_selection_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,

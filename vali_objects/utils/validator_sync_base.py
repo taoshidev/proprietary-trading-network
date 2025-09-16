@@ -31,7 +31,7 @@ class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
                  ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None,
-                 asset_selection_manager=None
+                 live_price_fetcher=None, asset_selection_manager=None
 ):
         self.verbose = verbose
         self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
