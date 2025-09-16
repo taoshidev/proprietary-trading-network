@@ -107,10 +107,7 @@ class AssetSelectionManager:
 
         selected_asset_class = self.asset_selections.get(miner_hotkey, None)
         if selected_asset_class is None:
-            raise SignalException(
-                f"miner [{miner_hotkey}]: all miners are required to select an asset class before trading. "
-                f"Please select an asset class using the /asset-selection API endpoint first. See https://docs.taoshi.io/ptn/collateral/ptncli/ for more information."
-            )
+            return False
 
         # Check if the selected asset class matches the trade pair category
         return selected_asset_class == trade_pair_category
