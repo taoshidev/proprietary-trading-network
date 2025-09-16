@@ -7,7 +7,7 @@ from vali_objects.vali_config import TradePairCategory, ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 
-ASSET_CLASS_SELECTION_TIME_MS = 1754982000000
+ASSET_CLASS_SELECTION_TIME_MS = 1758092400000
 
 class AssetSelectionManager:
     """
@@ -16,7 +16,7 @@ class AssetSelectionManager:
     Asset selections are persisted to disk and loaded on startup.
     """
 
-    def __init__(self, running_unit_tests=False):
+    def __init__(self, ipc_manager=None, running_unit_tests=False):
         """
         Initialize the AssetSelectionManager.
         
@@ -24,7 +24,10 @@ class AssetSelectionManager:
             running_unit_tests: Whether the manager is being used in unit tests
         """
         self.running_unit_tests = running_unit_tests
-        self.asset_selections: Dict[str, TradePairCategory] = {}  # miner_hotkey -> TradePairCategory
+        if ipc_manager:
+            self.asset_selections = ipc_manager.dict()
+        else:
+            self.asset_selections: Dict[str, TradePairCategory] = {}  # miner_hotkey -> TradePairCategory
 
         self.ASSET_SELECTIONS_FILE = ValiBkpUtils.get_asset_selections_file_location(running_unit_tests=running_unit_tests)
         self._load_asset_selections_from_disk()
@@ -34,12 +37,11 @@ class AssetSelectionManager:
         try:
             disk_data = ValiUtils.get_vali_json_file_dict(self.ASSET_SELECTIONS_FILE)
             parsed_selections = self._parse_asset_selections_dict(disk_data)
-            self.asset_selections = parsed_selections
-            
+            self.asset_selections.clear()
+            self.asset_selections.update(parsed_selections)
             bt.logging.info(f"Loaded {len(self.asset_selections)} asset selections from disk")
         except Exception as e:
             bt.logging.error(f"Error loading asset selections from disk: {e}")
-            self.asset_selections = {}
 
     def _save_asset_selections_to_disk(self) -> None:
         """Save asset selections from memory to disk using ValiBkpUtils pattern."""
@@ -164,6 +166,6 @@ class AssetSelectionManager:
         """
         Clear all asset selections
         """
-        self.asset_selections = {}
+        self.asset_selections.clear()
         self._save_asset_selections_to_disk()
         bt.logging.warning("Cleared all asset selections")

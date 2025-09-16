@@ -195,7 +195,8 @@ class ValidatorSyncBase():
             try:
                 # Parse and update asset selections
                 restored_selections = self.asset_selection_manager._parse_asset_selections_dict(asset_selections_data)
-                self.asset_selection_manager.asset_selections = restored_selections
+                self.asset_selection_manager.asset_selections.clear()
+                self.asset_selection_manager.asset_selections.update(restored_selections)
                 self.asset_selection_manager._save_asset_selections_to_disk()
                 bt.logging.info(f"Successfully synced {len(restored_selections)} asset selections")
             except Exception as e:
