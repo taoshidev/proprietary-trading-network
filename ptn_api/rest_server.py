@@ -755,7 +755,7 @@ class PTNRestServer(APIKeyMixin):
                 if not is_valid:
                     return jsonify({'error': f'{error_msg}'}), 401
 
-            # Process the withdrawal using verified data
+                # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_coldkey=data['miner_coldkey'],
@@ -891,6 +891,11 @@ class PTNRestServer(APIKeyMixin):
                 is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
                 if not is_valid:
                     return jsonify({'error': 'Invalid signature. Asset selection request unauthorized'}), 401
+
+                # Verify coldkey-hotkey ownership using subtensor
+                owns_hotkey = self._verify_coldkey_owns_hotkey(data['miner_coldkey'], data['miner_hotkey'])
+                if not owns_hotkey:
+                    return jsonify({'error': 'Coldkey does not own the specified hotkey'}), 403
 
                 # Process the asset selection using verified data
                 result = self.asset_selection_manager.process_asset_selection_request(
