@@ -222,18 +222,6 @@ class EnhancedMockPositionManager(BaseMockPositionManager):
         
         if position.is_closed_position:
             self.closed_positions_by_hotkey[position.miner_hotkey].append(position)
-            
-    def add_order_to_position(self, position: Position, order):
-        """Add order to position and handle FLAT orders"""
-        position.add_order(order)
-        
-        if order.order_type == OrderType.FLAT:
-            # Close the position
-            position.is_closed_position = True
-            position.close_ms = order.processed_ms
-            position.return_at_close = position.calculate_return_at_close(order.price)
-            
-        self.save_miner_position(position)
         
     def filtered_positions_for_scoring(self, hotkeys: List[str] = None):
         """Get positions filtered for scoring"""

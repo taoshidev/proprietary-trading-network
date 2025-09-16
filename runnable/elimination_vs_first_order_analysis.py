@@ -15,17 +15,17 @@ Usage:
 
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Tuple, Set, Optional, Any, Union
+from collections import defaultdict
 
 from daily_portfolio_returns import SharedDataManager, get_database_url_from_config, EliminationTracker
 import bittensor as bt
-import pandas as pd
 from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, text, inspect, tuple_
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.position_source import PositionSourceManager, PositionSource
-from vali_objects.utils.elimination_source import EliminationSourceManager, EliminationSource
 from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcategory, ForexSubcategory
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
@@ -76,7 +76,8 @@ class ReturnCalculator:
     def calculate_position_return(
             position: Position,
             target_date_ms: int,
-            cached_price_sources: Dict[TradePair, PriceSource]
+            cached_price_sources: Dict[TradePair, PriceSource],
+            live_price_fetcher: LivePriceFetcher
     ) -> float:
         """Calculate return for a single position."""
         # If position is closed and closed before/at target date, use actual return
@@ -100,7 +101,7 @@ class ReturnCalculator:
             position_type=position.position_type,
             is_closed_position=position.is_closed_position,
         )
-        position_copy.rebuild_position_with_updated_orders()
+        position_copy.rebuild_position_with_updated_orders(live_prive_fetcher)
 
         price = price_source.parse_appropriate_price(
             now_ms=target_date_ms,
@@ -196,18 +197,19 @@ class CategoryReturnCalculator:
         Returns:
             Dict[str, Dict[str, Dict[str, float]]]: Nested dict of miner_hotkey -> category -> {"return": value, "count": count}
         """
-        from collections import defaultdict
 
         # Initialize data structure for results (following reference exactly)
         # Format: {miner_hotkey: {category: {"return": cumulative_portfolio_value, "count": count}}}
         miner_category_returns = defaultdict(
             lambda: defaultdict(lambda: {"return": 1.0, "count": 0}))
 
+        secrets = ValiUtils.get_secrets()
+        live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
         # Process each position (following reference logic exactly)
         for position in positions:
             # Calculate return_at_close for this position at the target date
             position_return = ReturnCalculator.calculate_position_return(
-                position, target_date_ms, cached_price_sources
+                position, target_date_ms, cached_price_sources, live_price_fetcher
             )
 
             # Fail fast - if we can't calculate return, something is wrong

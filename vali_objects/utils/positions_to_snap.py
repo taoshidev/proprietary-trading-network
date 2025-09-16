@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
     for position_json in positions_to_snap:
         pos = Position(**position_json)
-        pos.rebuild_position_with_updated_orders()
+        pos.rebuild_position_with_updated_orders(lpf)
         assert pos.is_closed_position
         #print(pos.to_copyable_str())
         str_to_write = json.dumps(pos, cls=CustomEncoder)

@@ -34,10 +34,6 @@ class TestPositionManager(TestBase):
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, live_price_fetcher=self.live_price_fetcher)
         self.position_manager.clear_all_miner_positions()
 
-    def add_order_to_position_and_save_to_disk(self, position, order):
-        position.add_order(order)
-        self.position_manager.save_miner_position(position)
-
     def _find_disk_position_from_memory_position(self, position):
         for disk_position in self.position_manager.get_positions_for_one_hotkey(position.miner_hotkey):
             if disk_position.position_uuid == position.position_uuid:
