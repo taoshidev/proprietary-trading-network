@@ -1208,6 +1208,7 @@ class MinerStatisticsManager:
                                 sortino_noconfidence_value=ValiConfig.SORTINO_NOCONFIDENCE_VALUE,
                                 calmar_noconfidence_value=ValiConfig.CALMAR_NOCONFIDENCE_VALUE,
                                 statistical_confidence_noconfidence_value=ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE,
+                                augmented_scores=augmented_dict.get("overall", {}),
                                 verbose=True,
                             )
                             bt.logging.info(
@@ -1250,64 +1251,19 @@ class MinerStatisticsManager:
                                 "calmar": "calmar_ratio_scaled",
                                 "sortino": "sortino_ratio_scaled",
                                 "omega": "omega_ratio_scaled",
-                                # Removed "return" mapping - comparing apples to oranges (% return vs USD PnL)
                                 "pnl": "pnl_score_scaled",
                             }
-
-                            bt.logging.info(
-                                f"=== Circuit vs Subnet Comparison for {hotkey[:8]} ==="
-                            )
-
-                            # Debug: Log checkpoint vs daily return info
-                            bt.logging.info(
-                                f"Daily returns count: {len(ptn_daily_returns)}"
-                            )
-                            if portfolio_ledger and portfolio_ledger.cps:
-                                checkpoint_count_debug = len(portfolio_ledger.cps)
-                                bt.logging.info(
-                                    f"Checkpoint count: {checkpoint_count_debug}"
-                                )
-
-                                # Sample of checkpoint data
-                                bt.logging.info("Sample checkpoint returns:")
-                                for i in range(min(3, checkpoint_count_debug)):
-                                    cp = portfolio_ledger.cps[i]
-                                    cp_return = cp.gain + cp.loss
-                                    bt.logging.info(
-                                        f"  CP[{i}]: gain={cp.gain:.6f}, loss={cp.loss:.6f}, total={cp_return:.6f}"
-                                    )
-
-                            bt.logging.info(
-                                "Metric           Circuit    Subnet     Diff"
-                            )
-                            bt.logging.info("=" * 50)
 
                             for metric, circuit_key in metric_keys.items():
                                 if circuit_key in circuit_metrics:
                                     circuit_value = circuit_metrics[circuit_key]
-
                                     zk_scores[metric] = {
                                         "value": circuit_value,
                                         "rank": None,
                                         "percentile": None,
                                     }
 
-                                    subnet_value = (
-                                        augmented_scores_dict.get("overall", {})
-                                        .get(metric, {})
-                                        .get("value", 0.0)
-                                    )
-                                    if subnet_value is None:
-                                        subnet_value = 0.0
-
-                                    diff = abs(circuit_value - subnet_value)
-
-                                    bt.logging.info(
-                                        f"{metric:<15} {circuit_value:>10.6f} {subnet_value:>10.6f} {diff:>10.6f}"
-                                    )
-
                             final_miner_dict["zk_scores"] = zk_scores
-                            bt.logging.info(f"ZK scores added for {hotkey[:8]}")
                     else:
                         bt.logging.debug(
                             "ZK proof generation disabled in configuration"
