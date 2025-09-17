@@ -19,6 +19,8 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.vali_utils import ValiUtils
 
 
 class TestAutoSyncTxtFiles(TestBase):
@@ -54,6 +56,10 @@ class TestAutoSyncTxtFiles(TestBase):
         
         # Set up mock metagraph
         self.mock_metagraph = MockMetagraph(list(self.hotkeys))
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         
         # Initialize managers
         self.elimination_manager = EliminationManager(
@@ -450,7 +456,7 @@ class TestAutoSyncTxtFiles(TestBase):
                             print(f"  Deleted order {deleted_order.order_uuid} from position {position.position_uuid}")
                         
                         # Properly rebuild position after order deletion
-                        position.rebuild_position_with_updated_orders()
+                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
         # Insert a bogus position to ensure we have at least one position deleted
         # This position should not exist in the candidate data

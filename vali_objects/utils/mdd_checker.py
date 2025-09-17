@@ -229,7 +229,7 @@ class MDDChecker(CacheController):
 
             # Rebuild the position with the newest price
             if n_orders_updated:
-                position.rebuild_position_with_updated_orders()
+                position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 bt.logging.info(f"Retroactively updated {n_orders_updated} order prices for {position.miner_hotkey} {position.trade_pair.trade_pair}  "
                                     f"return_at_close changed from {orig_return:.8f} to {position.return_at_close:.8f} "
                                     f"avg_price changed from {orig_avg_price:.8f} to {position.average_entry_price:.8f} "
@@ -243,7 +243,7 @@ class MDDChecker(CacheController):
             if position.is_open_position and realtime_price is not None:
                 orig_return = position.return_at_close
 
-                position.set_returns(realtime_price)
+                position.set_returns(realtime_price, self.position_manager.live_price_fetcher)
                 ret_changed = orig_return != position.return_at_close
 
             if n_orders_updated or ret_changed:

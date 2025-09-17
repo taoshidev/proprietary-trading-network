@@ -71,10 +71,10 @@ class APIMetricsTracker:
     def _get_user_id_from_api_key(self, api_key: str) -> str:
         """
         Get user ID from API key, handling unknown keys properly.
-        
+
         Args:
             api_key: The API key to look up
-            
+
         Returns:
             The user ID or a unique unknown_key identifier
         """
@@ -100,7 +100,7 @@ class APIMetricsTracker:
         with self.metrics_lock:
             self.api_key_hits[user_id].append(now)
             self.endpoint_hits[endpoint].append((now, duration))
-            
+
             # Track per-endpoint API key usage
             self.endpoint_api_key_hits[(endpoint, user_id)].append(now)
 
@@ -185,7 +185,7 @@ class APIMetricsTracker:
             # Remove empty failed request entries
             for key in empty_failed:
                 del self.failed_requests[key]
-            
+
             # Process per-endpoint API key usage
             endpoint_api_key_counts = {}
             empty_endpoint_keys = []
@@ -232,14 +232,14 @@ class APIMetricsTracker:
                 if endpoint in endpoint_api_key_counts:
                     for user_id, count in endpoint_api_key_counts[endpoint].items():
                         api_key_breakdown[user_id] = count
-                
+
                 # Format API key breakdown
                 if api_key_breakdown:
                     breakdown_str = str(api_key_breakdown)
                     log_lines.append(f"  {endpoint}: {stats['count']} requests {breakdown_str}")
                 else:
                     log_lines.append(f"  {endpoint}: {stats['count']} requests")
-                    
+
                 log_lines.append(f"    mean: {stats['mean'] * 1000:.2f}ms")
                 log_lines.append(f"    median: {stats['median'] * 1000:.2f}ms")
                 log_lines.append(f"    min/max: {stats['min'] * 1000:.2f}ms / {stats['max'] * 1000:.2f}ms")
@@ -252,18 +252,18 @@ class APIMetricsTracker:
             for (user_id, endpoint, status_code), count in sorted(failed_stats.items(),
                                                                   key=lambda x: x[1], reverse=True):
                 display_user_id = user_id
-                
+
                 # Add status code description for common failure codes
                 status_desc = {
                     400: "Bad Request",
-                    401: "Unauthorized", 
+                    401: "Unauthorized",
                     403: "Forbidden/Insufficient Tier",
                     404: "Not Found",
                     413: "Request Too Large",
                     500: "Internal Server Error",
                     503: "Service Unavailable"
                 }.get(status_code, "Unknown Error")
-                
+
                 log_lines.append(f"  {display_user_id} -> {endpoint} [{status_code} {status_desc}]: {count} failures")
 
         # Log the complete report
@@ -295,7 +295,8 @@ class PTNRestServer(APIKeyMixin):
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
                  port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
-                 miner_statistics_manager=None, request_core_manager=None):
+                 miner_statistics_manager=None, request_core_manager=None,
+                 asset_selection_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -318,6 +319,7 @@ class PTNRestServer(APIKeyMixin):
         self.miner_statistics_manager = miner_statistics_manager
         self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
+        self.asset_selection_manager = asset_selection_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -345,11 +347,11 @@ class PTNRestServer(APIKeyMixin):
     def _jsonify_with_custom_encoder(self, data, status_code=200):
         """
         Create a JSON response using CustomEncoder to handle BaseModel objects.
-        
+
         Args:
             data: The data to jsonify
             status_code: HTTP status code (default 200)
-            
+
         Returns:
             Flask Response object with proper JSON serialization
         """
@@ -557,17 +559,17 @@ class PTNRestServer(APIKeyMixin):
                     compressed_data = self.request_core_manager.get_compressed_checkpoint_from_memory()
                 except Exception as e:
                     bt.logging.debug(f"Error accessing compressed checkpoint cache: {e}")
-            
+
             if compressed_data is not None:
                 # Return pre-compressed data with appropriate headers
                 return Response(compressed_data, content_type='application/json', headers={
                     'Content-Encoding': 'gzip'
                 })
-            
+
             # Fallback to file read if memory unavailable
             # Checkpoint is always stored as compressed file
             f_gz = ValiBkpUtils.get_vcp_output_path()
-            
+
             if os.path.exists(f_gz):
                 # Read pre-compressed file directly
                 try:
@@ -695,7 +697,7 @@ class PTNRestServer(APIKeyMixin):
                 result = self.contract_manager.process_deposit_request(
                     extrinsic_hex=extrinsic
                 )
-                
+
                 # Return response
                 return jsonify(result)
                 
@@ -753,13 +755,13 @@ class PTNRestServer(APIKeyMixin):
                 if not is_valid:
                     return jsonify({'error': f'{error_msg}'}), 401
 
-            # Process the withdrawal using verified data
+                # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
                     amount=data['amount'],
                     miner_coldkey=data['miner_coldkey'],
                     miner_hotkey=data['miner_hotkey']
                 )
-                
+
                 # Return response
                 return jsonify(result)
                 
@@ -861,6 +863,81 @@ class PTNRestServer(APIKeyMixin):
                 bt.logging.error(f"Error getting collateral balance for {miner_address}: {e}")
                 return jsonify({'error': 'Internal server error retrieving balance'}), 500
 
+        @self.app.route("/asset-selection", methods=["POST"])
+        def asset_selection():
+            """Process asset selection request."""
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+
+                # Validate required fields for signed withdrawal
+                required_fields = ['asset_selection', 'miner_coldkey', 'miner_hotkey', 'signature']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Verify the withdrawal signature
+                keypair = Keypair(ss58_address=data['miner_coldkey'])
+                message = json.dumps({
+                    "asset_selection": data['asset_selection'],
+                    "miner_coldkey": data['miner_coldkey'],
+                    "miner_hotkey": data['miner_hotkey']
+                }, sort_keys=True).encode('utf-8')
+                is_valid = keypair.verify(message, bytes.fromhex(data['signature']))
+                if not is_valid:
+                    return jsonify({'error': 'Invalid signature. Asset selection request unauthorized'}), 401
+
+                # Verify coldkey-hotkey ownership using subtensor
+                owns_hotkey = self._verify_coldkey_owns_hotkey(data['miner_coldkey'], data['miner_hotkey'])
+                if not owns_hotkey:
+                    return jsonify({'error': 'Coldkey does not own the specified hotkey'}), 403
+
+                # Process the asset selection using verified data
+                result = self.asset_selection_manager.process_asset_selection_request(
+                    asset_selection=data['asset_selection'],
+                    miner=data['miner_hotkey']
+                )
+
+                # Return response
+                return jsonify(result)
+
+            except Exception as e:
+                bt.logging.error(f"Error processing asset selection: {e}")
+                return jsonify({'error': 'Internal server error processing asset selection'}), 500
+
+        @self.app.route("/miner-selections", methods=["GET"])
+        def get_miner_selections():
+            """Get all miner asset selection data."""
+            try:
+                # Check API key authentication
+                api_key = self._get_api_key_safe()
+
+                # Check if the API key is valid
+                if not self.is_valid_api_key(api_key):
+                    return jsonify({'error': 'Unauthorized access'}), 401
+
+                # Check if asset selection manager is available
+                if not self.asset_selection_manager:
+                    return jsonify({'error': 'Asset selection data not available'}), 503
+
+                # Get all miner selection data using the getter method
+                selections_data = self.asset_selection_manager.get_all_miner_selections()
+
+                return jsonify({
+                    'miner_selections': selections_data,
+                    'total_miners': len(selections_data),
+                    'timestamp': TimeUtil.now_in_millis()
+                })
+
+            except Exception as e:
+                bt.logging.error(f"Error retrieving miner selections: {e}")
+                return jsonify({'error': 'Internal server error retrieving miner selections'}), 500
+
     def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
         """
         Verify that a coldkey owns the specified hotkey using subtensor.
@@ -949,7 +1026,19 @@ class PTNRestServer(APIKeyMixin):
         """Start the REST server using Waitress."""
         print(f"[{current_process().name}] Starting REST server at http://{self.host}:{self.port}")
         setproctitle(f"vali_{self.__class__.__name__}")
-        serve(self.app, host=self.host, port=self.port)
+        serve(
+            self.app, 
+            host=self.host, 
+            port=self.port, 
+            connection_limit=1000,
+            threads=10,  # Increased from 6 to handle queue depth
+            channel_timeout=60,  # Reduced from 120 to close stuck connections faster
+            cleanup_interval=10,  # Reduced from 30 for more aggressive cleanup
+            backlog=2048,  # Increased to handle bursts better
+            send_bytes=65536,  # Increase send buffer from default 1 byte
+            outbuf_overflow=1048576,  # 1MB output buffer overflow size
+            asyncore_use_poll=True  # Use poll() instead of select() for better performance
+        )
 
 
 # This allows the module to be run directly for testing

@@ -153,10 +153,10 @@ class ValidatorContractManager:
 
     def miner_account_sizes_dict(self, most_recent_only: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         """Convert miner account sizes to checkpoint format for backup/sync
-        
+
         Args:
             most_recent_only: If True, only return the most recent record for each miner
-        
+
         Returns:
             Dictionary with hotkeys as keys and list of record dicts as values
         """
@@ -351,7 +351,8 @@ class ValidatorContractManager:
                     del owner_private_key
                     del vault_password
 
-                bt.logging.info(f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}")
+                msg = f"Deposit successful: {self.to_theta(deposited_balance.rao)} Theta deposited to miner: {miner_hotkey}"
+                bt.logging.info(msg)
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,
@@ -451,7 +452,8 @@ class ValidatorContractManager:
                     del owner_private_key
                     del vault_password
                 returned_theta = self.to_theta(withdrawn_balance.rao)
-                bt.logging.info(f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}")
+                msg = f"Withdrawal successful: {returned_theta} Theta withdrawn for {miner_hotkey}, returned to {miner_coldkey}"
+                bt.logging.info(msg)
                 self.set_miner_account_size(miner_hotkey, TimeUtil.now_in_millis())
                 return {
                     "successfully_processed": True,

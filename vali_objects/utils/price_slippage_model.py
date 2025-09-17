@@ -290,7 +290,7 @@ class PriceSlippageModel:
                     bt.logging.info(f"updated order attributes {o}")
                     order_updated = True
                 if order_updated:
-                    position.rebuild_position_with_updated_orders()
+                    position.rebuild_position_with_updated_orders(self.live_price_fetcher)
 
 
 if __name__ == "__main__":

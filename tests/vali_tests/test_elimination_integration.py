@@ -1,17 +1,7 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
 import os
-import time
 from unittest.mock import MagicMock, patch
-import bittensor as bt
-import numpy as np
-
-from tests.shared_objects.mock_classes import MockPositionManager
-from shared_objects.mock_metagraph import MockMetagraph
-from tests.shared_objects.test_utilities import (
-    generate_losing_ledger,
-    generate_winning_ledger,
-)
 from tests.vali_tests.mock_utils import (
     EnhancedMockMetagraph,
     EnhancedMockChallengePeriodManager,
@@ -25,21 +15,16 @@ from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
-from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
-from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
-from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
-from vali_objects.vali_dataclasses.price_source import PriceSource
-# Removed test_helpers import - using ValiConfig directly
-from vali_objects.scoring.scoring import Scoring
-
 
 class TestEliminationIntegration(TestBase):
     """Integration tests for the complete elimination flow"""
@@ -68,6 +53,11 @@ class TestEliminationIntegration(TestBase):
         
         # Initialize components with enhanced mocks
         self.mock_metagraph = EnhancedMockMetagraph(self.all_miners)
+        
+        # Set up live price fetcher
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
+        
         self.position_locks = PositionLocks()
         
         # Create IPC manager for multiprocessing simulation
@@ -85,7 +75,7 @@ class TestEliminationIntegration(TestBase):
         
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
-            None,
+            self.live_price_fetcher,
             None,
             running_unit_tests=True,
             ipc_manager=self.mock_ipc_manager
@@ -94,7 +84,8 @@ class TestEliminationIntegration(TestBase):
         self.position_manager = EnhancedMockPositionManager(
             self.mock_metagraph,
             perf_ledger_manager=self.perf_ledger_manager,
-            elimination_manager=self.elimination_manager
+            elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
         )
 
         self.contract_manager = ValidatorContractManager(running_unit_tests=True)
@@ -227,9 +218,17 @@ class TestEliminationIntegration(TestBase):
         """Set up any pre-existing eliminations"""
         # No initial eliminations - they will be generated during test
 
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
-    def test_complete_elimination_flow(self):
+    def test_complete_elimination_flow(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test the complete elimination flow from detection to weight setting"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
         # Step 1: Initial state verification
         initial_eliminations = self.elimination_manager.get_eliminations_from_memory()
         self.assertEqual(len(initial_eliminations), 0)
@@ -241,6 +240,9 @@ class TestEliminationIntegration(TestBase):
         
         # Step 2: Trigger MDD elimination
         self.elimination_manager.handle_mdd_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Verify MDD miner was eliminated
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -340,7 +342,7 @@ class TestEliminationIntegration(TestBase):
         # Create new elimination manager (simulating restart)
         new_elimination_manager = EliminationManager(
             self.mock_metagraph,
-            self.position_manager,
+            self.live_price_fetcher,
             self.challengeperiod_manager,
             running_unit_tests=True
         )
@@ -353,9 +355,17 @@ class TestEliminationIntegration(TestBase):
         for eliminated_miner in [self.MDD_MINER, self.CHALLENGE_FAIL_MINER]:
             self.assertIn(eliminated_miner, persisted_hotkeys)
 
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
-    def test_concurrent_elimination_scenarios(self):
+    def test_concurrent_elimination_scenarios(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test handling of multiple concurrent elimination scenarios"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
         # Set up multiple elimination conditions simultaneously
         
         # 1. MDD elimination condition
@@ -388,6 +398,9 @@ class TestEliminationIntegration(TestBase):
         
         # Also process plagiarism (currently commented out in process_eliminations)
         self.elimination_manager._handle_plagiarism_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Verify all eliminations occurred
         eliminations = self.elimination_manager.get_eliminations_from_memory()
@@ -455,8 +468,16 @@ class TestEliminationIntegration(TestBase):
         miners_with_weights = [result[0] for result in checkpoint_results]
         self.assertIn(self.HEALTHY_MINER, miners_with_weights)
 
-    def test_elimination_timing_and_delays(self):
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
+    def test_elimination_timing_and_delays(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test elimination timing, delays, and cleanup"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
         # Create an old elimination
         old_elimination_time = TimeUtil.now_in_millis() - ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS - MS_IN_24_HOURS
         
@@ -479,6 +500,9 @@ class TestEliminationIntegration(TestBase):
         # Process eliminations (should clean up old elimination)
         self.elimination_manager.process_eliminations(self.position_locks)
         
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
+        
         # Verify old elimination was removed
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         old_miner_elim = next((e for e in current_eliminations if e['hotkey'] == 'old_eliminated_miner'), None)
@@ -487,10 +511,18 @@ class TestEliminationIntegration(TestBase):
         # Verify directory was cleaned up
         self.assertFalse(os.path.exists(miner_dir))
 
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
+    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
+    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     @patch('vali_objects.utils.subtensor_weight_setter.bt.subtensor')
     @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
-    def test_weight_setting_integration(self, mock_subtensor_class):
+    def test_weight_setting_integration(self, mock_subtensor_class, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test complete integration with weight setting"""
+        # Mock the API calls to return appropriate values for testing
+        mock_candle_fetcher.return_value = []
+        mock_get_candles.return_value = []
+        from vali_objects.utils.live_price_fetcher import PriceSource
+        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
         # Create properly configured mocks
         mock_subtensor = MockSubtensorWeightSetterHelper.create_mock_subtensor()
         mock_subtensor_class.return_value = mock_subtensor
@@ -500,6 +532,9 @@ class TestEliminationIntegration(TestBase):
         
         # Process some eliminations first
         self.elimination_manager.process_eliminations(self.position_locks)
+        
+        # Assert the mock was called
+        self.assertTrue(mock_candle_fetcher.called)
         
         # Simulate complete weight setting cycle
         current_time = TimeUtil.now_in_millis()

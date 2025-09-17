@@ -2,6 +2,8 @@ import json
 from copy import deepcopy
 from unittest.mock import Mock, patch
 
+from tests.shared_objects.mock_classes import MockLivePriceFetcher
+
 from shared_objects.mock_metagraph import MockMetagraph
 from tests.vali_tests.base_objects.test_base import TestBase
 from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecoder
@@ -10,6 +12,7 @@ from vali_objects.position import Position
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS, PositionSyncResultException
 from vali_objects.vali_dataclasses.order import Order
@@ -39,7 +42,10 @@ class TestPositions(TestBase):
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
         self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
-        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True, elimination_manager=self.elimination_manager)
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
+        self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
+                                                elimination_manager=self.elimination_manager, live_price_fetcher=self.live_price_fetcher)
         self.elimination_manager.position_manager = self.position_manager
         self.position_manager.clear_all_miner_positions()
         
@@ -1698,9 +1704,9 @@ class TestPositions(TestBase):
         rebuild_called = [False]
         original_rebuild = Position.rebuild_position_with_updated_orders
         
-        def mock_rebuild(self):
+        def mock_rebuild(self, live_price_fetcher):
             rebuild_called[0] = True
-            original_rebuild(self)
+            original_rebuild(self, live_price_fetcher)
         
         Position.rebuild_position_with_updated_orders = mock_rebuild
         

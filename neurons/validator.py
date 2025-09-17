@@ -57,6 +57,7 @@ from vali_objects.vali_config import ValiConfig
 
 from vali_objects.utils.plagiarism_detector import PlagiarismDetector
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
+from vali_objects.utils.asset_selection_manager import AssetSelectionManager
 
 # Global flag used to indicate shutdown
 shutdown_dict = {}
@@ -193,13 +194,17 @@ class Validator:
                                                       ipc_manager=self.ipc_manager,
                                                       shared_queue_websockets=self.shared_queue_websockets)
 
+        self.asset_selection_manager = AssetSelectionManager(config=self.config, metagraph=self.metagraph, ipc_manager=self.ipc_manager)
+
         self.position_syncer = PositionSyncer(shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
                                               position_manager=None,
                                               auto_sync_enabled=self.auto_sync,
-                                              contract_manager=self.contract_manager)  # Set after self.pm creation
+                                              contract_manager=self.contract_manager,
+                                              live_price_fetcher=self.live_price_fetcher,
+                                              asset_selection_manager=self.asset_selection_manager)  # Set after self.pm creation
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
@@ -313,6 +318,12 @@ class Validator:
         def cr_priority_fn(synapse: template.protocol.CollateralRecord) -> float:
             return Validator.priority_fn(synapse, self.metagraph)
 
+        def as_blacklist_fn(synapse: template.protocol.AssetSelection) -> Tuple[bool, str]:
+            return Validator.blacklist_fn(synapse, self.metagraph)
+
+        def as_priority_fn(synapse: template.protocol.AssetSelection) -> float:
+            return Validator.priority_fn(synapse, self.metagraph)
+
         self.axon.attach(
             forward_fn=self.receive_signal,
             blacklist_fn=rs_blacklist_fn,
@@ -337,6 +348,11 @@ class Validator:
             forward_fn=self.receive_collateral_record,
             blacklist_fn=cr_blacklist_fn,
             priority_fn=cr_priority_fn,
+        )
+        self.axon.attach(
+            forward_fn=self.receive_asset_selection,
+            blacklist_fn=as_blacklist_fn,
+            priority_fn=as_priority_fn,
         )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
@@ -379,7 +395,7 @@ class Validator:
             contract_manager=self.contract_manager
         )
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager)
+        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, asset_selection_manager=self.asset_selection_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager)
 
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
@@ -413,7 +429,8 @@ class Validator:
                 position_manager=self.position_manager,
                 contract_manager=self.contract_manager,
                 miner_statistics_manager=self.miner_statistics_manager,
-                request_core_manager=self.request_core_manager
+                request_core_manager=self.request_core_manager,
+                asset_selection_manager=self.asset_selection_manager
             )
 
             # Start the API Manager in a separate process
@@ -697,6 +714,14 @@ class Validator:
                     account_size = max(account_size, ValiConfig.MIN_CAPITAL)
 
                 # if a position doesn't exist, then make a new one
+                # Validate asset class selection
+                if not self.asset_selection_manager.validate_order_asset_class(miner_hotkey, trade_pair.trade_pair_category, order_time_ms):
+                    raise SignalException(
+                        f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
+                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
+                        f"See https://docs.taoshi.io/ptn/ptncli/ for more information."
+                    )
+
                 open_position = Position(
                     miner_hotkey=miner_hotkey,
                     position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
@@ -901,7 +926,7 @@ class Validator:
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, net_portfolio_leverage)
+                    existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
                     # Update cooldown cache after successful order processing
                     self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
@@ -1091,6 +1116,32 @@ class Validator:
             synapse.successfully_processed = False
             synapse.error_message = f"Error processing collateral record: {str(e)}"
             bt.logging.error(f"Exception in receive_collateral_record: {e}")
+
+        return synapse
+
+    def receive_asset_selection(self, synapse: template.protocol.AssetSelection) -> template.protocol.AssetSelection:
+        """
+        receive miner's asset selection
+        """
+        try:
+            # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received miner asset selection from validator hotkey [{sender_hotkey}].")
+            success = self.asset_selection_manager.receive_asset_selection_update(synapse.asset_selection)
+
+            if success:
+                synapse.successfully_processed = True
+                synapse.error_message = ""
+                bt.logging.info(f"Successfully processed AssetSelection synapse from {sender_hotkey}")
+            else:
+                synapse.successfully_processed = False
+                synapse.error_message = "Failed to process miner's asset selection"
+                bt.logging.warning(f"Failed to process AssetSelection synapse from {sender_hotkey}")
+
+        except Exception as e:
+            synapse.successfully_processed = False
+            synapse.error_message = f"Error processing asset selection: {str(e)}"
+            bt.logging.error(f"Exception in receive_asset_selection: {e}")
 
         return synapse
 
