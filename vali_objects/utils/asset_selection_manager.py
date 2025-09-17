@@ -103,7 +103,7 @@ class AssetSelectionManager:
             bt.logging.warning("asset_selection_data appears empty or invalid")
             return
         try:
-            with self.asset_selections:
+            with self.asset_selection_lock:
                 synced_data = self._parse_asset_selections_dict(asset_selection_data)
                 self.asset_selections.clear()
                 self.asset_selections.update(synced_data)
