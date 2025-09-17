@@ -910,6 +910,34 @@ class PTNRestServer(APIKeyMixin):
                 bt.logging.error(f"Error processing asset selection: {e}")
                 return jsonify({'error': 'Internal server error processing asset selection'}), 500
 
+        @self.app.route("/miner-selections", methods=["GET"])
+        def get_miner_selections():
+            """Get all miner asset selection data."""
+            try:
+                # Check API key authentication
+                api_key = self._get_api_key_safe()
+
+                # Check if the API key is valid
+                if not self.is_valid_api_key(api_key):
+                    return jsonify({'error': 'Unauthorized access'}), 401
+
+                # Check if asset selection manager is available
+                if not self.asset_selection_manager:
+                    return jsonify({'error': 'Asset selection data not available'}), 503
+
+                # Get all miner selection data using the getter method
+                selections_data = self.asset_selection_manager.get_all_miner_selections()
+
+                return jsonify({
+                    'miner_selections': selections_data,
+                    'total_miners': len(selections_data),
+                    'timestamp': TimeUtil.now_in_millis()
+                })
+
+            except Exception as e:
+                bt.logging.error(f"Error retrieving miner selections: {e}")
+                return jsonify({'error': 'Internal server error retrieving miner selections'}), 500
+
     def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
         """
         Verify that a coldkey owns the specified hotkey using subtensor.
