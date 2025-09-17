@@ -1011,131 +1011,6 @@ class MinerStatisticsManager:
                         account_size = 1000000
 
                         try:
-                            bt.logging.info(
-                                f"ZK proof params: bypass_confidence={bypass_confidence}, use_weighting={final_results_weighting}"
-                            )
-
-                            # Log data points for debugging
-                            if portfolio_ledger and portfolio_ledger.cps:
-                                data_points = len(portfolio_ledger.cps)
-                                bt.logging.info(
-                                    f"Miner {hotkey[:8]} has {data_points} checkpoints (60-day threshold)"
-                                )
-
-                                # ==== DETAILED CHECKPOINT DATA LOGGING ====
-                                bt.logging.info(
-                                    f"=== PTN CHECKPOINT ANALYSIS FOR {hotkey[:8]} ==="
-                                )
-
-                                # Log first and last 5 checkpoints for comparison
-                                bt.logging.info("PTN First 5 checkpoints:")
-                                for i, cp in enumerate(portfolio_ledger.cps[:5]):
-                                    bt.logging.info(
-                                        f"  [{i}] gain={cp.gain:.6f}, loss={cp.loss:.6f}, "
-                                        f"accum_ms={cp.accum_ms}, last_update_ms={cp.last_update_ms}"
-                                    )
-
-                                if len(portfolio_ledger.cps) > 5:
-                                    bt.logging.info("PTN Last 5 checkpoints:")
-                                    for i, cp in enumerate(
-                                        portfolio_ledger.cps[-5:],
-                                        len(portfolio_ledger.cps) - 5,
-                                    ):
-                                        bt.logging.info(
-                                            f"  [{i}] gain={cp.gain:.6f}, loss={cp.loss:.6f}, "
-                                            f"accum_ms={cp.accum_ms}, last_update_ms={cp.last_update_ms}"
-                                        )
-
-                                # ==== PTN DAILY RETURNS ANALYSIS ====
-                                ptn_daily_returns = LedgerUtils.daily_return_log(
-                                    portfolio_ledger
-                                )
-                                bt.logging.info(
-                                    f"PTN Daily Returns: {len(ptn_daily_returns)} complete days"
-                                )
-
-                                if ptn_daily_returns:
-                                    bt.logging.info("PTN First 10 daily returns:")
-                                    for i, ret in enumerate(ptn_daily_returns[:10]):
-                                        bt.logging.info(f"  Day[{i}] return={ret:.6f}")
-
-                                    if len(ptn_daily_returns) > 10:
-                                        bt.logging.info("PTN Last 5 daily returns:")
-                                        for i, ret in enumerate(
-                                            ptn_daily_returns[-5:],
-                                            len(ptn_daily_returns) - 5,
-                                        ):
-                                            bt.logging.info(
-                                                f"  Day[{i}] return={ret:.6f}"
-                                            )
-
-                                    ptn_mean = sum(ptn_daily_returns) / len(
-                                        ptn_daily_returns
-                                    )
-                                    bt.logging.info(
-                                        f"PTN daily returns stats: mean={ptn_mean:.6f}, count={len(ptn_daily_returns)}"
-                                    )
-
-                                # ==== PTN COMPLETE DAYS ANALYSIS ====
-                                complete_days = (
-                                    LedgerUtils._group_checkpoints_by_complete_days(
-                                        portfolio_ledger
-                                    )
-                                )
-                                bt.logging.info(
-                                    f"PTN Complete days found: {len(complete_days)} days"
-                                )
-
-                                # Sample a few complete days
-                                for i, (date, day_cps) in enumerate(
-                                    sorted(complete_days.items())[:3]
-                                ):
-                                    daily_sum = sum(cp.gain + cp.loss for cp in day_cps)
-                                    bt.logging.info(
-                                        f"  Complete day {date}: {len(day_cps)} checkpoints, sum={daily_sum:.6f}"
-                                    )
-
-                                # ==== DATA SET VERIFICATION ====
-                                bt.logging.info("=== DATA VERIFICATION ANALYSIS ===")
-
-                                # Compare complete day counts
-                                raw_checkpoint_count = len(portfolio_ledger.cps)
-                                complete_day_count = len(complete_days)
-                                daily_returns_count = len(ptn_daily_returns)
-
-                                bt.logging.info(f"Data verification summary:")
-                                bt.logging.info(
-                                    f"  Raw checkpoints: {raw_checkpoint_count}"
-                                )
-                                bt.logging.info(
-                                    f"  Complete days: {complete_day_count}"
-                                )
-                                bt.logging.info(
-                                    f"  Daily returns: {daily_returns_count}"
-                                )
-
-                                # Check for data consistency
-                                if complete_day_count != daily_returns_count:
-                                    bt.logging.warning(
-                                        f"MISMATCH: Complete days ({complete_day_count}) != Daily returns ({daily_returns_count})"
-                                    )
-                                else:
-                                    bt.logging.info(
-                                        f"✓ Data consistency: Complete days matches daily returns"
-                                    )
-
-                                # Log target duration for circuit comparison
-                                target_duration_ms = (
-                                    ValiConfig.TARGET_CHECKPOINT_DURATION_MS
-                                )
-                                daily_checkpoints = ValiConfig.DAILY_CHECKPOINTS
-                                bt.logging.info(
-                                    f"PTN Config: target_duration_ms={target_duration_ms}, daily_checkpoints={daily_checkpoints}"
-                                )
-
-                                bt.logging.info("=== END DATA VERIFICATION ===")
-                                bt.logging.info("=== END PTN ANALYSIS ===")
-
                             # Get account size for this miner
                             if self.contract_manager:
                                 try:
@@ -1161,15 +1036,11 @@ class MinerStatisticsManager:
                                         f"Error getting account size for {hotkey[:8]}...: {e}, using default: ${account_size:,}"
                                     )
 
-                            # Calculate daily returns using PTN's logic
                             ptn_daily_returns = LedgerUtils.daily_return_log(
                                 portfolio_ledger
                             )
 
-                            # Calculate daily_pnl using LedgerUtils
                             daily_pnl = LedgerUtils.daily_pnl(portfolio_ledger)
-
-                            # Calculate total PnL from checkpoints
                             total_pnl = 0
                             if portfolio_ledger and portfolio_ledger.cps:
                                 for cp in portfolio_ledger.cps:
@@ -1178,6 +1049,7 @@ class MinerStatisticsManager:
                             weights_float = Metrics.weighting_distribution(
                                 ptn_daily_returns
                             )
+
                             miner_data = {
                                 "daily_returns": ptn_daily_returns,
                                 "weights": weights_float,
@@ -1212,19 +1084,6 @@ class MinerStatisticsManager:
                                 wallet=self.wallet,
                                 verbose=True,
                             )
-                            bt.logging.info(
-                                f"ZK proof result status: {zk_result.get('status') if zk_result else 'None'}"
-                            )
-                            if zk_result and zk_result.get("status") == "error":
-                                bt.logging.error(
-                                    f"ZK proof error: {zk_result.get('message', 'No error message')}"
-                                )
-                            if zk_result and "portfolio_metrics" in zk_result:
-                                bt.logging.info(
-                                    f"Portfolio metrics keys: {list(zk_result['portfolio_metrics'].keys())}"
-                                )
-                            else:
-                                bt.logging.warning("No portfolio_metrics in ZK result!")
                         except Exception as e:
                             bt.logging.error(
                                 f"Error in ZK proof generation for {hotkey[:8]}: {str(e)}"
