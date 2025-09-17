@@ -168,6 +168,7 @@ class MinerStatisticsManager:
         contract_manager: ValidatorContractManager,
         metrics: Dict[str, MetricsCalculator] = None,
         ipc_manager=None,
+        wallet=None,
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -176,6 +177,7 @@ class MinerStatisticsManager:
         self.subtensor_weight_setter = subtensor_weight_setter
         self.plagiarism_detector = plagiarism_detector
         self.contract_manager = contract_manager
+        self.wallet = wallet
 
         self.metrics_calculator = MetricsCalculator(metrics=metrics)
         if ipc_manager:
@@ -1207,6 +1209,7 @@ class MinerStatisticsManager:
                                 calmar_noconfidence_value=ValiConfig.CALMAR_NOCONFIDENCE_VALUE,
                                 statistical_confidence_noconfidence_value=ValiConfig.STATISTICAL_CONFIDENCE_NOCONFIDENCE_VALUE,
                                 augmented_scores=augmented_dict.get("overall", {}),
+                                wallet=self.wallet,
                                 verbose=True,
                             )
                             bt.logging.info(
