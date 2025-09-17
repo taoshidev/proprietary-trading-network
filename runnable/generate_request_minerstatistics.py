@@ -1303,6 +1303,7 @@ if __name__ == "__main__":
         subtensor_weight_setter,
         plagiarism_detector,
         contract_manager=contract_manager,
+        wallet=bt.Wallet(),
     )
     pwd = os.getcwd()
     custom_output_path = os.path.join(pwd, "debug_miner_statistics.json")
