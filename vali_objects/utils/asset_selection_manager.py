@@ -257,6 +257,30 @@ class AssetSelectionManager:
             import traceback
             bt.logging.error(traceback.format_exc())
 
+    def get_all_miner_selections(self) -> Dict[str, str]:
+        """
+        Get all miner asset selections as a dictionary.
+        
+        Returns:
+            Dict[str, str]: Dictionary mapping miner hotkeys to their asset class selections (as strings).
+                           Returns empty dict if no selections exist.
+        """
+        try:
+            # Only need lock for the copy operation to get a consistent snapshot
+            with self.asset_selection_lock:
+                # Convert the IPC dict to a regular dict
+                selections_copy = dict(self.asset_selections)
+            
+            # Lock not needed here - working with local copy
+            # Convert TradePairCategory objects to their string values
+            return {
+                hotkey: asset_class.value if hasattr(asset_class, 'value') else str(asset_class)
+                for hotkey, asset_class in selections_copy.items()
+            }
+        except Exception as e:
+            bt.logging.error(f"Error getting all miner selections: {e}")
+            return {}
+
     def receive_asset_selection_update(self, asset_selection_data: dict) -> bool:
         """
         Process an incoming AssetSelection synapse and update miner asset selection.
