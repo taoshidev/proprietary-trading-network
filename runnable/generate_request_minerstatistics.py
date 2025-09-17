@@ -7,6 +7,7 @@ import bittensor as bt
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+import traceback
 from collections import defaultdict
 
 
@@ -1003,6 +1004,7 @@ class MinerStatisticsManager:
                             f"Hotkey {hotkey}: Last checkpoint - gain: {ledger_obj.cps[-1].gain if ledger_obj.cps else 'N/A'}, loss: {ledger_obj.cps[-1].loss if ledger_obj.cps else 'N/A'}"
                         )
 
+                    bt.logging.info(f"ZK proofs enabled: {ValiConfig.ENABLE_ZK_PROOFS}")
                     if ValiConfig.ENABLE_ZK_PROOFS:
                         raw_ledger_dict = filtered_ledger.get(hotkey, {})
                         raw_positions = filtered_positions.get(hotkey, [])
@@ -1057,6 +1059,16 @@ class MinerStatisticsManager:
                                 "positions": {hotkey: {"positions": raw_positions}},
                                 "perf_ledgers": {hotkey: portfolio_ledger},
                             }
+                            bt.logging.info(
+                                f"Starting ZK proof generation for {hotkey[:8]}..."
+                            )
+                            bt.logging.info(
+                                f"ZK proof parameters: use_weighting={final_results_weighting}, bypass_confidence={bypass_confidence}, account_size={account_size}"
+                            )
+                            bt.logging.info(
+                                f"Daily PnL length: {len(daily_pnl) if daily_pnl else 0}"
+                            )
+
                             zk_result = prove(
                                 miner_data=miner_data,
                                 daily_pnl=daily_pnl,
@@ -1069,14 +1081,23 @@ class MinerStatisticsManager:
                                 wallet=self.wallet,
                                 verbose=True,
                             )
+                            bt.logging.info(
+                                f"ZK proof generation completed for {hotkey[:8]}: status={zk_result.get('status', 'unknown')}"
+                            )
                         except Exception as e:
+
                             bt.logging.error(
-                                f"Error in ZK proof generation for {hotkey[:8]}: {str(e)}"
+                                f"Error in ZK proof generation for {hotkey[:8]}: {type(e).__name__}: {str(e)}"
+                            )
+                            bt.logging.error(
+                                f"Full ZK proof generation traceback: {traceback.format_exc()}"
                             )
                             zk_result = {
                                 "status": "error",
                                 "verification_success": False,
                                 "message": str(e),
+                                "error_type": type(e).__name__,
+                                "traceback": traceback.format_exc(),
                             }
 
                         final_miner_dict["zk_proof"] = zk_result
