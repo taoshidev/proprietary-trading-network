@@ -8,8 +8,6 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
 
 from datetime import datetime
@@ -169,7 +167,7 @@ class MinerStatisticsManager:
         plagiarism_detector: PlagiarismDetector,
         contract_manager: ValidatorContractManager,
         metrics: Dict[str, MetricsCalculator] = None,
-        ipc_manager = None
+        ipc_manager=None,
     ):
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -1337,39 +1335,56 @@ class MinerStatisticsManager:
         else:
             output_file_path = ValiBkpUtils.get_miner_stats_dir()
         ValiBkpUtils.write_file(output_file_path, final_dict)
-        
+
         # Create version without checkpoints for API optimization
-        final_dict_no_checkpoints = self._create_statistics_without_checkpoints(final_dict)
-        
+        final_dict_no_checkpoints = self._create_statistics_without_checkpoints(
+            final_dict
+        )
+
         # Store compressed JSON payloads for immediate API response (memory efficient)
         json_with_checkpoints = json.dumps(final_dict, cls=CustomEncoder)
-        json_without_checkpoints = json.dumps(final_dict_no_checkpoints, cls=CustomEncoder)
-        
-        # Compress both versions for efficient storage and transfer
-        compressed_with_checkpoints = gzip.compress(json_with_checkpoints.encode('utf-8'))
-        compressed_without_checkpoints = gzip.compress(json_without_checkpoints.encode('utf-8'))
-        
-        # Only store compressed payloads - saves ~22MB of uncompressed data per validator
-        self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
-        self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
+        json_without_checkpoints = json.dumps(
+            final_dict_no_checkpoints, cls=CustomEncoder
+        )
 
-    def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
+        # Compress both versions for efficient storage and transfer
+        compressed_with_checkpoints = gzip.compress(
+            json_with_checkpoints.encode("utf-8")
+        )
+        compressed_without_checkpoints = gzip.compress(
+            json_without_checkpoints.encode("utf-8")
+        )
+
+        # Only store compressed payloads - saves ~22MB of uncompressed data per validator
+        self.miner_statistics["stats_compressed_with_checkpoints"] = (
+            compressed_with_checkpoints
+        )
+        self.miner_statistics["stats_compressed_without_checkpoints"] = (
+            compressed_without_checkpoints
+        )
+
+    def _create_statistics_without_checkpoints(
+        self, stats_dict: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Create a copy of statistics with checkpoints removed from all miner data."""
         import copy
+
         stats_no_checkpoints = copy.deepcopy(stats_dict)
-        
+
         # Remove checkpoints from each miner's data
         for element in stats_no_checkpoints.get("data", []):
             element.pop("checkpoints", None)
-        
+
         return stats_no_checkpoints
-    
+
     def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes:
         """Get pre-compressed statistics payload for immediate API response."""
         if include_checkpoints:
-            return self.miner_statistics.get('stats_compressed_with_checkpoints', None)
+            return self.miner_statistics.get("stats_compressed_with_checkpoints", None)
         else:
-            return self.miner_statistics.get('stats_compressed_without_checkpoints', None)
+            return self.miner_statistics.get(
+                "stats_compressed_without_checkpoints", None
+            )
 
 
 # ---------------------------------------------------------------------------
