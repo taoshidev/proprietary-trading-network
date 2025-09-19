@@ -1685,6 +1685,9 @@ class PerfLedgerManager(CacheController):
     def update_one_perf_ledger_bundle(self, hotkey_i: int, n_hotkeys: int, hotkey: str, positions: List[Position],
                                       now_ms: int,
                                       existing_perf_ledger_bundles: dict[str, dict[str, PerfLedger]]) -> None | dict[str, PerfLedger]:
+        # Not-pickleable. Make it here.
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
         eliminated = False
         self.n_api_calls = 0
         self.mode_to_n_updates = {'second': 0, 'minute': 0}

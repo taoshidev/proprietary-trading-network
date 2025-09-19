@@ -43,7 +43,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
         
         self.mmg = MockMetagraph(hotkeys=[self.test_hotkey])
-        self.elimination_manager = EliminationManager(self.mmg, None, None)
+        self.elimination_manager = EliminationManager(self.mmg, None, None, running_unit_tests=True)
         self.position_manager = PositionManager(
             metagraph=self.mmg,
             running_unit_tests=True,
@@ -907,7 +907,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         # Create multiple test miners
         test_hotkeys = ["rss_miner_1", "rss_miner_2", "rss_miner_3"]
         mmg = MockMetagraph(hotkeys=test_hotkeys)
-        elimination_manager = EliminationManager(mmg, None, None)
+        elimination_manager = EliminationManager(mmg, None, None, running_unit_tests=True)
         position_manager = PositionManager(
             metagraph=mmg,
             running_unit_tests=True,

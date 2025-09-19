@@ -67,7 +67,7 @@ class TestPerfLedgers(TestBase):
         mmg = MockMetagraph(hotkeys=[self.DEFAULT_MINER_HOTKEY])
         position_manager = PositionManager(metagraph=mmg, running_unit_tests=True, 
                                           elimination_manager=None, live_price_fetcher=self.live_price_fetcher)
-        elimination_manager = EliminationManager(mmg, position_manager, None)
+        elimination_manager = EliminationManager(mmg, position_manager, None, running_unit_tests=True)
         position_manager.elimination_manager = elimination_manager
         position_manager.clear_all_miner_positions()
 

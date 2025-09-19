@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Dict
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
@@ -42,6 +43,8 @@ class EliminationManager(CacheController):
         self.running_unit_tests = running_unit_tests
         self.first_refresh_ran = False
         self.shared_queue_websockets = shared_queue_websockets
+        secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
@@ -105,8 +108,8 @@ class EliminationManager(CacheController):
                     f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
                 fake_flat_order_time = position.orders[-1].processed_ms + 1
 
-            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time, self.position_manager.live_price_fetcher, source_for_elimination)
-            position.add_order(flat_order, self.position_manager.live_price_fetcher)
+            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time, self.live_price_fetcher, source_for_elimination)
+            position.add_order(flat_order, self.live_price_fetcher)
             self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
             if self.shared_queue_websockets:
                 self.shared_queue_websockets.put(position.to_websocket_dict())

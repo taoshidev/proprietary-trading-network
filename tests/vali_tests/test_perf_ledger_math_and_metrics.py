@@ -46,7 +46,7 @@ class TestPerfLedgerMathAndMetrics(TestBase):
         self.now_ms = TimeUtil.now_in_millis()
         
         self.mmg = MockMetagraph(hotkeys=[self.test_hotkey])
-        self.elimination_manager = EliminationManager(self.mmg, None, None)
+        self.elimination_manager = EliminationManager(self.mmg, None, None, running_unit_tests=True)
         self.position_manager = PositionManager(
             metagraph=self.mmg,
             running_unit_tests=True,
