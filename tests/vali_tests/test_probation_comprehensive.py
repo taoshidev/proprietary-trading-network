@@ -11,6 +11,7 @@ on what logic may need to be added or verified.
 """
 
 import unittest
+import unittest.mock
 
 from tests.shared_objects.mock_classes import MockPositionManager, MockLivePriceFetcher
 from shared_objects.mock_metagraph import MockMetagraph
@@ -316,7 +317,8 @@ class TestProbationComprehensive(TestBase):
 
         # First refresh - should demote to probation or eliminate due to drawdown
         self.challengeperiod_manager.refresh(current_time=self.CURRENT_TIME)
-        self.elimination_manager.process_eliminations(PositionLocks())
+        with unittest.mock.patch.object(self.elimination_manager, 'live_price_fetcher', self.live_price_fetcher):
+            self.elimination_manager.process_eliminations(PositionLocks())
 
         maincomp_miners = self.challengeperiod_manager.get_success_miners()
 
@@ -325,7 +327,8 @@ class TestProbationComprehensive(TestBase):
         # Now test probation timeout elimination
         future_time = self.CURRENT_TIME + ValiConfig.PROBATION_MAXIMUM_MS + 1000
         self.challengeperiod_manager.refresh(current_time=future_time)
-        self.elimination_manager.process_eliminations(PositionLocks())
+        with unittest.mock.patch.object(self.elimination_manager, 'live_price_fetcher', self.live_price_fetcher):
+            self.elimination_manager.process_eliminations(PositionLocks())
 
         final_eliminated = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
         self.assertIn(poor_miner, final_eliminated,
