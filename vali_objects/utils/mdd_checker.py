@@ -207,6 +207,10 @@ class MDDChecker(CacheController):
                 bt.logging.warning(f"mdd_checker: Unexpectedly could not find position with uuid "
                                    f"{position.position_uuid} for hotkey {hotkey} and trade pair {trade_pair_id}.")
                 return
+            if not self._position_is_candidate_for_price_correction(position_refreshed, now_ms):
+                bt.logging.warning(f'mdd_checker: Position with uuid {position.position_uuid} for hotkey {hotkey} '
+                                   f'and trade pair {trade_pair_id} is no longer a candidate for price correction.')
+                return
             position = position_refreshed
             n_orders_updated = 0
             for i, order in enumerate(reversed(position.orders)):
