@@ -118,7 +118,8 @@ class TestPerfLedgers(TestBase):
 
         failures = []
         portfolio_pl = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO]
-        for i in range(len(portfolio_pl.cps)):
+        n = len(portfolio_pl.cps)
+        for i in range(n):
             portfolio_cp = portfolio_pl.cps[i]
             manual_portfolio_ret = 1.0
             manual_portfolio_spread_fee = 1.0
@@ -149,16 +150,17 @@ class TestPerfLedgers(TestBase):
 
             if automatic_portfolio_ret != manual_portfolio_ret:
                 failures.append(f'automatic_portfolio_ret {automatic_portfolio_ret}, manual_portfolio_ret {manual_portfolio_ret},  debug {debug}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
-                print(failures[-1])
+                bt.logging.warning(f'#{i}/{n-1} return failure {failures[-1]}')
 
             if automatic_portfolio_spread_fee != manual_portfolio_spread_fee:
                 failures.append(f'automatic_portfolio_spread_fee {automatic_portfolio_spread_fee}, manual_portfolio_spread_fee {manual_portfolio_spread_fee}, debug {debug}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
-                print(failures[-1])
+                bt.logging.warning(f'#{i}/{n-1} spread failure {failures[-1]}')
 
             if automatic_portfolio_carry_fee != manual_portfolio_carry_fee:
                 failures.append(f'automatic_portfolio_carry_fee {automatic_portfolio_carry_fee}, manual_portfolio_carry_fee {manual_portfolio_carry_fee}, contributing_tps {contributing_tps} i {i}/{len(portfolio_pl.cps)} t_ms {portfolio_cp.last_update_ms}')
-
+                bt.logging.warning(f'#{i}/{n-1} carry failure {failures[-1]}')
         assert not failures
+
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     def test_basic(self, mock_unified_candle_fetcher):
         mock_unified_candle_fetcher.return_value = {}
