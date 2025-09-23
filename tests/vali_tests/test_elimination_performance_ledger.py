@@ -22,6 +22,7 @@ from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import (
@@ -73,11 +74,13 @@ class TestPerfLedgerEliminations(TestBase):
         )
         
         # Create elimination manager
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
             self.live_price_fetcher,  # live_price_fetcher
             None,  # challengeperiod_manager set later
-            running_unit_tests=True
+            running_unit_tests=True,
+            contract_manager=self.contract_manager
         )
         
         # Create position manager

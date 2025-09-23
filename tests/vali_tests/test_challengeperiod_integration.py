@@ -107,8 +107,8 @@ class TestChallengePeriodIntegration(TestBase):
         # Set up live price fetcher
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
-
-        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True, contract_manager=self.contract_manager)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         self.ledger_manager.clear_all_ledger_data()
         # Ensure no perf ledgers present
@@ -117,7 +117,6 @@ class TestChallengePeriodIntegration(TestBase):
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager,
                                                     live_price_fetcher=self.live_price_fetcher)
-        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
