@@ -45,7 +45,6 @@ class FeeCache():
         self.carry_fee_next_increase_time_ms: int = 0  # Compute fees based off the prior interval
 
     def get_spread_fee(self, position: Position, current_time_ms: int) -> (float, bool):
-        # Non cache after SLIPPAGE_V1_TIME_MS. Fee is just 1.
         if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
             return self.spread_fee, False
 
