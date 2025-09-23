@@ -74,7 +74,7 @@ class TestPerfLedgers(TestBase):
         for p in [self.default_usdjpy_position, self.default_nvda_position, self.default_btc_position]:
             position_manager.save_miner_position(p)
         self.perf_ledger_manager = PerfLedgerManager(metagraph=mmg, running_unit_tests=True, position_manager=position_manager)
-        self.perf_ledger_manager.clear_perf_ledgers_from_disk()
+        self.perf_ledger_manager.clear_all_ledger_data()
 
     def check_alignment_per_cp(self, ans):
         original_ret = ans[self.DEFAULT_MINER_HOTKEY][TP_ID_PORTFOLIO].cps[-1].prev_portfolio_ret

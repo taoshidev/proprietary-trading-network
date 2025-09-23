@@ -255,6 +255,7 @@ class TestPerfLedgerCore(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
         
@@ -309,6 +310,7 @@ class TestPerfLedgerCore(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
         
@@ -333,18 +335,19 @@ class TestPerfLedgerCore(TestBase):
         
         # Find checkpoint with position and validate fee behavior
         position_checkpoint_found = False
-        for cp in btc_ledger.cps:
-            if cp.n_updates > 0:
+        for i, cp in enumerate(btc_ledger.cps):
+            if cp.n_updates > 0 and i != 0:  # Skip initial checkpoint which has an update due to initial spread fee
                 position_checkpoint_found = True
                 
                 # Validate checkpoint structure
                 self.validate_checkpoint(cp, "Fee calculation checkpoint")
                 
                 # Carry fee should be applied over 5 days
+                last_cp = btc_ledger.cps[-1]
                 self.assertLess(cp.prev_portfolio_carry_fee, 1.0,
-                               "Carry fee should be applied over 5 days")
+                               f"Carry fee should be applied over 5 days #{i}:{cp} {last_cp}")
                 self.assertGreater(cp.prev_portfolio_carry_fee, 0.95,
-                               "Carry fee should not be too large for 5 days")
+                               f"Carry fee should not be too large for 5 days #{i}:{cp} {last_cp}")
                 
                 # Spread fee behavior validation
                 self.assertLessEqual(cp.prev_portfolio_spread_fee, 1.0)
