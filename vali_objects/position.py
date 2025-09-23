@@ -105,8 +105,10 @@ class Position(BaseModel):
         return cumulative_leverage
 
 
-    def get_spread_fee(self, timestamp_ms) -> float:
-        return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+    def get_spread_fee(self, timestamp_ms: int) -> float:
+        if not self.trade_pair.is_crypto:
+            return 1.0
+        return 1.0 - (self.get_cumulative_leverage() * .001)
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')

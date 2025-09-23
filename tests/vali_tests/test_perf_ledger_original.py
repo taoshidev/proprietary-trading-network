@@ -139,11 +139,13 @@ class TestPerfLedgers(TestBase):
                     continue
 
                 match = [x for x in pl.cps if x.last_update_ms == portfolio_cp.last_update_ms]
+                if i > 21:
+                    assert match, i
                 if match:
                     assert len(match) == 1
                     match = match[0]
                     manual_portfolio_ret *= match.prev_portfolio_ret
-                    debug[tp_id] = match.prev_portfolio_ret
+                    debug[tp_id] = match.prev_portfolio_spread_fee
                     contributing_tps.add(tp_id)
                     manual_portfolio_spread_fee *= match.prev_portfolio_spread_fee
                     manual_portfolio_carry_fee *= match.prev_portfolio_carry_fee
