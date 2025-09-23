@@ -929,6 +929,8 @@ class PerfLedgerManager(CacheController):
     def positions_to_portfolio_return(self, possible_tp_ids, tp_to_historical_positions_dense: dict[str: Position],
                                       t_ms, mode, end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee,
                                       tp_to_initial_carry_fee, portfolio_pl):
+        #if t_ms > 1758672000000 - 1000 * 60 * 2:
+        #    print('snare')
         # Answers "What is the portfolio return at this time t_ms?"
         tp_to_any_open : dict[str, TradePairReturnStatus] = {x: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for x in possible_tp_ids}
         tp_to_return = tp_to_initial_return.copy()
