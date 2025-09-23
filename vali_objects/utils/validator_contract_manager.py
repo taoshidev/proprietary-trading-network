@@ -562,6 +562,8 @@ class ValidatorContractManager:
         """
         Slash miner's collateral by a proportion
         """
+        if not self.is_mothership:
+            return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
             return False
@@ -576,6 +578,8 @@ class ValidatorContractManager:
         Args:
             miner_hotkey: miner hotkey to slash from
         """
+        if not self.is_mothership:
+            return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
             return False
