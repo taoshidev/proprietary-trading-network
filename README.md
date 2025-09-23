@@ -97,8 +97,9 @@ those that provide the most returns, while never exceeding certain drawdown limi
 1. Miners can submit LONG, SHORT, or FLAT signal for Forex and Crypto trade pairs into the network during market hours. <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/vali_objects/vali_config.py#L173">Currently supported trade pairs</a>
 2. Miners are eliminated if they are detected as plagiarising other miners, or if they exceed 10% max drawdown (more info in  the "Eliminations" section).
 3. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/3% per year for a 1x leverage position (crypto/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
-4. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity.
-5. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md">More info</a>
+4. There is a spread (transaction) fee applied to crypto pairs only, calculated as 0.1% multiplied by the leverage of each order. This simulates a transaction cost that a normal exchange would add.
+5. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity.
+6. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md">More info</a>
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
