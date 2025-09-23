@@ -46,9 +46,8 @@ class FeeCache():
 
     def get_spread_fee(self, position: Position, current_time_ms: int) -> (float, bool):
         # Non cache after SLIPPAGE_V1_TIME_MS. Fee is just 1.
-        if current_time_ms < position_file.SLIPPAGE_V1_TIME_MS:
-            if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
-                return self.spread_fee, False
+        if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
+            return self.spread_fee, False
 
         if position.is_closed_position:
             current_time_ms = min(current_time_ms, position.close_ms)
