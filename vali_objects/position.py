@@ -106,10 +106,7 @@ class Position(BaseModel):
 
 
     def get_spread_fee(self, timestamp_ms) -> float:
-        if ALWAYS_USE_SLIPPAGE or (ALWAYS_USE_SLIPPAGE is None and timestamp_ms >= SLIPPAGE_V1_TIME_MS):
-            return 1  # slippage replaces spread fee
-        else:
-            return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
+        return 1.0 - (self.get_cumulative_leverage() * self.trade_pair.fees * 0.5)
 
     def crypto_carry_fee(self, current_time_ms: int) -> (float, int):
         #print(f'accrual time {TimeUtil.millis_to_formatted_date_str(self.start_carry_fee_accrual_ms)} now {TimeUtil.millis_to_formatted_date_str(current_time_ms)}')
