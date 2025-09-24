@@ -410,10 +410,6 @@ class PerfLedger():
             n_updates = 0
 
         # Update fee losses
-        if current_portfolio_carry > current_cp.prev_portfolio_carry_fee:
-            raise Exception(f"Carry fee increased from {current_cp.prev_portfolio_carry_fee} to {current_portfolio_carry}. This should never happen.")
-        if current_portfolio_fee_spread > current_cp.prev_portfolio_spread_fee:
-            raise Exception(f"Spread fee increased from {current_cp.prev_portfolio_spread_fee} to {current_portfolio_fee_spread}. This should never happen.")
         if current_cp.prev_portfolio_carry_fee != current_portfolio_carry:
             current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry,
                                                                           current_cp.prev_portfolio_carry_fee)
