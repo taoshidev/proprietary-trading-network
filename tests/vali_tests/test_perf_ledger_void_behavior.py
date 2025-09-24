@@ -82,94 +82,123 @@ class TestPerfLedgerVoidBehavior(TestBase):
         mock_pds.unified_candle_fetcher.return_value = []
         mock_pds.tp_to_mfs = {}
         mock_lpf.return_value.polygon_data_service = mock_pds
-        
-        plm = PerfLedgerManager(
-            metagraph=self.mmg,
-            running_unit_tests=True,
-            position_manager=self.position_manager,
-            parallel_mode=ParallelizationMode.SERIAL,
-        )
-        
-        base_time = (self.now_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS - (30 * MS_IN_24_HOURS)
-        
-        # Create position that will generate carry fees
-        position = Position(
-            miner_hotkey=self.test_hotkey,
-            position_uuid="drift_test",
-            open_ms=base_time,
-            close_ms=base_time + (3 * MS_IN_24_HOURS),
-            trade_pair=TradePair.BTCUSD,
-            orders=[
-                Order(
-                    price=50000.0,
-                    processed_ms=base_time,
-                    order_uuid="open",
-                    trade_pair=TradePair.BTCUSD,
-                    order_type=OrderType.LONG,
-                    leverage=1.0,
-                ),
-                Order(
-                    price=50000.0,
-                    processed_ms=base_time + (3 * MS_IN_24_HOURS),
-                    order_uuid="close",
-                    trade_pair=TradePair.BTCUSD,
-                    order_type=OrderType.FLAT,
-                    leverage=0.0,
+
+        for boundary_offset_ms in [0, 1000, 60000]:
+            for enable_rss in [False, True]:
+                plm = PerfLedgerManager(
+                    metagraph=self.mmg,
+                    running_unit_tests=True,
+                    enable_rss=enable_rss,
+                    position_manager=self.position_manager,
+                    parallel_mode=ParallelizationMode.SERIAL,
                 )
-            ],
-            position_type=OrderType.FLAT,
-            is_closed_position=True,
-        )
-        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
-        self.position_manager.save_miner_position(position)
-        
-        # Process position
-        plm.update(t_ms=base_time + (3 * MS_IN_24_HOURS) + 1000)
-        
-        # Get checkpoint values at close
-        bundles = plm.get_perf_ledgers(portfolio_only=False)
-        btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
-        
-        # Find last active checkpoint
-        close_checkpoint = None
-        for cp in reversed(btc_ledger.cps):
-            if cp.n_updates > 0:
-                close_checkpoint = cp
-                break
-        
-        self.assertIsNotNone(close_checkpoint)
-        
-        # Perform many void updates
-        void_checkpoints = []
-        for i in range(50):  # 50 days of void
-            plm.update(t_ms=base_time + (4 + i) * MS_IN_24_HOURS)
-            
-            bundles = plm.get_perf_ledgers(portfolio_only=False)
-            btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
-            
-            for cp in btc_ledger.cps:
-                if cp.n_updates == 0 and cp.last_update_ms > base_time + (3 * MS_IN_24_HOURS):
-                    if cp not in void_checkpoints:
-                        void_checkpoints.append(cp)
-        
-        # Verify no drift - all void checkpoints should be identical
-        self.assertGreater(len(void_checkpoints), 40)
-        
-        if void_checkpoints:
-            ref = void_checkpoints[0]
-            for i, cp in enumerate(void_checkpoints):
-                # Exact equality - no tolerance
-                self.assertEqual(cp.prev_portfolio_ret, ref.prev_portfolio_ret,
-                               f"Void checkpoint {i}: return drifted")
-                self.assertEqual(cp.prev_portfolio_carry_fee, ref.prev_portfolio_carry_fee,
-                               f"Void checkpoint {i}: carry fee drifted")
-                self.assertEqual(cp.prev_portfolio_spread_fee, ref.prev_portfolio_spread_fee,
-                               f"Void checkpoint {i}: spread fee drifted")
-                self.assertEqual(cp.mdd, ref.mdd,
-                               f"Void checkpoint {i}: MDD drifted")
-                
-                # Validate this as a proper void checkpoint
-                self.validate_void_checkpoint(cp, f"Void checkpoint {i}")
+                plm.clear_all_ledger_data()
+
+                base_time = (self.now_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS - (365 * MS_IN_24_HOURS)
+                close_ms = base_time + (3 * MS_IN_24_HOURS)
+                # Create position that will generate carry fees
+                position = Position(
+                    miner_hotkey=self.test_hotkey,
+                    position_uuid="drift_test",
+                    open_ms=base_time,
+                    close_ms=close_ms,
+                    trade_pair=TradePair.BTCUSD,
+                    orders=[
+                        Order(
+                            price=50000.0,
+                            processed_ms=base_time,
+                            order_uuid="open",
+                            trade_pair=TradePair.BTCUSD,
+                            order_type=OrderType.LONG,
+                            leverage=1.0,
+                        ),
+                        Order(
+                            price=50000.0,
+                            processed_ms=close_ms,
+                            order_uuid="close",
+                            trade_pair=TradePair.BTCUSD,
+                            order_type=OrderType.FLAT,
+                            leverage=0.0,
+                        )
+                    ],
+                    position_type=OrderType.FLAT,
+                    is_closed_position=True,
+                )
+                position.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                self.position_manager.save_miner_position(position)
+
+                # Process position
+                plm.update(t_ms=close_ms + 5000)
+
+                # Get checkpoint values at close
+                bundles = plm.get_perf_ledgers(portfolio_only=False)
+                btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
+
+                # Find last active checkpoint
+                close_checkpoint = None
+                for i, cp in enumerate(btc_ledger.cps):
+                    if close_checkpoint is None and cp.prev_portfolio_spread_fee == .998:
+                        close_checkpoint = cp
+                        print('@@@@@ found close cp', i, cp)
+                        break
+
+                assert close_checkpoint
+                self.assertEqual(close_checkpoint.n_updates, 1)
+
+                self.assertIsNotNone(close_checkpoint)
+
+                print('------------------------------')
+                for i, cp in enumerate(btc_ledger.cps):
+                    print(TimeUtil.millis_to_formatted_date_str(cp.last_update_ms), i, cp)
+
+                print('------------------------------')
+                # Perform many void updates
+                for update_round_idx in range(1, 50):  # 50 days of void
+                    void_checkpoints = []
+                    plm.update(t_ms=base_time + (3 + update_round_idx) * MS_IN_24_HOURS + boundary_offset_ms)
+
+                    bundles = plm.get_perf_ledgers(portfolio_only=False)
+                    btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
+                    portfolio_ledger = bundles[self.test_hotkey][TP_ID_PORTFOLIO]
+
+                    assert len(btc_ledger.cps) == len(portfolio_ledger.cps)
+                    lb = 6 + update_round_idx * 2
+                    assert len(btc_ledger.cps) in list(range(lb + 3))
+                    for cp_btc, cp_portfolio in zip(btc_ledger.cps, portfolio_ledger.cps):
+                        self.assertEqual(cp_btc, cp_portfolio)
+
+                    print(f'-------------- update round index {update_round_idx} rss {enable_rss} boundary offset {boundary_offset_ms}----------------')
+                    for i, cp in enumerate(btc_ledger.cps):
+                        print(TimeUtil.millis_to_formatted_date_str(cp.last_update_ms), i, cp)
+                    print('-----------------------------------------------------------')
+
+                    for cp in btc_ledger.cps:
+                        if cp.last_update_ms > close_checkpoint.last_update_ms:
+                            void_checkpoints.append(cp)
+
+                    # Verify no drift - all void checkpoints should be identical
+                    n = len(void_checkpoints)
+                    lb = update_round_idx * 2
+                    #if n not in list(range(lb, lb+3)):
+                    #    print('-----void cps-----')
+                    #    for i, void_cp in enumerate(void_checkpoints):
+                    #        print(TimeUtil.millis_to_formatted_date_str(void_cp.last_update_ms), i, void_cp)
+                    #    print('-------------------')
+                    self.assertIn(n, list(range(lb, lb+3)))
+
+                    for i, cp in enumerate(void_checkpoints):
+                        # Exact equality - no tolerance
+                        self.assertEqual(cp.prev_portfolio_ret, close_checkpoint.prev_portfolio_ret,
+                                       f"Void checkpoint {i}/{n}: return drifted")
+                        self.assertEqual(cp.prev_portfolio_carry_fee, close_checkpoint.prev_portfolio_carry_fee,
+                                       f"Void checkpoint {i}/{n}: carry fee drifted")
+                        self.assertEqual(cp.prev_portfolio_spread_fee, close_checkpoint.prev_portfolio_spread_fee,
+                                         f"Void checkpoint {i}/{n}: spread fee drifted. update round index {update_round_idx}")
+                        self.assertEqual(cp.mdd, close_checkpoint.mdd,
+                                       f"Void checkpoint {i}/{n}: MDD drifted")
+
+                        # Validate this as a proper void checkpoint
+                        self.validate_void_checkpoint(cp, f"Void checkpoint {i}")
 
     @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
     def test_multi_tp_staggered_void_periods(self, mock_lpf):
@@ -262,7 +291,7 @@ class TestPerfLedgerVoidBehavior(TestBase):
         # Test case 1: Should use bypass
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "BTCUSD", TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-            1.0, 1.0, 1.0, {"BTCUSD": None}
+            1.0, .999, .998, {"BTCUSD": None}
         )
         self.assertEqual(ret, 0.95)
         self.assertEqual(spread, 0.999)

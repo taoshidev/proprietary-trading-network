@@ -68,7 +68,8 @@ class TestPerfLedgerMathAndMetrics(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
-        
+        plm.clear_all_ledger_data()
+
         base_time = self.now_ms - (20 * MS_IN_24_HOURS)
         
         # Create positions with known returns
@@ -139,6 +140,7 @@ class TestPerfLedgerMathAndMetrics(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = (self.now_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS - (10 * MS_IN_24_HOURS)
         
@@ -265,6 +267,7 @@ class TestPerfLedgerMathAndMetrics(TestBase):
             live_price_fetcher=mock_lpf.return_value,
             is_backtesting=True,  # Ensure we process historical data
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
         
@@ -373,6 +376,7 @@ class TestPerfLedgerMathAndMetrics(TestBase):
             live_price_fetcher=mock_lpf.return_value,
             is_backtesting=True,
         )
+        plm.clear_all_ledger_data()
 
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
 

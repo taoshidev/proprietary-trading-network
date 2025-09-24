@@ -141,25 +141,36 @@ The Max Drawdown penalty and Risk Profiling penalty help us detect the absolute 
 
 ### Fees and Transaction Costs
 
-We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**.
+We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated three primary costs: **Cost of Carry**, **Slippage**, and **Spread Fee**.
 
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
 Slippage costs are modeled to estimate the difference between a trade's expected price (typically the last traded price or mid-price between the best bid and ask) and its actual execution price. This cost is higher for larger orders, as well as for assets with lower liquidity and higher volatility. Read more in [proposal 16](https://docs.taoshi.io/tips/p16/).
 
+Spread fee is applied to crypto pairs only and is calculated as 0.1% multiplied by the leverage of each order. This fee simulates a transaction cost that a normal exchange would add.
+
 ##### Implementation Details
+
+**Carry Fees:**
 
 | Market   | Fee Period | Times                   | Rates Applied   | Triple Wednesday |
 | -------- | ---------- | ----------------------- | --------------- | ---------------- |
 | Forex    | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
 | Crypto   | 8h         | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun) |                  |
 
-The magnitude of the fees will reflect the following distribution:
+The magnitude of the carry fees will reflect the following distribution:
 
 | Market   | Base Rate (Annual) | Daily Rate Calculation      |
 | -------- | ------------------ | --------------------------- |
 | Forex    | 3%                 | 0.008% \* Max Seen Leverage |
 | Crypto   | 10.95%             | 0.03% \* Max Seen Leverage  |
+
+**Spread Fee (Transaction Fee):**
+
+| Market   | Spread Fee Rate    | Applied To           |
+| -------- | ------------------ | -------------------- |
+| Forex    | None               | N/A                  |
+| Crypto   | 0.1% \* Leverage   | Each order placed    |
 
 ### Leverage Limits
 

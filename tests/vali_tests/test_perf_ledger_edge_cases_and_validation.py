@@ -277,7 +277,7 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
         
         for any_open, pos_closed, tp_id, tp_id_rtp_data, should_bypass in test_cases:
             ret, spread, carry = plm.get_bypass_values_if_applicable(
-                ledger, tp_id, any_open, 1.0, 1.0, 1.0, tp_id_rtp_data
+                ledger, tp_id, any_open, 1.0, .999, .998, tp_id_rtp_data
             )
             
             if should_bypass:
@@ -475,6 +475,7 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (30 * MS_IN_24_HOURS)
         
@@ -517,8 +518,8 @@ class TestPerfLedgerEdgeCasesAndValidation(TestBase):
         btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
         
         # Find checkpoint with position
-        for cp in btc_ledger.cps:
-            if cp.n_updates > 0:
+        for i, cp in enumerate(btc_ledger.cps):
+            if cp.n_updates > 0 and i != 0 :  # Skip initial checkpoint with the initial spread fee that triggers n_updates 1
                 # With 10x leverage for 10 days, carry fees should be significant
                 # Based on actual implementation: ~0.9989 for 10x leverage over 10 days
                 self.assertLess(cp.prev_portfolio_carry_fee, 1.0,
