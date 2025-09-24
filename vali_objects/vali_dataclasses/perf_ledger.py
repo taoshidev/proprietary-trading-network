@@ -410,6 +410,10 @@ class PerfLedger():
             n_updates = 0
 
         # Update fee losses
+        if current_portfolio_carry > current_cp.prev_portfolio_carry_fee:
+            raise Exception(f"Carry fee increased from {current_cp.prev_portfolio_carry_fee} to {current_portfolio_carry}. This should never happen.")
+        if current_portfolio_fee_spread > current_cp.prev_portfolio_spread_fee:
+            raise Exception(f"Spread fee increased from {current_cp.prev_portfolio_spread_fee} to {current_portfolio_fee_spread}. This should never happen.")
         if current_cp.prev_portfolio_carry_fee != current_portfolio_carry:
             current_cp.carry_fee_loss += self.compute_delta_between_ticks(current_portfolio_carry,
                                                                           current_cp.prev_portfolio_carry_fee)
@@ -1696,6 +1700,11 @@ class PerfLedgerManager(CacheController):
 
         t0 = time.time()
         perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
+        if perf_ledger_bundle_candidate and TP_ID_PORTFOLIO in perf_ledger_bundle_candidate and now_ms < perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms:
+            now_formatted = TimeUtil.millis_to_formatted_date_str(now_ms)
+            last_update_formatted = TimeUtil.millis_to_formatted_date_str(perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms)
+            raise Exception(f'Trying to update in the past for {hotkey}. now {now_formatted} < last update {last_update_formatted}')
+
         continuity_established = False  # Track if we've already established price continuity
 
         if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):
