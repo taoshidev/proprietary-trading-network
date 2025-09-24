@@ -580,19 +580,24 @@ class ChallengePeriodManager(CacheController):
     def prepare_plagiarism_elimination_miners(self, current_time):
 
         miners_to_eliminate = self.plagiarism_manager.plagiarism_miners_to_eliminate(current_time)
+        elim_miners_to_return = {}
         for hotkey in miners_to_eliminate:
             if hotkey in self.active_miners:
                 bt.logging.info(
                     f'Hotkey {hotkey} is overdue in {MinerBucket.PLAGIARISM} at time {current_time}')
-                miners_to_eliminate[hotkey] = (EliminationReason.PLAGIARISM.value, -1)
+                elim_miners_to_return[hotkey] = (EliminationReason.PLAGIARISM.value, -1)
 
-        return miners_to_eliminate
+        return elim_miners_to_return
 
     def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
         if len(hotkeys) > 0:
             bt.logging.info(f"Promoting {len(hotkeys)} miners to main competition.")
 
         for hotkey in hotkeys:
+            bucket_value = self.get_miner_bucket(hotkey)
+            if bucket_value is None:
+                bt.logging.error(f"Hotkey {hotkey} is not an active miner. Skipping promotion")
+                continue
             bt.logging.info(f"Promoting {hotkey} from {self.get_miner_bucket(hotkey).value} to MAINCOMP")
             self.active_miners[hotkey] = (MinerBucket.MAINCOMP, current_time)
 
@@ -601,6 +606,10 @@ class ChallengePeriodManager(CacheController):
             bt.logging.info(f"Promoting {len(hotkeys)} plagiarism miners to probation.")
 
         for hotkey in hotkeys:
+            bucket_value = self.get_miner_bucket(hotkey)
+            if bucket_value is None:
+                bt.logging.error(f"Hotkey {hotkey} is not an active miner. Skipping promotion")
+                continue
             bt.logging.info(f"Promoting {hotkey} from {self.get_miner_bucket(hotkey).value} to PROBATION")
             self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time)
 
@@ -624,6 +633,10 @@ class ChallengePeriodManager(CacheController):
             bt.logging.info(f"Demoting {len(hotkeys)} miners to probation")
 
         for hotkey in hotkeys:
+            bucket_value = self.get_miner_bucket(hotkey)
+            if bucket_value is None:
+                bt.logging.error(f"Hotkey {hotkey} is not an active miner. Skipping demotion")
+                continue
             bt.logging.info(f"Demoting {hotkey} to PROBATION")
             self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time)
 
@@ -632,6 +645,10 @@ class ChallengePeriodManager(CacheController):
             bt.logging.info(f"Demoting {len(hotkeys)} miners due to plagiarism")
 
         for hotkey in hotkeys:
+            bucket_value = self.get_miner_bucket(hotkey)
+            if bucket_value is None:
+                bt.logging.error(f"Hotkey {hotkey} is not an active miner. Skipping demotion")
+                continue
             bt.logging.info(f"Demoting {hotkey} to PLAGIARISM")
             self.active_miners[hotkey] = (MinerBucket.PLAGIARISM, current_time)
 
@@ -644,7 +661,7 @@ class ChallengePeriodManager(CacheController):
         challengeperiod_data = self.to_checkpoint_dict()
         ValiBkpUtils.write_file(self.CHALLENGE_FILE, challengeperiod_data)
 
-    def get_miner_bucket(self, hotkey): return self.active_miners[hotkey][0]
+    def get_miner_bucket(self, hotkey): return self.active_miners.get(hotkey, [None])[0]
     def get_testing_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.CHALLENGE))
     def get_success_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.MAINCOMP))
     def get_probation_miners(self): return copy.deepcopy(self._bucket_view(MinerBucket.PROBATION))
