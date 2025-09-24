@@ -19,7 +19,6 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
-from vali_objects.utils.plagiarism_api import get_plagiarism_elimination_scores
 
 class ChallengePeriodManager(CacheController):
     def __init__(
@@ -29,6 +28,7 @@ class ChallengePeriodManager(CacheController):
             position_manager: PositionManager=None,
             ipc_manager=None,
             contract_manager=None,
+            plagiarism_manager=None,
             *,
             running_unit_tests=False,
             is_backtesting=False):
@@ -39,6 +39,7 @@ class ChallengePeriodManager(CacheController):
         self.elimination_manager = self.position_manager.elimination_manager
         self.eliminations_with_reasons: dict[str, tuple[str, float]] = {}
         self.contract_manager = contract_manager
+        self.plagiarism_manager = plagiarism_manager
 
         self.CHALLENGE_FILE = ValiBkpUtils.get_challengeperiod_file_location(running_unit_tests=running_unit_tests)
 
@@ -159,7 +160,8 @@ class ChallengePeriodManager(CacheController):
         # The refresh should just read the current eliminations
         eliminations = self.elimination_manager.get_eliminations_from_memory()
 
-        self.update_plagiarism_miners(current_time) #TODO potentially do this less frequently than every minute
+        self.update_plagiarism_miners(current_time, self.get_plagiarism_miners())
+
         # Collect challenge period and update with new eliminations criteria
         self.remove_eliminated(eliminations=eliminations)
 
@@ -195,6 +197,10 @@ class ChallengePeriodManager(CacheController):
             current_time=current_time,
             hk_to_first_order_time=hk_to_first_order_time
         )
+        # Update plagiarism eliminations
+        plagiarism_elim_miners = self.prepare_plagiarism_elimination_miners(current_time=current_time)
+        challengeperiod_eliminations.update(plagiarism_elim_miners)
+
         self.eliminations_with_reasons = challengeperiod_eliminations
 
         any_changes = bool(challengeperiod_success) or bool(challengeperiod_eliminations) or bool(challengeperiod_demoted)
@@ -218,6 +224,7 @@ class ChallengePeriodManager(CacheController):
             f"(MAINCOMP, {len(self.get_success_miners())}) "
             f"(PROBATION, {len(self.get_probation_miners())}) "
             f"(CHALLENGE, {len(self.get_testing_miners())}) "
+            f"(PLAGIARISM, {len(self.get_plagiarism_miners())})"
         )
 
     def _prune_deregistered_metagraph(self, hotkeys=None) -> bool:
@@ -525,28 +532,6 @@ class ChallengePeriodManager(CacheController):
 
         return has_minimum_positions, inspection_positions
 
-    def update_plagiarism_miners(self, current_time: int):
-        # Get current plagiarism miners
-        plagiarism_miners_in_memory = self.get_hotkeys_by_bucket(MinerBucket.PLAGIARISM)
-        # Get updated elimination miners from microservice
-        current_plagiarism_miners = get_plagiarism_elimination_scores()
-
-        # The api is the source of truth
-        # If a miner is no longer listed as a plagiarist, put them back in probation
-        whitelisted_miners = []
-        for miner in plagiarism_miners_in_memory:
-            if miner not in current_plagiarism_miners:
-                whitelisted_miners.append(miner)
-
-        # Miners that are now listed as plagiarists need to be updated
-        new_plagiarism_miners = []
-        for miner in current_plagiarism_miners:
-            if miner not in plagiarism_miners_in_memory:
-                new_plagiarism_miners.append(miner)
-
-        self._demote_plagiarism_in_memory(new_plagiarism_miners, current_time=current_time)
-        self._promote_plagiarism_to_probation_in_memory(whitelisted_miners, current_time=current_time)
-
     def sync_challenge_period_data(self, active_miners_sync):
         if not active_miners_sync:
             bt.logging.error(f'challenge_period_data {active_miners_sync} appears invalid')
@@ -586,6 +571,23 @@ class ChallengePeriodManager(CacheController):
         self.active_miners.clear()
         self._write_challengeperiod_from_memory_to_disk()
 
+    def update_plagiarism_miners(self, current_time, plagiarism_miners):
+
+        new_plagiarism_miners, whitelisted_miners = self.plagiarism_manager.update_plagiarism_miners(current_time, plagiarism_miners)
+        self._demote_plagiarism_in_memory(new_plagiarism_miners, current_time)
+        self._promote_plagiarism_to_probation_in_memory(whitelisted_miners, current_time)
+
+    def prepare_plagiarism_elimination_miners(self, current_time):
+
+        miners_to_eliminate = self.plagiarism_manager.plagiarism_miners_to_eliminate(current_time)
+        for hotkey in miners_to_eliminate:
+            if hotkey in self.active_miners:
+                bt.logging.info(
+                    f'Hotkey {hotkey} is overdue in {MinerBucket.PLAGIARISM} at time {current_time}')
+                miners_to_eliminate[hotkey] = (EliminationReason.PLAGIARISM.value, -1)
+
+        return miners_to_eliminate
+
     def _promote_challengeperiod_in_memory(self, hotkeys: list[str], current_time: int):
         if len(hotkeys) > 0:
             bt.logging.info(f"Promoting {len(hotkeys)} miners to main competition.")
@@ -601,6 +603,9 @@ class ChallengePeriodManager(CacheController):
         for hotkey in hotkeys:
             bt.logging.info(f"Promoting {hotkey} from {self.get_miner_bucket(hotkey).value} to PROBATION")
             self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time)
+
+            # Send Slack notification
+            self.plagiarism_manager.send_plagiarism_promotion_notification(hotkey)
 
     def _eliminate_challengeperiod_in_memory(self, eliminations_with_reasons: dict[str, tuple[str, float]]):
         hotkeys = eliminations_with_reasons.keys()
@@ -630,6 +635,9 @@ class ChallengePeriodManager(CacheController):
             bt.logging.info(f"Demoting {hotkey} to PLAGIARISM")
             self.active_miners[hotkey] = (MinerBucket.PLAGIARISM, current_time)
 
+            # Send Slack notification
+            self.plagiarism_manager.send_plagiarism_demotion_notification(hotkey)
+
     def _write_challengeperiod_from_memory_to_disk(self):
         if self.is_backtesting:
             return
@@ -640,6 +648,7 @@ class ChallengePeriodManager(CacheController):
     def get_testing_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.CHALLENGE))
     def get_success_miners(self):   return copy.deepcopy(self._bucket_view(MinerBucket.MAINCOMP))
     def get_probation_miners(self): return copy.deepcopy(self._bucket_view(MinerBucket.PROBATION))
+    def get_plagiarism_miners(self): return copy.deepcopy(self._bucket_view(MinerBucket.PLAGIARISM))
 
     def _bucket_view(self, bucket: MinerBucket):
         return {hk: ts for hk, (b, ts) in self.active_miners.items() if b == bucket}

@@ -173,28 +173,11 @@ class EliminationManager(CacheController):
         self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
         self.handle_challenge_period_eliminations(position_locks)
-        # self._handle_plagiarism_eliminations()
         self.handle_mdd_eliminations(position_locks)
         self.handle_zombies(position_locks)
         self._delete_eliminated_expired_miners()
 
         self.set_last_update_time()
-
-    def _handle_plagiarism_eliminations(self, position_locks):
-        bt.logging.debug("checking plagiarism.")
-        if self.shutdown_dict:
-            return
-        self.challengeperiod_manager._refresh_plagiarism_scores_in_memory_and_disk()
-        # miner_copying_json[miner_hotkey] = current_hotkey_mc
-        for miner_hotkey, current_plagiarism_score in self.challengeperiod_manager.miner_plagiarism_scores.items():
-            if self.shutdown_dict:
-                return
-            if self.hotkey_in_eliminations(miner_hotkey):
-                continue
-            if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.append_elimination_row(miner_hotkey, current_plagiarism_score, EliminationReason.PLAGIARISM.value)
-                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
-                self.contract_manager.slash_miner_collateral_proportion(miner_hotkey, ValiConfig.SLASH_PROPORTION)
 
     def is_zombie_hotkey(self, hotkey, all_hotkeys_set):
         if hotkey in all_hotkeys_set:

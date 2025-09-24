@@ -31,6 +31,7 @@ from runnable.generate_request_outputs import RequestOutputGenerator
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
@@ -234,12 +235,13 @@ class Validator:
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
-
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=self.slack_notifier)
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
                                                               ipc_manager=self.ipc_manager,
-                                                              contract_manager=self.contract_manager)
+                                                              contract_manager=self.contract_manager,
+                                                              plagiarism_manager=self.plagiarism_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
