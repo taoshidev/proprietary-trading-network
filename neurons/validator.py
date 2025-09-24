@@ -720,7 +720,7 @@ class Validator:
                     raise SignalException(
                         f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
                         f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
-                        f"See https://docs.taoshi.io/ptn/ptncli/ for more information."
+                        f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
                     )
 
                 open_position = Position(
