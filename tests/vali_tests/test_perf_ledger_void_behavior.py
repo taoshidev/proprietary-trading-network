@@ -144,29 +144,29 @@ class TestPerfLedgerVoidBehavior(TestBase):
         for i in range(50):  # 50 days of void
             plm.update(t_ms=base_time + (4 + i) * MS_IN_24_HOURS)
             
-            bundles = plm.get_perf_ledgers(portfolio_only=False)
-            btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
-            
-            for cp in btc_ledger.cps:
-                if cp.n_updates == 0 and cp.last_update_ms > base_time + (3 * MS_IN_24_HOURS):
-                    if cp not in void_checkpoints:
-                        void_checkpoints.append(cp)
+        bundles = plm.get_perf_ledgers(portfolio_only=False)
+        btc_ledger = bundles[self.test_hotkey][TradePair.BTCUSD.trade_pair_id]
+
+        for cp in btc_ledger.cps:
+            if cp.last_update_ms > position.close_ms:
+                void_checkpoints.append(cp)
         
         # Verify no drift - all void checkpoints should be identical
         self.assertGreater(len(void_checkpoints), 40)
-        
-        if void_checkpoints:
+
+        n = len(void_checkpoints)
+        if n:
             ref = void_checkpoints[0]
             for i, cp in enumerate(void_checkpoints):
+                print(TimeUtil.millis_to_formatted_date_str(cp.last_update_ms), cp)
                 # Exact equality - no tolerance
                 self.assertEqual(cp.prev_portfolio_ret, ref.prev_portfolio_ret,
-                               f"Void checkpoint {i}: return drifted")
+                               f"Void checkpoint {i}/{n}: return drifted")
                 self.assertEqual(cp.prev_portfolio_carry_fee, ref.prev_portfolio_carry_fee,
-                               f"Void checkpoint {i}: carry fee drifted")
-                self.assertEqual(cp.prev_portfolio_spread_fee, ref.prev_portfolio_spread_fee,
-                               f"Void checkpoint {i}: spread fee drifted")
+                               f"Void checkpoint {i}/{n}: carry fee drifted")
+                self.assertEqual(cp.prev_portfolio_spread_fee, ref.prev_portfolio_spread_fee, f"Void checkpoint {i}/{n}: spread fee drifted")
                 self.assertEqual(cp.mdd, ref.mdd,
-                               f"Void checkpoint {i}: MDD drifted")
+                               f"Void checkpoint {i}/{n}: MDD drifted")
                 
                 # Validate this as a proper void checkpoint
                 self.validate_void_checkpoint(cp, f"Void checkpoint {i}")
@@ -262,7 +262,7 @@ class TestPerfLedgerVoidBehavior(TestBase):
         # Test case 1: Should use bypass
         ret, spread, carry = plm.get_bypass_values_if_applicable(
             ledger, "BTCUSD", TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-            1.0, 1.0, 1.0, {"BTCUSD": None}
+            1.0, .999, .998, {"BTCUSD": None}
         )
         self.assertEqual(ret, 0.95)
         self.assertEqual(spread, 0.999)

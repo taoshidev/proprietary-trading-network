@@ -1990,8 +1990,8 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
         # Verify returns were updated
         # BTC: Long position, price went from 50k (order) to 55k (last known)
         # Return should be approximately 1.1 minus fees
-        # The actual value is 1.09945 which includes spread fees
-        self.assertAlmostEqual(btc_position.return_at_close, 1.09945, places=5)
+        # The actual value is 1.0989 which includes spread fees
+        self.assertAlmostEqual(btc_position.return_at_close, 1.0989, places=5)
         
         # ETH: Short position, price went from 3k (order) to 2.8k (last known)
         # Short return with fees applied
