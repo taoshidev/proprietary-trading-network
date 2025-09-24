@@ -183,6 +183,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
         
@@ -302,6 +303,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (5 * MS_IN_24_HOURS)
         
@@ -356,6 +358,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundary for precise counting
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -458,6 +461,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundary for precise counting
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -512,6 +516,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         # Update with no positions
         plm.update(t_ms=self.now_ms)
@@ -536,6 +541,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundary for precise counting
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -603,6 +609,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundary
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -720,6 +727,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 parallel_mode=parallel_mode,
                 is_testing=True,  # Enable testing mode for consistent mocking
             )
+            plm.clear_all_ledger_data()
             
             # Create identical positions
             for name, tp, start_offset_hours, duration_hours, open_price, close_price in positions_data:
@@ -937,6 +945,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             enable_rss=True,  # Enable RSS
             is_testing=True,
         )
+        plm_rss_enabled.clear_all_ledger_data()
         
         # First update - should not trigger RSS (no existing ledgers)
         plm_rss_enabled.update(t_ms=base_time + (5 * MS_IN_24_HOURS))
@@ -970,6 +979,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             enable_rss=False,  # Disable RSS
             is_testing=True,
         )
+        plm_rss_disabled.clear_all_ledger_data()
         
         # Multiple updates - RSS should never trigger
         for i in range(5):
@@ -1017,6 +1027,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 build_portfolio_ledgers_only=portfolio_only,
                 is_testing=True,
             )
+            plm.clear_all_ledger_data()
             
             # Update ledgers
             plm.update(t_ms=base_time + (2 * MS_IN_24_HOURS))
@@ -1087,6 +1098,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 use_slippage=use_slippage,
                 is_testing=True,
             )
+            plm.clear_all_ledger_data()
             
             # Update ledgers
             plm.update(t_ms=base_time + (2 * MS_IN_24_HOURS))
@@ -1134,6 +1146,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             is_backtesting=True,
             is_testing=True,
         )
+        plm_backtest.clear_all_ledger_data()
         
         # Backtesting requires explicit t_ms parameter
         explicit_time = base_time + (2 * MS_IN_24_HOURS)
@@ -1152,6 +1165,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             is_backtesting=False,
             is_testing=True,
         )
+        plm_production.clear_all_ledger_data()
         
         # Production mode can work without explicit t_ms (uses current time - lookback)
         plm_production.update()  # No t_ms parameter
@@ -1185,6 +1199,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             is_testing=True,
         )
+        plm_serial.clear_all_ledger_data()
         
         plm_serial.update(t_ms=base_time + (2 * MS_IN_24_HOURS))
         serial_bundles = plm_serial.get_perf_ledgers(portfolio_only=False)
@@ -1197,6 +1212,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.MULTIPROCESSING,
             is_testing=True,
         )
+        plm_multiprocessing.clear_all_ledger_data()
         
         # Use the parallel API
         all_positions = self.position_manager.get_positions_for_all_miners()
@@ -1250,6 +1266,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
                 target_ledger_window_ms=window_ms,
                 is_testing=True,
             )
+            plm.clear_all_ledger_data()
             
             plm.update(t_ms=base_time + (10 * MS_IN_24_HOURS))
             
@@ -1276,6 +1293,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.MULTIPROCESSING,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundary
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -1376,6 +1394,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             is_testing=True,
         )
+        plm.clear_all_ledger_data()
         
         # Align to checkpoint boundaries for predictable behavior
         checkpoint_duration = 12 * 60 * 60 * 1000  # 12 hours
@@ -1719,6 +1738,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             live_price_fetcher=mock_lpf.return_value,
             is_backtesting=True,  # This prevents the OUTSIDE_WINDOW shortcut
         )
+        plm.clear_all_ledger_data()
         
         # Create open positions for multiple assets
         positions = []
@@ -1914,6 +1934,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         # Create portfolio ledger with some known prices
         portfolio_ledger = PerfLedger(
@@ -2015,6 +2036,7 @@ class TestPerfLedgerConstraintsAndValidation(TestBase):
             parallel_mode=ParallelizationMode.SERIAL,
             live_price_fetcher=mock_lpf.return_value,
         )
+        plm.clear_all_ledger_data()
         
         base_time = 1000000000000
         
