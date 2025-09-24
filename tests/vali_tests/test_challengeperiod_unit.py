@@ -116,7 +116,7 @@ class TestChallengePeriodUnit(TestBase):
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
 
-        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
 
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=None,

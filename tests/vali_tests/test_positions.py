@@ -49,7 +49,7 @@ class TestPositions(TestBase):
             account_size=ValiConfig.DEFAULT_CAPITAL
         )
         self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
-        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
         self.position_manager = PositionManager(metagraph=self.mock_metagraph, running_unit_tests=True,
                                                 elimination_manager=self.elimination_manager, secrets=secrets,
                                                 live_price_fetcher=self.live_price_fetcher)
