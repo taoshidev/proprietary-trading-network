@@ -50,7 +50,8 @@ class ValidatorContractManager:
     def __init__(self, config=None, position_manager=None, ipc_manager=None, running_unit_tests=False, is_backtesting=False, metagraph=None):
         self.config = config
         self.position_manager = position_manager
-        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_mothership = 'ms' in self.secrets
         self.is_backtesting = is_backtesting
         self.metagraph = metagraph
         self._account_sizes_lock = None
@@ -71,7 +72,6 @@ class ValidatorContractManager:
 
         # GCP secret manager
         self._gcp_secret_manager_client = None
-        self.secrets = None
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
 
@@ -126,7 +126,6 @@ class ValidatorContractManager:
             return
         try:
             # Load from secrets.json using ValiUtils
-            self.secrets = ValiUtils.get_secrets()
             self.vault_wallet = bt.wallet(config=self.config)
             bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
         except Exception as e:
@@ -558,13 +557,28 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to compute slash amount for {miner_hotkey}: {e}")
             return 0.0
 
-    def slash_miner_collateral(self, miner_hotkey: str, slash_amount=None) -> bool:
+    def slash_miner_collateral_proportion(self, miner_hotkey: str, slash_proportion:float) -> bool:
         """
-        Slash miner's collateral
+        Slash miner's collateral by a proportion
+        """
+        if not self.is_mothership:
+            return False
+        current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
+        if current_balance_theta is None or current_balance_theta <= 0:
+            return False
+
+        slash_amount = current_balance_theta * slash_proportion
+        return self.slash_miner_collateral(miner_hotkey, slash_amount)
+
+    def slash_miner_collateral(self, miner_hotkey: str, slash_amount:float=None) -> bool:
+        """
+        Slash miner's collateral by a raw theta amount
 
         Args:
             miner_hotkey: miner hotkey to slash from
         """
+        if not self.is_mothership:
+            return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
             return False

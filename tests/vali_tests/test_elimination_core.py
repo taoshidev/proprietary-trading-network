@@ -22,6 +22,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
@@ -59,13 +60,15 @@ class TestEliminationCore(TestBase):
         
         # Create perf ledger manager
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
-        
+
         # Create elimination manager
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.elimination_manager = EliminationManager(
             self.mock_metagraph, 
             self.live_price_fetcher,
             None,  # challengeperiod_manager set later
-            running_unit_tests=True
+            running_unit_tests=True,
+            contract_manager=self.contract_manager
         )
         
         # Create position manager
@@ -626,7 +629,8 @@ class TestEliminationCore(TestBase):
             self.mock_metagraph,
             self.position_manager,
             self.challengeperiod_manager,
-            running_unit_tests=True
+            running_unit_tests=True,
+            contract_manager=self.contract_manager
         )
         
         # First refresh should have special handling

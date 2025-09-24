@@ -192,7 +192,8 @@ class Validator:
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
                                                       ipc_manager=self.ipc_manager,
-                                                      shared_queue_websockets=self.shared_queue_websockets)
+                                                      shared_queue_websockets=self.shared_queue_websockets,
+                                                      contract_manager=self.contract_manager)
 
         self.asset_selection_manager = AssetSelectionManager(config=self.config, metagraph=self.metagraph, ipc_manager=self.ipc_manager)
 
@@ -719,7 +720,7 @@ class Validator:
                     raise SignalException(
                         f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
                         f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
-                        f"See https://docs.taoshi.io/ptn/ptncli/ for more information."
+                        f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
                     )
 
                 open_position = Position(

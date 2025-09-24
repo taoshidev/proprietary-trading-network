@@ -118,7 +118,7 @@ Miners who exceed 10% max drawdowns will be eliminated. Our system continuously 
 
 ### Probation Elimination
 
-Miners who score less than the 25th highest ranking miner will be observed in a probationary period. From that point, they have 30 days to outscore the lowest ranked (25th) miner still in the main competition. If they fail to do so within that window, they will be eliminated.
+Miners who score less than the 15th highest ranking miner in each asset class will be observed in a probationary period. From that point, they have 30 days to outscore the lowest ranked (15th) miner still in the main competition in their asset class. If they fail to do so within that window, they will be eliminated.
 
 ### Post-Elimination
 

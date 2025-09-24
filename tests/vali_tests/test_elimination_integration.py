@@ -72,13 +72,15 @@ class TestEliminationIntegration(TestBase):
             running_unit_tests=True,
             perf_ledger_hks_to_invalidate={}
         )
-        
+
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
             self.live_price_fetcher,
             None,
             running_unit_tests=True,
-            ipc_manager=self.mock_ipc_manager
+            ipc_manager=self.mock_ipc_manager,
+            contract_manager=self.contract_manager
         )
         
         self.position_manager = EnhancedMockPositionManager(
