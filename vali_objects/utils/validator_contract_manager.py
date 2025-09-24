@@ -50,7 +50,8 @@ class ValidatorContractManager:
     def __init__(self, config=None, position_manager=None, ipc_manager=None, running_unit_tests=False, is_backtesting=False, metagraph=None):
         self.config = config
         self.position_manager = position_manager
-        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_mothership = 'ms' in self.secrets
         self.is_backtesting = is_backtesting
         self.metagraph = metagraph
         self._account_sizes_lock = None
@@ -71,7 +72,6 @@ class ValidatorContractManager:
 
         # GCP secret manager
         self._gcp_secret_manager_client = None
-        self.secrets = None
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
 
@@ -126,7 +126,6 @@ class ValidatorContractManager:
             return
         try:
             # Load from secrets.json using ValiUtils
-            self.secrets = ValiUtils.get_secrets()
             self.vault_wallet = bt.wallet(config=self.config)
             bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
         except Exception as e:
