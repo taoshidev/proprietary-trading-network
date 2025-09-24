@@ -565,6 +565,7 @@ class ValidatorContractManager:
             return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
+            bt.logging.info(f"No slashing available for {miner_hotkey}, balance is {current_balance_theta}")
             return False
 
         slash_amount = current_balance_theta * slash_proportion
@@ -581,6 +582,7 @@ class ValidatorContractManager:
             return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
+            bt.logging.info(f"No slashing available for {miner_hotkey}, balance is {current_balance_theta}")
             return False
 
         if slash_amount is None:
