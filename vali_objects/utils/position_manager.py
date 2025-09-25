@@ -6,6 +6,7 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -140,8 +141,10 @@ class PositionManager(CacheController):
                     bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
             bt.logging.info("=" * 60)
 
-        n_positions_updated = 0
         n_positions_checked_for_change = 0
+        positions_to_update = []  # Collect positions that need updating
+
+        # Phase 1: Check all positions and collect those needing updates
         for hk, positions in initial_hk_to_positions.items():
             for p in positions:
                 if p.is_open_position:
@@ -151,14 +154,48 @@ class PositionManager(CacheController):
                 p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 new_return = p.return_at_close
                 if new_return != original_return:
-                    self.save_miner_position(p, delete_open_position_if_exists=False)
-                    n_positions_updated += 1
-                    bt.logging.warning(f'Updated position {p.position_uuid} for trade pair {p.trade_pair.trade_pair_id} for hotkey {hk}. return from {original_return} to {new_return}')
+                    positions_to_update.append((p, hk, original_return, new_return))
 
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
+
+        # Phase 2: Parallel disk writes if there are positions to update
+        n_positions_updated = len(positions_to_update)
         if n_positions_updated:
-            bt.logging.warning(f'Updated {n_positions_updated} positions out of {n_positions_checked_for_change} checked for return changes due to difference in return calculation.')
+            start_time = time.time()
+            successful_updates = 0
+            failed_updates = 0
+
+            # Use ThreadPoolExecutor for parallel I/O operations
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                # Submit all write operations
+                future_to_position = {}
+                for p, hk, original_return, new_return in positions_to_update:
+                    future = executor.submit(
+                        self.save_miner_position,
+                        p,
+                        delete_open_position_if_exists=False
+                    )
+                    future_to_position[future] = (p, hk)
+
+                # Wait for all writes to complete
+                for future in as_completed(future_to_position):
+                    p, hk = future_to_position[future]
+                    try:
+                        future.result()  # This will raise any exception that occurred
+                        successful_updates += 1
+                    except Exception as e:
+                        failed_updates += 1
+                        bt.logging.error(
+                            f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}'
+                        )
+
+            elapsed = time.time() - start_time
+            bt.logging.warning(
+                f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+                f'for return changes due to difference in return calculation. '
+                f'({failed_updates} failures). Parallel writes completed in {elapsed:.2f} seconds.'
+            )
         else:
             bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
 
