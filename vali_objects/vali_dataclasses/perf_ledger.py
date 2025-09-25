@@ -1979,11 +1979,18 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
+            # Not-pickleable. Make it here.
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
             hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
             n_positions_total = 0
             n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
+                # Rebuild closed positions to ensure returns are accurate WRT latest fee structure and retro prices.
+                for p in positions:
+                    if p.is_closed_position:
+                        p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 n_positions = len(positions)
                 n_positions_total += n_positions
                 if n_positions == 0:
