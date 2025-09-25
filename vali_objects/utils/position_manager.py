@@ -140,9 +140,27 @@ class PositionManager(CacheController):
                     bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
             bt.logging.info("=" * 60)
 
+        n_positions_updated = 0
+        n_positions_checked_for_change = 0
         for hk, positions in initial_hk_to_positions.items():
+            for p in positions:
+                if p.is_open_position:
+                    continue
+                n_positions_checked_for_change += 1
+                original_return = p.return_at_close
+                p.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                new_return = p.return_at_close
+                if new_return != original_return:
+                    self.save_miner_position(p, delete_open_position_if_exists=False)
+                    n_positions_updated += 1
+                    bt.logging.warning(f'Updated position {p.position_uuid} for trade pair {p.trade_pair.trade_pair_id} for hotkey {hk}. return from {original_return} to {new_return}')
+
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
+        if n_positions_updated:
+            bt.logging.warning(f'Updated {n_positions_updated} positions out of {n_positions_checked_for_change} checked for return changes due to difference in return calculation.')
+        else:
+            bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
 
     def filtered_positions_for_scoring(
             self,
