@@ -1982,7 +1982,8 @@ class PerfLedgerManager(CacheController):
             # Not-pickleable. Make it here.
             if not self.live_price_fetcher:
                 self.live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
-            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
+            eliminations = self.position_manager.elimination_manager.get_eliminations_from_memory()
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True, eliminations=eliminations)
             n_positions_total = 0
             n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
