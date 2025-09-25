@@ -586,31 +586,11 @@ class PerfLedgerManager(CacheController):
             return ret
 
         # Everything here is in v2 format
-        # Safely iterate through managed dict to avoid KeyError on concurrent access
-        try:
-            if portfolio_only:
-                result = {}
-                for hk in list(self.hotkey_to_perf_bundle.keys()):
-                    try:
-                        bundle = self.hotkey_to_perf_bundle[hk]
-                        if bundle and TP_ID_PORTFOLIO in bundle:
-                            result[hk] = bundle[TP_ID_PORTFOLIO]
-                    except KeyError:
-                        # Key was removed during iteration, skip it
-                        continue
-                return result
-            else:
-                result = {}
-                for hk in list(self.hotkey_to_perf_bundle.keys()):
-                    try:
-                        result[hk] = self.hotkey_to_perf_bundle[hk]
-                    except KeyError:
-                        # Key was removed during iteration, skip it
-                        continue
-                return result
-        except Exception as e:
-            bt.logging.error(f"Error in get_perf_ledgers: {e}")
-            return {}
+        if portfolio_only:
+            dat = dict(self.hotkey_to_perf_bundle)
+            return {hk: bundle[TP_ID_PORTFOLIO] for hk, bundle in dat.items()}
+        else:
+            return dict(self.hotkey_to_perf_bundle)
 
 
 
