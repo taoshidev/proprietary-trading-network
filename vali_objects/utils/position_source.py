@@ -55,14 +55,15 @@ class PositionSourceManager:
         bt.logging.info(f"Loading positions from source: {self.source_type.value}")
         
         if self.source_type == PositionSource.DATABASE:
-            return self._load_from_database(start_time_ms, end_time_ms, hotkeys)
+            ans = self._load_from_database(start_time_ms, end_time_ms, hotkeys)
         elif self.source_type == PositionSource.TEST:
-            return self._load_test_positions()
+            ans = self._load_test_positions()
         else:  # DISK
             # For disk-based loading, return empty dict as positions are loaded
             # through existing PositionManager/PerfLedgerManager mechanisms
             bt.logging.info("Disk source selected - positions will be loaded via PositionManager")
-            return {}
+            ans = {}
+        return ans
             
     def _load_from_database(self, 
                            start_time_ms: Optional[int], 
