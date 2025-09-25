@@ -3,7 +3,6 @@
 import threading
 import time
 import traceback
-from multiprocessing import Process
 from typing import List, Dict
 
 from time_util.time_util import TimeUtil
@@ -17,50 +16,6 @@ from vali_objects.utils.vali_utils import ValiUtils
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
-
-def compaction_worker_process(shutdown_dict):
-    """
-    Worker function to run compaction in a separate process.
-    Creates its own position manager instance to avoid serialization issues.
-    """
-    try:
-        from vali_objects.utils.position_manager import PositionManager
-        from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-
-        # Create fresh instances for this process
-        secrets = ValiUtils.get_secrets()
-        live_price_fetcher = LivePriceFetcher(secrets=secrets)
-        position_manager = PositionManager(
-            is_backtesting=False,
-            live_price_fetcher=live_price_fetcher
-        )
-
-        bt.logging.info("Compaction process started - running initial position consistency check...")
-
-        # Run initial position consistency check
-        try:
-            position_manager.ensure_position_consistency_serially()
-        except Exception as e:
-            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
-
-        bt.logging.info("Starting compaction loop in separate process...")
-
-        # Main compaction loop
-        while not shutdown_dict:
-            try:
-                t0 = time.time()
-                position_manager.compact_price_sources()
-                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
-            except Exception as e:
-                bt.logging.error(f"Error {e} in compaction process: {traceback.format_exc()}")
-                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
-            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
-
-        bt.logging.info("Compaction process shutting down.")
-
-    except Exception as e:
-        bt.logging.error(f"Fatal error in compaction worker process: {e}")
-        bt.logging.error(traceback.format_exc())
 
 class MDDChecker(CacheController):
 
@@ -83,14 +38,25 @@ class MDDChecker(CacheController):
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
         if compaction_enabled:
-            # Start compaction in separate process
-            self.compaction_process = Process(
-                target=compaction_worker_process,
-                args=(shutdown_dict,),
-                daemon=True
-            )
-            self.compaction_process.start()
-            bt.logging.info("Started compaction process.")
+            self.compaction_thread = threading.Thread(target=self.run_compacting_forever, daemon=True)
+            self.compaction_thread.start()
+            bt.logging.info("Started compaction thread.")
+
+    def run_compacting_forever(self):
+        try:
+            self.position_manager.ensure_position_consistency_serially()
+        except Exception as e:
+            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        while not self.shutdown_dict:
+            try:
+                t0 = time.time()
+                self.position_manager.compact_price_sources()
+                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_compacting_forever: {traceback.format_exc()}")
+                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+        bt.logging.info("compaction thread shutting down.")
 
     def reset_debug_counters(self):
         self.n_orders_corrected = 0
