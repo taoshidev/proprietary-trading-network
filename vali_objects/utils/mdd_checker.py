@@ -43,7 +43,10 @@ class MDDChecker(CacheController):
             bt.logging.info("Started compaction thread.")
 
     def run_compacting_forever(self):
-        self.position_manager.ensure_position_consistency_serially()
+        try:
+            self.position_manager.ensure_position_consistency_serially()
+        except Exception as e:
+            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
         while not self.shutdown_dict:
             try:
                 t0 = time.time()
