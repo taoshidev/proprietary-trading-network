@@ -6,6 +6,7 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
+from multiprocessing import Process
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -43,7 +44,8 @@ class PositionManager(CacheController):
                  live_price_fetcher=None,
                  is_backtesting=False,
                  shared_queue_websockets=None,
-                 split_positions_on_disk_load=False):
+                 split_positions_on_disk_load=False,
+                 closed_position_daemon=False):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
@@ -70,6 +72,25 @@ class PositionManager(CacheController):
         self.secrets = secrets
         self.live_price_fetcher = live_price_fetcher
         self._populate_memory_positions_for_first_time()
+        if closed_position_daemon:
+            self.compaction_process = Process(target=self.run_closed_position_daemon_forever, daemon=True)
+            self.compaction_process.start()
+            bt.logging.info("Started run_closed_position_daemon_forever process.")
+
+    def run_closed_position_daemon_forever(self):
+        try:
+            self.ensure_position_consistency_serially()
+        except Exception as e:
+            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        while True:
+            try:
+                t0 = time.time()
+                self.compact_price_sources()
+                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_closed_position_daemon_forever: {traceback.format_exc()}")
+                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
 
     def _default_split_stats(self):
         """Default split statistics for each miner. Used to make defaultdict pickleable."""
@@ -157,6 +178,9 @@ class PositionManager(CacheController):
         if self.is_backtesting:
             return
 
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+
         start_time = time.time()
         n_positions_checked_for_change = 0
         successful_updates = 0
@@ -228,13 +252,6 @@ class PositionManager(CacheController):
         """
         Run this outside of init so that cross object dependencies can be set first. See validator.py
         """
-        if self.perform_compaction:
-            try:
-                self.compact_price_sources()
-            except Exception as e:
-                bt.logging.error(f"Error performing compaction: {e}")
-                traceback.print_exc()
-
         if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()

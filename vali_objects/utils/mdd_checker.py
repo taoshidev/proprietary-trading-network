@@ -20,7 +20,7 @@ from vali_objects.vali_dataclasses.price_source import PriceSource
 class MDDChecker(CacheController):
 
     def __init__(self, metagraph, position_manager, running_unit_tests=False,
-                 live_price_fetcher=None, shutdown_dict=None, compaction_enabled=False):
+                 live_price_fetcher=None, shutdown_dict=None):
         super().__init__(metagraph, running_unit_tests=running_unit_tests)
         self.last_price_fetch_time_ms = None
         self.last_quote_fetch_time_ms = None
@@ -37,26 +37,6 @@ class MDDChecker(CacheController):
         self.reset_debug_counters()
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
-        if compaction_enabled:
-            self.compaction_thread = threading.Thread(target=self.run_compacting_forever, daemon=True)
-            self.compaction_thread.start()
-            bt.logging.info("Started compaction thread.")
-
-    def run_compacting_forever(self):
-        try:
-            self.position_manager.ensure_position_consistency_serially()
-        except Exception as e:
-            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
-        while not self.shutdown_dict:
-            try:
-                t0 = time.time()
-                self.position_manager.compact_price_sources()
-                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
-            except Exception as e:
-                bt.logging.error(f"Error {e} in run_compacting_forever: {traceback.format_exc()}")
-                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
-            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
-        bt.logging.info("compaction thread shutting down.")
 
     def reset_debug_counters(self):
         self.n_orders_corrected = 0
