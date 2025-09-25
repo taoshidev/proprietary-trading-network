@@ -81,6 +81,25 @@ class PositionManager(CacheController):
 
     @timeme
     def _populate_memory_positions_for_first_time(self):
+        """
+        Load positions from disk into memory. Position consistency checks are now handled
+        separately by ensure_position_consistency_serially().
+        """
+        if self.is_backtesting:
+            return
+
+        initial_hk_to_positions = self.get_positions_for_all_miners(from_disk=True)
+
+        # Simply load positions into memory
+        for hk, positions in initial_hk_to_positions.items():
+            if positions:
+                self.hotkey_to_positions[hk] = positions
+
+    def ensure_position_consistency_serially(self):
+        """
+        Ensures position consistency by checking all closed positions for return calculation changes
+        and updating them to disk if needed. This should be called before starting main processing loops.
+        """
         if self.is_backtesting:
             return
 
@@ -142,9 +161,9 @@ class PositionManager(CacheController):
             bt.logging.info("=" * 60)
 
         n_positions_checked_for_change = 0
-        positions_to_update = []  # Collect only references to positions that need updating
+        positions_to_update = []
 
-        # Phase 1: Check all positions and collect those needing updates
+        # Check all positions and collect those needing updates
         for hk, positions in initial_hk_to_positions.items():
             for p in positions:
                 if p.is_open_position:
@@ -154,16 +173,32 @@ class PositionManager(CacheController):
                 p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 new_return = p.return_at_close
                 if new_return != original_return:
-                    # Only store position reference and hotkey - position already has the new return
                     positions_to_update.append((p, hk))
 
-            if positions:  # Only populate if there are no positions in the miner dir
+            if positions:
                 self.hotkey_to_positions[hk] = positions
 
-        # Phase 2: Serial disk updates if there are positions to update
+        # Serial disk updates if there are positions to update
         n_positions_updated = len(positions_to_update)
         if n_positions_updated:
-            self._update_positions_serially(positions_to_update, n_positions_checked_for_change)
+            start_time = time.time()
+            successful_updates = 0
+            failed_updates = 0
+
+            for p, hk in positions_to_update:
+                try:
+                    self.save_miner_position(p, delete_open_position_if_exists=False)
+                    successful_updates += 1
+                except Exception as e:
+                    failed_updates += 1
+                    bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
+
+            elapsed = time.time() - start_time
+            bt.logging.warning(
+                f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+                f'for return changes due to difference in return calculation. '
+                f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
+            )
         else:
             bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
 
