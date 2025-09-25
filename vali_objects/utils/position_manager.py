@@ -488,11 +488,19 @@ class PositionManager(CacheController):
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
-        wipe_positions = False
+        wipe_positions = True
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = []# All miners that should have been promoted
+            miners_to_wipe = [
+                "5D7yyvXTgmUugTh4P5p8XgsPhxejMg8TTgj2dwHmy8hh413m", # challenge
+                "5CFHrJ1WhP7uzft9Jazzq8tB9xX5XJv4tTGYuW4zjnaDaEnB",
+                "5CaPfXs4RXAeyMWKrZGjSLUC68KX4buqG1A4u3B1gDRZoC9f",
+                "5DHiLbW5dBiSjHsBzwtstGTfHoo7CJGJtqL6qqREkF4osYDf",
+                "5GQyxWwzDVW78C7akiNcfvHmUDnn8a2AdAxY5gLT482yRjeP",
+                "5CGBuhhwyQqjsGrYkQXx16dJApBtJ16boK2mSc1AKGmC3f7s",
+                "5EL2WX1aUhiApbLTVP3xG1Q7enrWg5kZtSprBDySyAJ2oo6w"
+            ]# All miners that should have been promoted
             miners_to_promote = []
 
             for p in positions_to_snap:
