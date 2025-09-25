@@ -18,29 +18,22 @@ import bittensor as bt
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
-def compaction_worker_process(position_manager_data, shutdown_dict, vali_config_data):
+def compaction_worker_process(shutdown_dict):
     """
     Worker function to run compaction in a separate process.
-    Uses IPC data to recreate necessary objects for compaction.
+    Creates its own position manager instance to avoid serialization issues.
     """
     try:
-        # Import here to avoid circular imports in subprocess
         from vali_objects.utils.position_manager import PositionManager
         from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-        from vali_utils import ValiUtils
 
-        # Recreate necessary objects using IPC data
+        # Create fresh instances for this process
         secrets = ValiUtils.get_secrets()
         live_price_fetcher = LivePriceFetcher(secrets=secrets)
-
-        # Create position manager with IPC data
         position_manager = PositionManager(
             is_backtesting=False,
             live_price_fetcher=live_price_fetcher
         )
-
-        # Load positions from IPC data into position manager
-        position_manager.hotkey_to_positions = position_manager_data.copy()
 
         bt.logging.info("Compaction process started - running initial position consistency check...")
 
@@ -90,13 +83,10 @@ class MDDChecker(CacheController):
         self.shutdown_dict = shutdown_dict
         self.n_poly_api_requests = 0
         if compaction_enabled:
-            # Start compaction in separate process using IPC data
-            position_manager_data = position_manager.hotkey_to_positions
-            vali_config_data = {}  # Add any needed ValiConfig data
-
+            # Start compaction in separate process
             self.compaction_process = Process(
                 target=compaction_worker_process,
-                args=(position_manager_data, shutdown_dict, vali_config_data),
+                args=(shutdown_dict,),
                 daemon=True
             )
             self.compaction_process.start()
