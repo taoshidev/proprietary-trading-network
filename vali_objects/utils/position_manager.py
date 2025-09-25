@@ -6,8 +6,6 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
-from multiprocessing import Process, Queue
-from multiprocessing.pool import ThreadPool
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -31,68 +29,6 @@ from vali_objects.utils.position_filtering import PositionFiltering
 
 TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
-
-def parallel_position_save_worker(positions_to_update, save_function_params, result_queue):
-    """
-    Worker function to run in a separate process for parallel position saves.
-    This runs in its own process with its own ThreadPool, isolated from main thread CPU tasks.
-
-    Args:
-        positions_to_update: List of (position_data, hotkey) tuples to save
-        save_function_params: Dictionary with parameters needed to recreate save functionality
-        result_queue: Queue to return results to main process
-    """
-    try:
-        # Define a helper function for saving with error handling
-        def save_position_wrapper(args):
-            position_data, hk = args
-            try:
-                # Recreate the position save logic here
-                # Since we can't pickle instance methods, we need to recreate the save logic
-                miner_dir = save_function_params['miner_dir']
-                position_uuid = position_data['position_uuid']
-                filepath = f"{miner_dir}/{hk}/{position_uuid}.json"
-
-                # Ensure directory exists
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-                # Write position data
-                with open(filepath, 'w') as f:
-                    json.dump(position_data, f)
-
-                return True, None
-            except Exception as e:
-                return False, f'Failed to update position {position_data.get("position_uuid", "unknown")} for hotkey {hk}: {e}'
-
-        start_time = time.time()
-
-        # Use ThreadPool within this process for parallel I/O
-        with ThreadPool(processes=min(20, len(positions_to_update))) as pool:
-            results = pool.map(save_position_wrapper, positions_to_update)
-
-        # Count successes and failures
-        successful_updates = sum(1 for success, _ in results if success)
-        failed_updates = sum(1 for success, _ in results if not success)
-
-        # Collect error messages
-        error_messages = [msg for success, msg in results if not success and msg]
-
-        elapsed = time.time() - start_time
-
-        # Return results through queue
-        result_queue.put({
-            'successful_updates': successful_updates,
-            'failed_updates': failed_updates,
-            'error_messages': error_messages,
-            'elapsed': elapsed
-        })
-
-    except Exception as e:
-        result_queue.put({
-            'error': str(e),
-            'successful_updates': 0,
-            'failed_updates': len(positions_to_update)
-        })
 
 
 class PositionManager(CacheController):
@@ -224,70 +160,39 @@ class PositionManager(CacheController):
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
 
-        # Phase 2: Parallel disk writes in separate process if there are positions to update
+        # Phase 2: Serial disk updates if there are positions to update
         n_positions_updated = len(positions_to_update)
         if n_positions_updated:
-            # Serialize position data for cross-process communication
-            serialized_positions = []
-            for p, hk in positions_to_update:
-                # Convert position to serializable dict format
-                position_data = {
-                    'position_uuid': p.position_uuid,
-                    'miner_hotkey': p.miner_hotkey,
-                    'open_ms': p.open_ms,
-                    'trade_pair': p.trade_pair.trade_pair_id,
-                    'orders': [order.to_dict() for order in p.orders],
-                    'current_return': p.current_return,
-                    'return_at_close': p.return_at_close,
-                    'is_closed_position': p.is_closed_position,
-                    'average_entry_price': p.average_entry_price,
-                    'close_out_type': p.close_out_type.name if p.close_out_type else None,
-                    'net_leverage': p.net_leverage
-                }
-                serialized_positions.append((position_data, hk))
-
-            # Prepare parameters for the worker process
-            save_function_params = {
-                'miner_dir': self.miner_dir
-            }
-
-            # Create a queue for results
-            from multiprocessing import Process, Queue
-            result_queue = Queue()
-
-            # Start the worker process
-            worker_process = Process(
-                target=parallel_position_save_worker,
-                args=(serialized_positions, save_function_params, result_queue)
-            )
-            worker_process.start()
-
-            # Wait for the process to complete and get results
-            worker_process.join()
-            result = result_queue.get()
-
-            # Handle results
-            if 'error' in result:
-                bt.logging.error(f"Worker process failed: {result['error']}")
-                successful_updates = result['successful_updates']
-                failed_updates = result['failed_updates']
-                elapsed = 0
-            else:
-                successful_updates = result['successful_updates']
-                failed_updates = result['failed_updates']
-                elapsed = result['elapsed']
-
-                # Log any error messages
-                for error_msg in result.get('error_messages', []):
-                    bt.logging.error(error_msg)
-
-            bt.logging.warning(
-                f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
-                f'for return changes due to difference in return calculation. '
-                f'({failed_updates} failures). Parallel writes in separate process completed in {elapsed:.2f} seconds.'
-            )
+            self._update_positions_serially(positions_to_update, n_positions_checked_for_change)
         else:
             bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
+
+    def _update_positions_serially(self, positions_to_update, n_positions_checked_for_change):
+        """
+        Update positions to disk serially.
+
+        Args:
+            positions_to_update: List of (position, hotkey) tuples to update
+            n_positions_checked_for_change: Total number of positions checked for changes
+        """
+        start_time = time.time()
+        successful_updates = 0
+        failed_updates = 0
+
+        for p, hk in positions_to_update:
+            try:
+                self.save_miner_position(p, delete_open_position_if_exists=False)
+                successful_updates += 1
+            except Exception as e:
+                failed_updates += 1
+                bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
+
+        elapsed = time.time() - start_time
+        bt.logging.warning(
+            f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+            f'for return changes due to difference in return calculation. '
+            f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
+        )
 
     def filtered_positions_for_scoring(
             self,
