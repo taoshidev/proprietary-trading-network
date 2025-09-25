@@ -82,23 +82,7 @@ class PositionManager(CacheController):
     @timeme
     def _populate_memory_positions_for_first_time(self):
         """
-        Load positions from disk into memory. Position consistency checks are now handled
-        separately by ensure_position_consistency_serially().
-        """
-        if self.is_backtesting:
-            return
-
-        initial_hk_to_positions = self.get_positions_for_all_miners(from_disk=True)
-
-        # Simply load positions into memory
-        for hk, positions in initial_hk_to_positions.items():
-            if positions:
-                self.hotkey_to_positions[hk] = positions
-
-    def ensure_position_consistency_serially(self):
-        """
-        Ensures position consistency by checking all closed positions for return calculation changes
-        and updating them to disk if needed. This should be called before starting main processing loops.
+        Load positions from disk into memory and apply position splitting if enabled.
         """
         if self.is_backtesting:
             return
@@ -160,11 +144,25 @@ class PositionManager(CacheController):
                     bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
             bt.logging.info("=" * 60)
 
+        # Load positions into memory
+        for hk, positions in initial_hk_to_positions.items():
+            if positions:
+                self.hotkey_to_positions[hk] = positions
+
+    def ensure_position_consistency_serially(self):
+        """
+        Ensures position consistency by checking all closed positions for return calculation changes
+        and updating them to disk if needed. This should be called before starting main processing loops.
+        """
+        if self.is_backtesting:
+            return
+
+        # Use positions already loaded in memory (which may have been split during initial load)
         n_positions_checked_for_change = 0
         positions_to_update = []
 
         # Check all positions and collect those needing updates
-        for hk, positions in initial_hk_to_positions.items():
+        for hk, positions in self.hotkey_to_positions.items():
             for p in positions:
                 if p.is_open_position:
                     continue
@@ -174,9 +172,6 @@ class PositionManager(CacheController):
                 new_return = p.return_at_close
                 if new_return != original_return:
                     positions_to_update.append((p, hk))
-
-            if positions:
-                self.hotkey_to_positions[hk] = positions
 
         # Serial disk updates if there are positions to update
         n_positions_updated = len(positions_to_update)
