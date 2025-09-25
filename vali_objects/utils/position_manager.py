@@ -6,7 +6,7 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing.pool import ThreadPool
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -142,7 +142,7 @@ class PositionManager(CacheController):
             bt.logging.info("=" * 60)
 
         n_positions_checked_for_change = 0
-        positions_to_update = []  # Collect positions that need updating
+        positions_to_update = []  # Collect only references to positions that need updating
 
         # Phase 1: Check all positions and collect those needing updates
         for hk, positions in initial_hk_to_positions.items():
@@ -154,7 +154,8 @@ class PositionManager(CacheController):
                 p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 new_return = p.return_at_close
                 if new_return != original_return:
-                    positions_to_update.append((p, hk, original_return, new_return))
+                    # Only store position reference and hotkey - position already has the new return
+                    positions_to_update.append((p, hk))
 
             if positions:  # Only populate if there are no positions in the miner dir
                 self.hotkey_to_positions[hk] = positions
@@ -163,32 +164,29 @@ class PositionManager(CacheController):
         n_positions_updated = len(positions_to_update)
         if n_positions_updated:
             start_time = time.time()
-            successful_updates = 0
-            failed_updates = 0
 
-            # Use ThreadPoolExecutor for parallel I/O operations
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                # Submit all write operations
-                future_to_position = {}
-                for p, hk, original_return, new_return in positions_to_update:
-                    future = executor.submit(
-                        self.save_miner_position,
-                        p,
-                        delete_open_position_if_exists=False
-                    )
-                    future_to_position[future] = (p, hk)
+            # Define a helper function for saving with error handling
+            def save_position_wrapper(args):
+                p, hk = args
+                try:
+                    self.save_miner_position(p, delete_open_position_if_exists=False)
+                    return True, None
+                except Exception as e:
+                    return False, f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}'
 
-                # Wait for all writes to complete
-                for future in as_completed(future_to_position):
-                    p, hk = future_to_position[future]
-                    try:
-                        future.result()  # This will raise any exception that occurred
-                        successful_updates += 1
-                    except Exception as e:
-                        failed_updates += 1
-                        bt.logging.error(
-                            f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}'
-                        )
+            # Use multiprocessing.pool.ThreadPool for better thread management
+            with ThreadPool(processes=min(20, n_positions_updated)) as pool:
+                # Map the save function over all positions
+                results = pool.map(save_position_wrapper, positions_to_update)
+
+            # Count successes and failures
+            successful_updates = sum(1 for success, _ in results if success)
+            failed_updates = sum(1 for success, _ in results if not success)
+
+            # Log any failures
+            for success, error_msg in results:
+                if not success and error_msg:
+                    bt.logging.error(error_msg)
 
             elapsed = time.time() - start_time
             bt.logging.warning(
