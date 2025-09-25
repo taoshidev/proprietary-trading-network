@@ -182,6 +182,7 @@ class PositionManager(CacheController):
             self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
 
         start_time = time.time()
+        last_log_time = start_time
         n_positions_checked_for_change = 0
         successful_updates = 0
         failed_updates = 0
@@ -209,14 +210,17 @@ class PositionManager(CacheController):
                         bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
 
                 # Log progress every 1000 positions or every 5 minutes
-                if n_positions_checked_for_change % 1000 == 0 or (time.time() - start_time) % 300 < 1:
-                    elapsed = time.time() - start_time
+                current_time = time.time()
+                if n_positions_checked_for_change % 1000 == 0 or (current_time - last_log_time) >= 300:
+                    elapsed = current_time - start_time
                     progress_pct = (n_positions_checked_for_change / total_positions) * 100 if total_positions > 0 else 0
                     bt.logging.info(
                         f'Position consistency progress: {n_positions_checked_for_change}/{total_positions} '
                         f'({progress_pct:.1f}%) checked, {successful_updates} updated, {failed_updates} failed. '
                         f'Elapsed: {elapsed:.1f}s'
                     )
+                    if (current_time - last_log_time) >= 300:
+                        last_log_time = current_time
 
         # Log final results
         elapsed = time.time() - start_time
