@@ -157,11 +157,12 @@ class PositionManager(CacheController):
         if self.is_backtesting:
             return
 
-        # Use positions already loaded in memory (which may have been split during initial load)
+        start_time = time.time()
         n_positions_checked_for_change = 0
-        positions_to_update = []
+        successful_updates = 0
+        failed_updates = 0
 
-        # Check all positions and collect those needing updates
+        # Check all positions and immediately save if return changed
         for hk, positions in self.hotkey_to_positions.items():
             for p in positions:
                 if p.is_open_position:
@@ -171,23 +172,15 @@ class PositionManager(CacheController):
                 p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 new_return = p.return_at_close
                 if new_return != original_return:
-                    positions_to_update.append((p, hk))
+                    try:
+                        self.save_miner_position(p, delete_open_position_if_exists=False)
+                        successful_updates += 1
+                    except Exception as e:
+                        failed_updates += 1
+                        bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
 
-        # Serial disk updates if there are positions to update
-        n_positions_updated = len(positions_to_update)
-        if n_positions_updated:
-            start_time = time.time()
-            successful_updates = 0
-            failed_updates = 0
-
-            for p, hk in positions_to_update:
-                try:
-                    self.save_miner_position(p, delete_open_position_if_exists=False)
-                    successful_updates += 1
-                except Exception as e:
-                    failed_updates += 1
-                    bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
-
+        # Log results
+        if successful_updates > 0 or failed_updates > 0:
             elapsed = time.time() - start_time
             bt.logging.warning(
                 f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
@@ -196,33 +189,6 @@ class PositionManager(CacheController):
             )
         else:
             bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
-
-    def _update_positions_serially(self, positions_to_update, n_positions_checked_for_change):
-        """
-        Update positions to disk serially.
-
-        Args:
-            positions_to_update: List of (position, hotkey) tuples to update
-            n_positions_checked_for_change: Total number of positions checked for changes
-        """
-        start_time = time.time()
-        successful_updates = 0
-        failed_updates = 0
-
-        for p, hk in positions_to_update:
-            try:
-                self.save_miner_position(p, delete_open_position_if_exists=False)
-                successful_updates += 1
-            except Exception as e:
-                failed_updates += 1
-                bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
-
-        elapsed = time.time() - start_time
-        bt.logging.warning(
-            f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
-            f'for return changes due to difference in return calculation. '
-            f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
-        )
 
     def filtered_positions_for_scoring(
             self,
