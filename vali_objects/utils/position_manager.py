@@ -6,6 +6,7 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
+from multiprocessing import Process
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -30,6 +31,7 @@ from vali_objects.utils.position_filtering import PositionFiltering
 TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
+
 class PositionManager(CacheController):
     def __init__(self, metagraph=None, running_unit_tests=False,
                  perform_order_corrections=False,
@@ -42,7 +44,8 @@ class PositionManager(CacheController):
                  live_price_fetcher=None,
                  is_backtesting=False,
                  shared_queue_websockets=None,
-                 split_positions_on_disk_load=False):
+                 split_positions_on_disk_load=False,
+                 closed_position_daemon=False):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
@@ -69,6 +72,25 @@ class PositionManager(CacheController):
         self.secrets = secrets
         self.live_price_fetcher = live_price_fetcher
         self._populate_memory_positions_for_first_time()
+        if closed_position_daemon:
+            self.compaction_process = Process(target=self.run_closed_position_daemon_forever, daemon=True)
+            self.compaction_process.start()
+            bt.logging.info("Started run_closed_position_daemon_forever process.")
+
+    def run_closed_position_daemon_forever(self):
+        try:
+            self.ensure_position_consistency_serially()
+        except Exception as e:
+            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        while True:
+            try:
+                t0 = time.time()
+                self.compact_price_sources()
+                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_closed_position_daemon_forever: {traceback.format_exc()}")
+                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
 
     def _default_split_stats(self):
         """Default split statistics for each miner. Used to make defaultdict pickleable."""
@@ -80,6 +102,9 @@ class PositionManager(CacheController):
 
     @timeme
     def _populate_memory_positions_for_first_time(self):
+        """
+        Load positions from disk into memory and apply position splitting if enabled.
+        """
         if self.is_backtesting:
             return
 
@@ -140,9 +165,73 @@ class PositionManager(CacheController):
                     bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
             bt.logging.info("=" * 60)
 
+        # Load positions into memory
         for hk, positions in initial_hk_to_positions.items():
-            if positions:  # Only populate if there are no positions in the miner dir
+            if positions:
                 self.hotkey_to_positions[hk] = positions
+
+    def ensure_position_consistency_serially(self):
+        """
+        Ensures position consistency by checking all closed positions for return calculation changes
+        and updating them to disk if needed. This should be called before starting main processing loops.
+        """
+        if self.is_backtesting:
+            return
+
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+
+        start_time = time.time()
+        last_log_time = start_time
+        n_positions_checked_for_change = 0
+        successful_updates = 0
+        failed_updates = 0
+
+        # Calculate total positions for progress tracking
+        total_positions = sum(len([p for p in positions if not p.is_open_position])
+                            for positions in self.hotkey_to_positions.values())
+        bt.logging.info(f'Starting position consistency check on {total_positions} closed positions...')
+
+        # Check all positions and immediately save if return changed
+        for hk_index, (hk, positions) in enumerate(self.hotkey_to_positions.items()):
+            for p in positions:
+                if p.is_open_position:
+                    continue
+                n_positions_checked_for_change += 1
+                original_return = p.return_at_close
+                p.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                new_return = p.return_at_close
+                if new_return != original_return:
+                    try:
+                        self.save_miner_position(p, delete_open_position_if_exists=False)
+                        successful_updates += 1
+                    except Exception as e:
+                        failed_updates += 1
+                        bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
+
+                # Log progress every 1000 positions or every 5 minutes
+                current_time = time.time()
+                if n_positions_checked_for_change % 1000 == 0 or (current_time - last_log_time) >= 300:
+                    elapsed = current_time - start_time
+                    progress_pct = (n_positions_checked_for_change / total_positions) * 100 if total_positions > 0 else 0
+                    bt.logging.info(
+                        f'Position consistency progress: {n_positions_checked_for_change}/{total_positions} '
+                        f'({progress_pct:.1f}%) checked, {successful_updates} updated, {failed_updates} failed. '
+                        f'Elapsed: {elapsed:.1f}s'
+                    )
+                    if (current_time - last_log_time) >= 300:
+                        last_log_time = current_time
+
+        # Log final results
+        elapsed = time.time() - start_time
+        if successful_updates > 0 or failed_updates > 0:
+            bt.logging.warning(
+                f'Position consistency completed: Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+                f'for return changes due to difference in return calculation. '
+                f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
+            )
+        else:
+            bt.logging.info(f'Position consistency completed: No positions needed return updates out of {n_positions_checked_for_change} checked in {elapsed:.2f} seconds.')
 
     def filtered_positions_for_scoring(
             self,
@@ -167,13 +256,6 @@ class PositionManager(CacheController):
         """
         Run this outside of init so that cross object dependencies can be set first. See validator.py
         """
-        if self.perform_compaction:
-            try:
-                self.compact_price_sources()
-            except Exception as e:
-                bt.logging.error(f"Error performing compaction: {e}")
-                traceback.print_exc()
-
         if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()

@@ -229,7 +229,8 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets)
+                                                shared_queue_websockets=self.shared_queue_websockets,
+                                                closed_position_daemon=True)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
@@ -383,7 +384,7 @@ class Validator:
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict, compaction_enabled=True)
+                                      shutdown_dict=shutdown_dict)
 
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph,

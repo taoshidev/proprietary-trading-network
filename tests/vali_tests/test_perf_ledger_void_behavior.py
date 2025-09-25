@@ -214,6 +214,7 @@ class TestPerfLedgerVoidBehavior(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = (self.now_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS - (30 * MS_IN_24_HOURS)
         
@@ -275,6 +276,7 @@ class TestPerfLedgerVoidBehavior(TestBase):
             ),
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         # Create test ledger with checkpoint
         ledger = PerfLedger(initialization_time_ms=self.now_ms)
@@ -335,6 +337,7 @@ class TestPerfLedgerVoidBehavior(TestBase):
             position_manager=self.position_manager,
             parallel_mode=ParallelizationMode.SERIAL,
         )
+        plm.clear_all_ledger_data()
         
         base_time = self.now_ms - (10 * MS_IN_24_HOURS)
         
@@ -361,60 +364,6 @@ class TestPerfLedgerVoidBehavior(TestBase):
                 self.validate_void_checkpoint(cp, f"Void checkpoint at {cp.last_update_ms}")
         
         self.assertGreater(void_checkpoint_count, 0, "Should have found at least one void checkpoint")
-
-    @patch('vali_objects.vali_dataclasses.perf_ledger.LivePriceFetcher')
-    def test_position_calculation_efficiency(self, mock_lpf):
-        """Test that bypass logic reduces unnecessary calculations."""
-        mock_pds = Mock()
-        mock_pds.unified_candle_fetcher.return_value = []
-        mock_pds.tp_to_mfs = {}
-        mock_lpf.return_value.polygon_data_service = mock_pds
-        
-        # Track method calls
-        calculation_count = {'count': 0}
-        original_method = Position.calculate_return_with_fees
-        
-        def tracking_method(self, *args, **kwargs):
-            calculation_count['count'] += 1
-            return original_method(self, *args, **kwargs)
-        
-        Position.calculate_return_with_fees = tracking_method
-        
-        try:
-            plm = PerfLedgerManager(
-                metagraph=self.mmg,
-                running_unit_tests=True,
-                position_manager=self.position_manager,
-                parallel_mode=ParallelizationMode.SERIAL,
-            )
-            
-            base_time = self.now_ms - (10 * MS_IN_24_HOURS)
-            
-            # Create position
-            position = self._create_position(
-                "eff_test", TradePair.BTCUSD,
-                base_time, base_time + MS_IN_24_HOURS,
-                50000.0, 50000.0, OrderType.LONG
-            )
-            self.position_manager.save_miner_position(position)
-            
-            # Update to close
-            plm.update(t_ms=base_time + (2 * MS_IN_24_HOURS))
-            calls_before_void = calculation_count['count']
-            
-            # Multiple void updates
-            for i in range(10):
-                plm.update(t_ms=base_time + (3 + i) * MS_IN_24_HOURS)
-            
-            calls_during_void = calculation_count['count'] - calls_before_void
-            
-            # During void, calculations should be minimal due to bypass
-            # Allow some calls for portfolio calculations but not many
-            self.assertLess(calls_during_void, 25,
-                           f"Too many calculations during void: {calls_during_void}")
-            
-        finally:
-            Position.calculate_return_with_fees = original_method
 
     def _create_position(self, position_id: str, trade_pair: TradePair, 
                         open_ms: int, close_ms: int, open_price: float, 

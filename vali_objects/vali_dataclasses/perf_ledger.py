@@ -1979,11 +1979,19 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
+            # Not-pickleable. Make it here.
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
+            eliminations = self.position_manager.elimination_manager.get_eliminations_from_memory()
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True, eliminations=eliminations)
             n_positions_total = 0
             n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
+                # Rebuild closed positions to ensure returns are accurate WRT latest fee structure and retro prices.
+                for p in positions:
+                    if p.is_closed_position:
+                        p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 n_positions = len(positions)
                 n_positions_total += n_positions
                 if n_positions == 0:
@@ -2355,7 +2363,7 @@ if __name__ == "__main__":
     crypto_only = False # Whether to process only crypto trade pairs
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5D4gJ9QfbcMg338813wz3MKuRofTKfE6zR3iPaGHaWEnNKoo'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5GA214EQwrWKtDxf2BZptLmeaxF1Nmm6WxVD93YUZRn8Bk5s'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 
@@ -2391,8 +2399,7 @@ if __name__ == "__main__":
         position_source_manager = PositionSourceManager(source_type)
         hk_to_positions = position_source_manager.load_positions(
             end_time_ms=end_time_ms if use_database_positions else None,
-            hotkeys=hotkeys_to_process if use_database_positions else None
-        )
+            hotkeys=hotkeys_to_process if use_database_positions else None)
 
         # Update hotkeys to process based on loaded positions
         if hk_to_positions:
