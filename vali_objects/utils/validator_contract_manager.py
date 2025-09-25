@@ -374,34 +374,6 @@ class ValidatorContractManager:
                 "error_message": error_msg
             }
 
-    def force_deposit(self, amount: float, miner_hotkey: str):
-        """
-        Update contract deposit without a stake transfer.
-        Used to reinstate miners wrongfully slashed.
-
-        Args:
-            amount (float): Amount in theta tokens
-            miner_hotkey (str): Miner's SS58 hotkey address
-        """
-        try:
-            bt.logging.info(f"Processing force deposit to {miner_hotkey} for {amount} Theta")
-            owner_address = self.get_secret("collateral_owner_address")
-            owner_private_key = self.get_secret("collateral_owner_private_key")
-            try:
-                self.collateral_manager.force_deposit(
-                    address=miner_hotkey,
-                    amount=int(amount * 10 ** 9),  # convert theta to rao_theta
-                    owner_address=owner_address,
-                    owner_private_key=owner_private_key
-                )
-            finally:
-                del owner_address
-                del owner_private_key
-            bt.logging.info(f"Force deposit successful: {amount} Theta deposited for {miner_hotkey}")
-        except Exception as e:
-            error_msg = f"Force deposit execution failed: {str(e)}"
-            bt.logging.error(error_msg)
-
     def process_withdrawal_request(self, amount: float, miner_coldkey: str, miner_hotkey: str) -> Dict[str, Any]:
         """
         Process a collateral withdrawal request using raw data.
