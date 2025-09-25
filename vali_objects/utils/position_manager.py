@@ -162,8 +162,13 @@ class PositionManager(CacheController):
         successful_updates = 0
         failed_updates = 0
 
+        # Calculate total positions for progress tracking
+        total_positions = sum(len([p for p in positions if not p.is_open_position])
+                            for positions in self.hotkey_to_positions.values())
+        bt.logging.info(f'Starting position consistency check on {total_positions} closed positions...')
+
         # Check all positions and immediately save if return changed
-        for hk, positions in self.hotkey_to_positions.items():
+        for hk_index, (hk, positions) in enumerate(self.hotkey_to_positions.items()):
             for p in positions:
                 if p.is_open_position:
                     continue
@@ -179,16 +184,26 @@ class PositionManager(CacheController):
                         failed_updates += 1
                         bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
 
-        # Log results
+                # Log progress every 1000 positions or every 5 minutes
+                if n_positions_checked_for_change % 1000 == 0 or (time.time() - start_time) % 300 < 1:
+                    elapsed = time.time() - start_time
+                    progress_pct = (n_positions_checked_for_change / total_positions) * 100 if total_positions > 0 else 0
+                    bt.logging.info(
+                        f'Position consistency progress: {n_positions_checked_for_change}/{total_positions} '
+                        f'({progress_pct:.1f}%) checked, {successful_updates} updated, {failed_updates} failed. '
+                        f'Elapsed: {elapsed:.1f}s'
+                    )
+
+        # Log final results
+        elapsed = time.time() - start_time
         if successful_updates > 0 or failed_updates > 0:
-            elapsed = time.time() - start_time
             bt.logging.warning(
-                f'Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+                f'Position consistency completed: Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
                 f'for return changes due to difference in return calculation. '
                 f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
             )
         else:
-            bt.logging.info(f'No positions needed return updates out of {n_positions_checked_for_change} checked.')
+            bt.logging.info(f'Position consistency completed: No positions needed return updates out of {n_positions_checked_for_change} checked in {elapsed:.2f} seconds.')
 
     def filtered_positions_for_scoring(
             self,
