@@ -28,7 +28,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1758873540000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 
@@ -488,11 +488,19 @@ class PositionManager(CacheController):
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
-        wipe_positions = False
+        wipe_positions = True
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = []# All miners that should have been promoted
+            miners_to_wipe = [
+                "5D7yyvXTgmUugTh4P5p8XgsPhxejMg8TTgj2dwHmy8hh413m", # challenge
+                "5CFHrJ1WhP7uzft9Jazzq8tB9xX5XJv4tTGYuW4zjnaDaEnB",
+                "5CaPfXs4RXAeyMWKrZGjSLUC68KX4buqG1A4u3B1gDRZoC9f",
+                "5DHiLbW5dBiSjHsBzwtstGTfHoo7CJGJtqL6qqREkF4osYDf",
+                "5GQyxWwzDVW78C7akiNcfvHmUDnn8a2AdAxY5gLT482yRjeP",
+                "5CGBuhhwyQqjsGrYkQXx16dJApBtJ16boK2mSc1AKGmC3f7s",
+                "5EL2WX1aUhiApbLTVP3xG1Q7enrWg5kZtSprBDySyAJ2oo6w"
+            ]# All miners that should have been promoted
             miners_to_promote = []
 
             for p in positions_to_snap:
@@ -535,10 +543,12 @@ class PositionManager(CacheController):
                 print(f"Removed elimination for hotkey {e['hotkey']}")
         n_eliminations_after = len(self.elimination_manager.get_eliminations_from_memory())
         print(f'    n_eliminations_before {n_eliminations_before} n_eliminations_after {n_eliminations_after}')
+        update_perf_ledgers = False
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
             if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
+                update_perf_ledgers = True
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
@@ -560,11 +570,12 @@ class PositionManager(CacheController):
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
-                print('n perf ledgers before:', len(perf_ledgers))
-                perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
-                print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+        if update_perf_ledgers:
+            perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+            print('n perf ledgers before:', len(perf_ledgers))
+            perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k not in miners_to_wipe}
+            print('n perf ledgers after:', len(perf_ledgers_new))
+            self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
 
             """
