@@ -543,10 +543,12 @@ class PositionManager(CacheController):
                 print(f"Removed elimination for hotkey {e['hotkey']}")
         n_eliminations_after = len(self.elimination_manager.get_eliminations_from_memory())
         print(f'    n_eliminations_before {n_eliminations_before} n_eliminations_after {n_eliminations_after}')
+        update_perf_ledgers = False
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
             if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
+                update_perf_ledgers = True
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
@@ -568,11 +570,12 @@ class PositionManager(CacheController):
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
-                print('n perf ledgers before:', len(perf_ledgers))
-                perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
-                print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+        if update_perf_ledgers:
+            perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+            print('n perf ledgers before:', len(perf_ledgers))
+            perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k not in miners_to_wipe}
+            print('n perf ledgers after:', len(perf_ledgers_new))
+            self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
 
             """
