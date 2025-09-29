@@ -25,7 +25,7 @@ class PlagiarismManager:
         self.running_unit_tests = running_unit_tests
 
     def _check_plagiarism_refresh(self, current_time):
-        return current_time - self.refreshed_plagiarism_time_ms < ValiConfig.PLAGIARISM_UPDATE_FREQUENCY_MS
+        return current_time - self.refreshed_plagiarism_time_ms > ValiConfig.PLAGIARISM_UPDATE_FREQUENCY_MS
 
     def plagiarism_miners_to_eliminate(self, current_time):
         """Returns a dict of miners that should be eliminated."""
@@ -88,15 +88,15 @@ class PlagiarismManager:
             try:
                 response = requests.get(f"{api_base_url}/elimination_scores")
                 response.raise_for_status()
-                self._update_plagiarism_in_memory(current_time, response.json())
+                new_miners = response.json()
+                bt.logging.info(f"Updating plagiarism api miners from {self.plagiarism_miners} to {new_miners}")
+                self._update_plagiarism_in_memory(current_time, new_miners)
                 return self.plagiarism_miners
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching elimination scores: {e}")
-                return None
             except Exception as e:
-                print(f"Unexpected error: {e}")
+                print(f"Error fetching plagiarism elimination scores: {e}")
                 return None
         else:
+            bt.logging.info(f"Too soon to update plagiarism elimination scores at {current_time}")
             return self.plagiarism_miners
 
     def send_plagiarism_demotion_notification(self, hotkey: str):
@@ -115,4 +115,4 @@ class PlagiarismManager:
         """Send notification when a miner is eliminated from plagiarism"""
         if self.running_unit_tests:
             return
-        self.slack_notifier.send_plagiarism_promotion_notification(hotkey)
+        self.slack_notifier.send_plagiarism_elimination_notification(hotkey)

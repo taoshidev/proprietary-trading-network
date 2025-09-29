@@ -588,6 +588,7 @@ class ChallengePeriodManager(CacheController):
                 bt.logging.info(
                     f'Hotkey {hotkey} is overdue in {MinerBucket.PLAGIARISM} at time {current_time}')
                 elim_miners_to_return[hotkey] = (EliminationReason.PLAGIARISM.value, -1)
+                self.plagiarism_manager.send_plagiarism_elimination_notification(hotkey)
 
         return elim_miners_to_return
 
