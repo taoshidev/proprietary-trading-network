@@ -236,7 +236,8 @@ class Validator:
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
         self.plagiarism_manager = PlagiarismManager(slack_notifier=self.slack_notifier,
-                                                    ipc_manager=self.ipc_manager)
+                                                    ipc_manager=self.ipc_manager,
+                                                    secrets=self.secrets)
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,

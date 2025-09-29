@@ -581,6 +581,8 @@ class ChallengePeriodManager(CacheController):
 
         miners_to_eliminate = self.plagiarism_manager.plagiarism_miners_to_eliminate(current_time)
         elim_miners_to_return = {}
+        # TODO remove ghost mode
+        return {}
         for hotkey in miners_to_eliminate:
             if hotkey in self.active_miners:
                 bt.logging.info(
@@ -618,7 +620,8 @@ class ChallengePeriodManager(CacheController):
 
                 # Miner is a plagiarist
                 bt.logging.info(f"Promoting {hotkey} from {bucket_value.value} to {previous_bucket.value} with time {previous_time}")
-                self.active_miners[hotkey] = (previous_bucket, previous_time)
+                #TODO Remove ghost mode uncomment the below
+                #self.active_miners[hotkey] = (previous_bucket, previous_time)
 
                 # Send Slack notification
                 self.plagiarism_manager.send_plagiarism_promotion_notification(hotkey)
@@ -662,7 +665,8 @@ class ChallengePeriodManager(CacheController):
                 prev_bucket_time = self.active_miners.get(hotkey)[1]
                 bt.logging.info(f"Demoting {hotkey} to PLAGIARISM from {prev_bucket_value}")
                 # Maintain previous state to make reverting easier
-                self.active_miners[hotkey] = (MinerBucket.PLAGIARISM, current_time, prev_bucket_value, prev_bucket_time)
+                # TODO Remove ghost mode uncomment the below
+                # self.active_miners[hotkey] = (MinerBucket.PLAGIARISM, current_time, prev_bucket_value, prev_bucket_time)
 
                 # Send Slack notification
                 self.plagiarism_manager.send_plagiarism_demotion_notification(hotkey)

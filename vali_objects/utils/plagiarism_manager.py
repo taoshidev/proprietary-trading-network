@@ -10,16 +10,19 @@ import bittensor as bt
 
 class PlagiarismManager:
 
-    def __init__(self, slack_notifier: SlackNotifier, ipc_manager=None, running_unit_tests=False):
+    def __init__(self, slack_notifier: SlackNotifier, ipc_manager=None, secrets=None, running_unit_tests=False):
         self.refreshed_plagiarism_time_ms = 0
         self.plagiarism_miners = {} # hotkey -> elimination_time_ms
         self.slack_notifier = slack_notifier
+        if secrets is None:
+            self.plagiarism_url = "xxxx"
+        else:
+            self.plagiarism_url = secrets.get('plagiarism_url')
         if ipc_manager:
             self.plagiarism_miners = ipc_manager.dict()
         else:
             self.plagiarism_miners = {}
         self.running_unit_tests = running_unit_tests
-        #TODO Add Ipc manager?
 
     def _check_plagiarism_refresh(self, current_time):
         return current_time - self.refreshed_plagiarism_time_ms < ValiConfig.PLAGIARISM_UPDATE_FREQUENCY_MS
@@ -68,8 +71,7 @@ class PlagiarismManager:
         self.plagiarism_miners = plagiarism_miners
         self.refreshed_plagiarism_time_ms = current_time
 
-    #TODO this function needs to use an api key for fetching plagiarism scores
-    def get_plagiarism_elimination_scores(self, current_time, api_base_url="http://localhost:5000"):
+    def get_plagiarism_elimination_scores(self, current_time, api_base_url=None):
         """
         Get elimination scores from the plagiarism API
 
@@ -79,6 +81,9 @@ class PlagiarismManager:
         Returns:
             list: List of elimination scores, or None if API error occurred
         """
+        if api_base_url is None:
+            api_base_url = self.plagiarism_url
+
         if self._check_plagiarism_refresh(current_time):
             try:
                 response = requests.get(f"{api_base_url}/elimination_scores")
