@@ -140,13 +140,13 @@ class TestProbationComprehensive(TestBase):
         """Setup initial miner bucket assignments"""
         miners = {}
         for hotkey in self.SUCCESS_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME)
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME, None, None)
         for hotkey in self.CHALLENGE_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
         for hotkey in self.PROBATION_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.PROBATION, self.PROBATION_START_TIME)
+            miners[hotkey] = (MinerBucket.PROBATION, self.PROBATION_START_TIME, None, None)
         for hotkey in self.ELIMINATED_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def tearDown(self):
@@ -173,6 +173,8 @@ class TestProbationComprehensive(TestBase):
         self.challengeperiod_manager.active_miners[expired_miner] = (
             MinerBucket.PROBATION,
             self.PROBATION_START_TIME,
+            None,
+            None
         )
 
         # Setup probation miner still within time limit
@@ -180,6 +182,8 @@ class TestProbationComprehensive(TestBase):
         self.challengeperiod_manager.active_miners[valid_miner] = (
             MinerBucket.PROBATION,
             self.PROBATION_EXPIRED - 10000,
+            None,
+            None
         )
 
         # Refresh challenge period at current time
@@ -219,10 +223,10 @@ class TestProbationComprehensive(TestBase):
         # Clear and setup new miner configuration
         self.challengeperiod_manager.active_miners.clear()
         for miner in exactly_25_miners:
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, self.START_TIME)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, self.START_TIME, None, None)
 
-        self.challengeperiod_manager.active_miners[challenge_miner] = (MinerBucket.CHALLENGE, self.START_TIME)
-        self.challengeperiod_manager.active_miners[probation_miner] = (MinerBucket.PROBATION, self.START_TIME)
+        self.challengeperiod_manager.active_miners[challenge_miner] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
+        self.challengeperiod_manager.active_miners[probation_miner] = (MinerBucket.PROBATION, self.START_TIME, None, None)
 
         # Setup positions and ledgers for new miners
         for miner in exactly_25_miners + [challenge_miner, probation_miner]:
@@ -354,7 +358,7 @@ class TestProbationComprehensive(TestBase):
         }
 
         for miner, timestamp in test_probation_miners.items():
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.PROBATION, timestamp)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.PROBATION, timestamp, None, None)
 
         # Force save to disk
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
@@ -672,7 +676,7 @@ class TestProbationComprehensive(TestBase):
         expired_start_time = self.PROBATION_EXPIRED
 
         self.challengeperiod_manager.active_miners[expired_probation_miner] = (
-            MinerBucket.PROBATION, expired_start_time,
+            MinerBucket.PROBATION, expired_start_time, None, None
         )
 
         # Create minimal required data for this miner
@@ -770,7 +774,7 @@ class TestProbationComprehensive(TestBase):
         original_probation_time = self.PROBATION_START_TIME
 
         self.challengeperiod_manager.active_miners[probation_miner] = (
-            MinerBucket.PROBATION, original_probation_time,
+            MinerBucket.PROBATION, original_probation_time, None, None
         )
 
         # Run multiple refresh cycles

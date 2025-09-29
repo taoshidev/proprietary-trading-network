@@ -116,13 +116,13 @@ class EnhancedMockChallengePeriodManager(BaseMockChallengePeriodManager):
         
     def get_hotkeys_by_bucket(self, bucket: MinerBucket) -> List[str]:
         """Get all hotkeys in a specific bucket"""
-        return [hk for hk, (b, _) in self.active_miners.items() if b == bucket]
+        return [hk for hk, (b, _, _, _) in self.active_miners.items() if b == bucket]
     
     def set_miner_bucket(self, hotkey: str, bucket: MinerBucket, timestamp_ms: int = None):
         """Set a miner's bucket"""
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
-        self.active_miners[hotkey] = (bucket, timestamp_ms)
+        self.active_miners[hotkey] = (bucket, timestamp_ms, None, None)
         
     def refresh(self, position_locks):
         """Mock refresh that processes challenge period logic"""

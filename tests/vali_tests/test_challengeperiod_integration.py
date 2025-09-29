@@ -174,16 +174,16 @@ class TestChallengePeriodIntegration(TestBase):
 
         self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
                                      challenge=self.TESTING_MINER_NAMES,
-                                     probation=self.PROBATION_MINER_NAMES,)
+                                     probation=self.PROBATION_MINER_NAMES)
 
     def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
         miners = {}
         for hotkey in maincomp:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in challenge:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in probation:
-            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey], None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def tearDown(self):
@@ -299,7 +299,7 @@ class TestChallengePeriodIntegration(TestBase):
         position.close_ms = None
 
         self.position_manager.save_miner_position(position)
-        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS)}
+        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS, None, None)}
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Now loading the data

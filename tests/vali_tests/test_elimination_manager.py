@@ -81,8 +81,8 @@ class TestEliminationManager(TestBase):
         self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
-        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0)
-        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
 
     def tearDown(self):
         super().tearDown()

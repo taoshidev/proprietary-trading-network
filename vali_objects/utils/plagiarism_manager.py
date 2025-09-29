@@ -5,14 +5,19 @@ import requests
 from miner_objects.slack_notifier import SlackNotifier
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import ValiConfig
+import bittensor as bt
 
 
 class PlagiarismManager:
 
-    def __init__(self, slack_notifier: SlackNotifier, running_unit_tests=False):
+    def __init__(self, slack_notifier: SlackNotifier, ipc_manager=None, running_unit_tests=False):
         self.refreshed_plagiarism_time_ms = 0
         self.plagiarism_miners = {} # hotkey -> elimination_time_ms
         self.slack_notifier = slack_notifier
+        if ipc_manager:
+            self.plagiarism_miners = ipc_manager.dict()
+        else:
+            self.plagiarism_miners = {}
         self.running_unit_tests = running_unit_tests
         #TODO Add Ipc manager?
 
@@ -22,6 +27,12 @@ class PlagiarismManager:
     def plagiarism_miners_to_eliminate(self, current_time):
         """Returns a dict of miners that should be eliminated."""
         current_plagiarism_miners = self.get_plagiarism_elimination_scores(current_time)
+
+        # If API call failed, return empty dict to maintain current state
+        if current_plagiarism_miners is None:
+            bt.logging.error("API call failed - cannot determine plagiarism eliminations")
+            return {}
+
         miners_to_eliminate = {}
         for hotkey, plagiarism_data in current_plagiarism_miners:
             plagiarism_time = plagiarism_data["time"]
@@ -33,6 +44,11 @@ class PlagiarismManager:
 
         # Get updated elimination miners from microservice
         current_plagiarism_miners = self.get_plagiarism_elimination_scores(current_time)
+
+        # If API call failed, return empty lists to maintain current state
+        if current_plagiarism_miners is None:
+            bt.logging.error("API call failed - maintaining current plagiarism state")
+            return [], []
 
         # The api is the source of truth
         # If a miner is no longer listed as a plagiarist, put them back in probation
@@ -61,7 +77,7 @@ class PlagiarismManager:
             api_base_url (str): Base URL of the API server
 
         Returns:
-            list: List of elimination scores
+            list: List of elimination scores, or None if API error occurred
         """
         if self._check_plagiarism_refresh(current_time):
             try:
@@ -71,10 +87,10 @@ class PlagiarismManager:
                 return self.plagiarism_miners
             except requests.exceptions.RequestException as e:
                 print(f"Error fetching elimination scores: {e}")
-                return []
+                return None
             except Exception as e:
                 print(f"Unexpected error: {e}")
-                return []
+                return None
         else:
             return self.plagiarism_miners
 

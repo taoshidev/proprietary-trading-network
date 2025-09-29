@@ -177,11 +177,11 @@ class TestChallengePeriodUnit(TestBase):
     def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
         miners = {}
         for hotkey in maincomp:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME)
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME, None, None)
         for hotkey in challenge:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
         for hotkey in probation:
-            miners[hotkey] = (MinerBucket.PROBATION, self.START_TIME)
+            miners[hotkey] = (MinerBucket.PROBATION, self.START_TIME, None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def test_screen_drawdown(self):

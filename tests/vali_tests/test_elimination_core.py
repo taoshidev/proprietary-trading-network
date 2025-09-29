@@ -148,12 +148,14 @@ class TestEliminationCore(TestBase):
         # Most miners in main competition
         for miner in [self.MDD_MINER, self.REGULAR_MINER, self.ZOMBIE_MINER, 
                       self.PLAGIARIST_MINER, self.LIQUIDATED_MINER]:
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, 0)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, 0, None, None)
         
         # Challenge fail miner in challenge period
         self.challengeperiod_manager.active_miners[self.CHALLENGE_FAIL_MINER] = (
             MinerBucket.CHALLENGE,
-            TimeUtil.now_in_millis() - (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS * 24 * 60 * 60 * 1000) - MS_IN_8_HOURS
+            TimeUtil.now_in_millis() - (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS * 24 * 60 * 60 * 1000) - MS_IN_8_HOURS,
+            None,
+            None
         )
 
     def _setup_perf_ledgers(self):

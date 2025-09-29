@@ -55,10 +55,10 @@ class TestPlagiarism(TestBase):
 
         # Initialize active miners
         self.challenge_manager.active_miners = {
-            self.MINER_HOTKEY1: (MinerBucket.MAINCOMP, self.current_time),
-            self.MINER_HOTKEY2: (MinerBucket.PROBATION, self.current_time),
-            self.MINER_HOTKEY3: (MinerBucket.CHALLENGE, self.current_time),
-            self.PLAGIARISM_HOTKEY: (MinerBucket.PLAGIARISM, self.current_time)
+            self.MINER_HOTKEY1: (MinerBucket.MAINCOMP, self.current_time, None, None),
+            self.MINER_HOTKEY2: (MinerBucket.PROBATION, self.current_time, None, None),
+            self.MINER_HOTKEY3: (MinerBucket.CHALLENGE, self.current_time, None, None),
+            self.PLAGIARISM_HOTKEY: (MinerBucket.PLAGIARISM, self.current_time, MinerBucket.PROBATION, self.current_time - ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS)
         }
 
     def test_update_plagiarism_miners_new_plagiarists(self):
@@ -165,27 +165,27 @@ class TestPlagiarism(TestBase):
         self.assertEqual(self.challenge_manager.get_miner_bucket(self.MINER_HOTKEY2), MinerBucket.PLAGIARISM)
 
         # Verify timestamps were updated
-        _, timestamp1 = self.challenge_manager.active_miners[self.MINER_HOTKEY1]
-        _, timestamp2 = self.challenge_manager.active_miners[self.MINER_HOTKEY2]
+        _, timestamp1, _, _ = self.challenge_manager.active_miners[self.MINER_HOTKEY1]
+        _, timestamp2, _, _ = self.challenge_manager.active_miners[self.MINER_HOTKEY2]
         self.assertEqual(timestamp1, self.current_time)
         self.assertEqual(timestamp2, self.current_time)
 
-    def test_promote_plagiarism_to_probation_in_memory(self):
-        """Test _promote_plagiarism_to_probation_in_memory method directly"""
+    def test_promote_plagiarism_to_previous_bucket_in_memory(self):
+        """Test _promote_plagiarism_to_previous_bucket_in_memory method directly"""
         hotkeys_to_promote = [self.PLAGIARISM_HOTKEY]
 
         # Verify initial state
         self.assertEqual(self.challenge_manager.get_miner_bucket(self.PLAGIARISM_HOTKEY), MinerBucket.PLAGIARISM)
 
         # Call the method
-        self.challenge_manager._promote_plagiarism_to_probation_in_memory(hotkeys_to_promote, self.current_time)
+        self.challenge_manager._promote_plagiarism_to_previous_bucket_in_memory(hotkeys_to_promote, self.current_time)
 
         # Verify miner was promoted to probation
         self.assertEqual(self.challenge_manager.get_miner_bucket(self.PLAGIARISM_HOTKEY), MinerBucket.PROBATION)
 
         # Verify timestamp was updated
         _, timestamp = self.challenge_manager.active_miners[self.PLAGIARISM_HOTKEY]
-        self.assertEqual(timestamp, self.current_time)
+        self.assertEqual(timestamp, self.current_time - ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS)
 
     def test_update_plagiarism_miners_whitelisted_promotion_non_existant(self):
         """Test promotion of miners from plagiarism to probation when whitelisted and non_existant"""
@@ -227,7 +227,7 @@ class TestPlagiarism(TestBase):
     def test_promote_plagiarism_empty_list(self):
         """Test promoting with empty list of hotkeys"""
         # Call with empty list
-        self.challenge_manager._promote_plagiarism_to_probation_in_memory([], self.current_time)
+        self.challenge_manager._promote_plagiarism_to_previous_bucket_in_memory([], self.current_time)
 
         # Verify plagiarism miner remains in plagiarism bucket
         self.assertEqual(self.challenge_manager.get_miner_bucket(self.PLAGIARISM_HOTKEY), MinerBucket.PLAGIARISM)
@@ -294,7 +294,7 @@ class TestPlagiarism(TestBase):
         )
 
         # Verify promotion to probation
-        self.assertEqual(self.challenge_manager.get_miner_bucket(self.MINER_HOTKEY3), MinerBucket.PROBATION)
+        self.assertEqual(self.challenge_manager.get_miner_bucket(self.MINER_HOTKEY3), MinerBucket.CHALLENGE)
 
         # Step 3: Demote back to plagiarism for elimination test
         self.challenge_manager._demote_plagiarism_in_memory([self.MINER_HOTKEY3], self.current_time)
