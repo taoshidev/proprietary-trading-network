@@ -37,7 +37,7 @@ class PlagiarismManager:
             return {}
 
         miners_to_eliminate = {}
-        for hotkey, plagiarism_data in current_plagiarism_miners:
+        for hotkey, plagiarism_data in current_plagiarism_miners.items():
             plagiarism_time = plagiarism_data["time"]
             if current_time - plagiarism_time > ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS:
                 miners_to_eliminate[hotkey] = current_time
@@ -79,7 +79,7 @@ class PlagiarismManager:
             api_base_url (str): Base URL of the API server
 
         Returns:
-            list: List of elimination scores, or None if API error occurred
+            dict: dict of elimination scores, or None if API error occurred
         """
         if api_base_url is None:
             api_base_url = self.plagiarism_url
@@ -89,6 +89,10 @@ class PlagiarismManager:
                 response = requests.get(f"{api_base_url}/elimination_scores")
                 response.raise_for_status()
                 new_miners = response.json()
+
+                if not isinstance(new_miners, dict):
+                    raise ValueError(f"API returned invalid data type: expected dict, got: {new_miners} with type: {type(new_miners)}")
+
                 bt.logging.info(f"Updating plagiarism api miners from {self.plagiarism_miners} to {new_miners}")
                 self._update_plagiarism_in_memory(current_time, new_miners)
                 return self.plagiarism_miners
@@ -96,7 +100,7 @@ class PlagiarismManager:
                 print(f"Error fetching plagiarism elimination scores: {e}")
                 return None
         else:
-            bt.logging.info(f"Too soon to update plagiarism elimination scores at {current_time}")
+            bt.logging.info(f"Too soon to update plagiarism elimination scores at time: {current_time}")
             return self.plagiarism_miners
 
     def send_plagiarism_demotion_notification(self, hotkey: str):
