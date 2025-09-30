@@ -278,7 +278,7 @@ class ValiConfig:
     MINER_COPYING_WEIGHT = 0.01
     MAX_MINER_PLAGIARISM_SCORE = 0.9  # want to make sure we're filtering out the bad actors
     PLAGIARISM_UPDATE_FREQUENCY_MS = 1000 * 60 * 60 # 1 hour
-    PLAGIARISM_REVIEW_PERIOD_MS = 1000 * 60 * 60 * 24 * 50 # Time from plagiarism detection to elimination, 50 days initially since this will be manual
+    PLAGIARISM_REVIEW_PERIOD_MS = 1000 * 60 * 60 * 24 * 14 # Time from plagiarism detection to elimination, 2 weeks
 
     BASE_DIR = base_directory = BASE_DIR
 
