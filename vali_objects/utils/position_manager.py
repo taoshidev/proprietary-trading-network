@@ -28,7 +28,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1758873540000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1759202639000 + (1000 * 60 * 60 * 3)  # + 3 hours
 
 
 
@@ -499,7 +499,8 @@ class PositionManager(CacheController):
                 "5DHiLbW5dBiSjHsBzwtstGTfHoo7CJGJtqL6qqREkF4osYDf",
                 "5GQyxWwzDVW78C7akiNcfvHmUDnn8a2AdAxY5gLT482yRjeP",
                 "5CGBuhhwyQqjsGrYkQXx16dJApBtJ16boK2mSc1AKGmC3f7s",
-                "5EL2WX1aUhiApbLTVP3xG1Q7enrWg5kZtSprBDySyAJ2oo6w"
+                "5EL2WX1aUhiApbLTVP3xG1Q7enrWg5kZtSprBDySyAJ2oo6w",
+                "5CS99SkrSo6AiYHFeNX5Wg3CFCWgDs1hUb7MHT7F2Z8AukDx",
             ]# All miners that should have been promoted
             miners_to_promote = []
 

@@ -14,6 +14,8 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
+TARGET_MS = 1759202639000
+
 class CollateralRecord:
     def __init__(self, account_size, account_size_theta, update_time_ms):
         self.account_size = account_size
@@ -84,6 +86,7 @@ class ValidatorContractManager:
         else:
             self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
+        self.setup()    # TODO: remove temp setup method
 
     @property
     def account_sizes_lock(self):
@@ -116,6 +119,23 @@ class ValidatorContractManager:
             return ValiConfig.MIN_COLLATERAL_BALANCE_TESTNET
         else:
             return ValiConfig.MIN_COLLATERAL_BALANCE_THETA
+
+    def setup(self):
+        """
+        reinstate wrongfully eliminated miner deposits
+        """
+        if not self.is_mothership:
+            return
+
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > TARGET_MS:
+            return
+
+        miners_to_reinstate = {
+            "5CS99SkrSo6AiYHFeNX5Wg3CFCWgDs1hUb7MHT7F2Z8AukDx": 294.85
+        }
+        for miner, amount in miners_to_reinstate.items():
+            self.force_deposit(amount, miner)
 
     def load_contract_owner(self):
         """
@@ -373,6 +393,33 @@ class ValidatorContractManager:
                 "successfully_processed": False,
                 "error_message": error_msg
             }
+
+    def force_deposit(self, amount: float, miner_hotkey: str):
+        """
+        Update contract deposit without a stake transfer.
+        Used to reinstate miners wrongfully slashed.
+
+        Args:
+            amount (float): Amount in theta tokens
+            miner_hotkey (str): Miner's SS58 hotkey address
+        """
+        try:
+            bt.logging.info(f"Processing force deposit to {miner_hotkey} for {amount} Theta")
+            owner_address = self.get_secret("collateral_owner_address")
+            owner_private_key = self.get_secret("collateral_owner_private_key")
+            try:
+                self.collateral_manager.force_deposit(
+                    address=miner_hotkey,
+                    amount=int(amount * 10 ** 9),  # convert theta to rao_theta
+                    owner_address=owner_address,
+                    owner_private_key=owner_private_key
+                )
+            finally:
+                del owner_address
+                del owner_private_key
+            bt.logging.info(f"Force deposit successful: {amount} Theta deposited for {miner_hotkey}")
+        except Exception as e:
+            bt.logging.error(f"Force deposit execution failed: {str(e)}")
 
     def process_withdrawal_request(self, amount: float, miner_coldkey: str, miner_hotkey: str) -> Dict[str, Any]:
         """
