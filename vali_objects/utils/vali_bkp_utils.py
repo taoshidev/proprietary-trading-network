@@ -142,6 +142,10 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/secrets.json"
 
     @staticmethod
+    def get_taoshi_api_keys_file_location():
+        return ValiConfig.BASE_DIR + "/config-development.json"
+
+    @staticmethod
     def get_plagiarism_blocklist_file_location():
         return ValiConfig.BASE_DIR + "/miner_blocklist.json"
     
