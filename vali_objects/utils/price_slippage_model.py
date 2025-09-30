@@ -11,9 +11,10 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import TradePair, ValiConfig
+from vali_objects.vali_config import TradePair, ValiConfig, ForexSubcategory
 from vali_objects.vali_dataclasses.order import Order
 
+SLIPPAGE_V2_TIME_MS = 1759258740000
 
 class PriceSlippageModel:
     features = defaultdict(dict)
@@ -107,6 +108,12 @@ class PriceSlippageModel:
         Using the direct BB+ model as a stand-in for forex
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
+        if order.processed_ms > SLIPPAGE_V2_TIME_MS:
+            if order.trade_pair.subcategory == ForexSubcategory.G1:
+                return 0.001    # 10 bps
+            else:
+                return 0.0015   # 15 bps
+
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
         annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]
         avg_daily_volume = cls.features[order_date]["adv"][order.trade_pair.trade_pair_id]
