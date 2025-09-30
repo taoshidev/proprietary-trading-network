@@ -19,6 +19,7 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.positions_to_snap import positions_to_snap
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
@@ -526,10 +527,9 @@ class PositionManager(CacheController):
 
         # Promote miners that would have passed challenge period
         for miner in miners_to_promote:
-            if miner in self.challengeperiod_manager.challengeperiod_testing:
-                self.challengeperiod_manager.challengeperiod_testing.pop(miner)
-            if miner not in self.challengeperiod_manager.challengeperiod_success:
-                self.challengeperiod_manager.challengeperiod_success[miner] = now_ms
+            if miner in self.challengeperiod_manager.active_miners:
+                if self.challengeperiod_manager.active_miners[miner][0] != MinerBucket.MAINCOMP:
+                    self.challengeperiod_manager._promote_challengeperiod_in_memory([miner], now_ms)
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Wipe miners_to_wipe below
@@ -562,12 +562,9 @@ class PositionManager(CacheController):
                             pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
                             self.save_miner_position(pos)
                             print(f'Removed eliminated orders from position {pos}')
-                if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
-                    self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
-                    print(f'Removed challengeperiod testing for {miner_hotkey}')
-                if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
-                    self.challengeperiod_manager.challengeperiod_success.pop(miner_hotkey)
-                    print(f'Removed challengeperiod success for {miner_hotkey}')
+                if miner_hotkey in self.challengeperiod_manager.active_miners:
+                    self.challengeperiod_manager.active_miners.pop(miner_hotkey)
+                    print(f'Removed challengeperiod status for {miner_hotkey}')
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
