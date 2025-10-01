@@ -33,7 +33,7 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_P
 from vali_objects.utils.risk_profiling import RiskProfiling
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from vali_objects.position import Position
-from proof_of_portfolio import prove_sync as prove
+from proof_of_portfolio import prove_async
 import asyncio
 
 
@@ -1069,7 +1069,7 @@ class MinerStatisticsManager:
                                 f"Daily PnL length: {len(daily_pnl) if daily_pnl else 0}"
                             )
 
-                            zk_result = prove(
+                            zk_result = prove_async(
                                 miner_data=miner_data,
                                 daily_pnl=daily_pnl,
                                 hotkey=hotkey,
@@ -1081,8 +1081,10 @@ class MinerStatisticsManager:
                                 wallet=self.wallet,
                                 verbose=True,
                             )
+                            status = zk_result.get('status', 'unknown')
+                            message = zk_result.get('message', '')
                             bt.logging.info(
-                                f"ZK proof generation completed for {hotkey[:8]}: status={zk_result.get('status', 'unknown')}"
+                                f"ZK proof for {hotkey[:8]}: status={status}, message={message}"
                             )
                         except Exception as e:
 
