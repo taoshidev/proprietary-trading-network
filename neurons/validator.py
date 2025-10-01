@@ -681,16 +681,61 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
+    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order, miner_hotkey: str):
         # Check if there are too many orders across all open positions.
-        # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
+        # If so, check if the current order is a FLAT order (reduces number of open orders).
+        # If not a FLAT order, automatically close the position for this trade pair and create a new one.
         n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
+        # Check if adding this order would exceed the limit
         if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
             if signal_to_order.order_type != OrderType.FLAT:
-                raise SignalException(
-                    f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
-                    f"order [{signal_to_order}] is not a FLAT order."
-                )
+                # Automatically close the position for this trade pair to make room for new orders
+                target_position = trade_pair_to_open_position.get(signal_to_order.trade_pair)
+                if target_position and not target_position.is_closed_position:
+                    bt.logging.info(
+                        f"Miner [{miner_hotkey}] hit {ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY} order limit. "
+                        f"Automatically closing position for {signal_to_order.trade_pair.trade_pair_id} "
+                        f"with {len(target_position.orders)} orders to make room for new position."
+                    )
+
+                    # Create FLAT order to close the position
+                    from vali_objects.vali_dataclasses.order import OrderSource
+                    flat_order = Order(
+                        trade_pair=signal_to_order.trade_pair,
+                        order_type=OrderType.FLAT,
+                        leverage=0.0,
+                        price=signal_to_order.price,  # Use same price as the triggering order
+                        processed_ms=signal_to_order.processed_ms,
+                        order_uuid=f"auto_close_{signal_to_order.order_uuid}",
+                        price_sources=signal_to_order.price_sources,
+                        bid=signal_to_order.bid,
+                        ask=signal_to_order.ask,
+                        src=OrderSource.MAX_ORDERS_PER_POSITION_CLOSE
+                    )
+
+                    # Add the FLAT order and close the position
+                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+                    target_position.add_order(flat_order, self.live_price_fetcher, net_portfolio_leverage)
+                    target_position.is_closed_position = True
+                    target_position.close_ms = signal_to_order.processed_ms
+
+                    # Save the closed position
+                    self.position_manager.save_miner_position(target_position)
+
+                    # Remove from the open positions dict so a new position can be created
+                    del trade_pair_to_open_position[signal_to_order.trade_pair]
+
+                    bt.logging.info(
+                        f"Successfully closed position for {signal_to_order.trade_pair.trade_pair_id} "
+                        f"with {len(target_position.orders)} orders (including auto-close FLAT order). "
+                        f"New position will be created for the incoming order."
+                    )
+                else:
+                    # If no position exists for this trade pair, raise exception as before
+                    raise SignalException(
+                        f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
+                        f"order [{signal_to_order}] is not a FLAT order. No existing position found to close."
+                    )
 
     def _get_or_create_open_position_from_new_order(self, trade_pair: TradePair, order_type: OrderType, order_time_ms: int,
                                         miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
@@ -930,7 +975,7 @@ class Validator:
                     )
                     self.price_slippage_model.refresh_features_daily()
                     order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
-                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
+                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order, miner_hotkey)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
                     self.position_manager.save_miner_position(existing_position)
