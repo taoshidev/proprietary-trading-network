@@ -10,14 +10,11 @@ import bittensor as bt
 
 class PlagiarismManager:
 
-    def __init__(self, slack_notifier: SlackNotifier, ipc_manager=None, secrets=None, running_unit_tests=False):
+    def __init__(self, slack_notifier: SlackNotifier, ipc_manager=None, running_unit_tests=False):
         self.refreshed_plagiarism_time_ms = 0
         self.plagiarism_miners = {} # hotkey -> elimination_time_ms
         self.slack_notifier = slack_notifier
-        if secrets is None:
-            self.plagiarism_url = "xxxx"
-        else:
-            self.plagiarism_url = secrets.get('plagiarism_url')
+        self.plagiarism_url = ValiConfig.PLAGIARISM_URL
         if ipc_manager:
             self.plagiarism_miners = ipc_manager.dict()
         else:

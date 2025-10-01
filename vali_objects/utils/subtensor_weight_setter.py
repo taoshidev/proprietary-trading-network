@@ -66,7 +66,10 @@ class SubtensorWeightSetter(CacheController):
         # augmented ledger should have the gain, loss, n_updates, and time_duration
         challenge_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
         probation_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PROBATION))
-        testing_hotkeys = challenge_hotkeys +  probation_hotkeys
+
+        # Still need to provide plagiarism miners dust in case of false positives
+        plagiarism_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PLAGIARISM))
+        testing_hotkeys = challenge_hotkeys +  probation_hotkeys + plagiarism_hotkeys
         success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
         maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*success_hotkeys, *probation_hotkeys])  # ledger of all miners in maincomp, including probation
