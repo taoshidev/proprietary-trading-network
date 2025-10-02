@@ -57,7 +57,7 @@ class PriceSlippageModel:
         if bid * ask == 0:
             if not trade_pair.is_crypto:  # For now, crypto does not have slippage
                 bt.logging.warning(f'Tried to calculate slippage with bid: {bid} and ask: {ask}. order: {order}. Returning 0')
-            return 0  # Need valid bid and ask.
+                return 0  # Need valid bid and ask.
         size = abs(order.leverage) * capital
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
