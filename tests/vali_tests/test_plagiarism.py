@@ -184,7 +184,7 @@ class TestPlagiarism(TestBase):
         self.assertEqual(self.challenge_manager.get_miner_bucket(self.PLAGIARISM_HOTKEY), MinerBucket.PROBATION)
 
         # Verify timestamp was updated
-        _, timestamp = self.challenge_manager.active_miners[self.PLAGIARISM_HOTKEY]
+        _, timestamp, _, _ = self.challenge_manager.active_miners[self.PLAGIARISM_HOTKEY]
         self.assertEqual(timestamp, self.current_time - ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS)
 
     def test_update_plagiarism_miners_whitelisted_promotion_non_existant(self):

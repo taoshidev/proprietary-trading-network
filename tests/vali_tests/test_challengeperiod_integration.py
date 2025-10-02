@@ -600,7 +600,55 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(len(eliminated_for_mdd), len(self.FAILING_MINER_NAMES))
         self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES + self.PROBATION_MINER_NAMES))
 
- #TODO
- #   def test_no_miners_in_main_competition(self):
+    def test_plagiarism_detection_and_elimination(self):
+        """Test that miners detected as plagiarists are moved to PLAGIARISM bucket,
+        then eliminated after PLAGIARISM_REVIEW_PERIOD_MS (2 weeks)"""
+
+        # Start with a clean state - use first testing miner
+        test_miner = self.TESTING_MINER_NAMES[0]
+
+        # Ensure the miner starts in CHALLENGE bucket
+        self.assertEqual(self.challengeperiod_manager.get_miner_bucket(test_miner), MinerBucket.CHALLENGE)
+
+        # Mock the plagiarism API to return the test miner as a plagiarist
+        plagiarism_time = self.max_open_ms
+        plagiarism_data = {test_miner: {"time": plagiarism_time}}
+
+        # Mock get_plagiarism_elimination_scores to return our plagiarism data
+        with patch.object(self.plagiarism_manager, 'get_plagiarism_elimination_scores', return_value=plagiarism_data):
+            # Call refresh - miner should be moved to PLAGIARISM bucket
+            self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+            self.elimination_manager.process_eliminations(PositionLocks())
+
+            # Verify the miner is in PLAGIARISM bucket
+            self.assertEqual(self.challengeperiod_manager.get_miner_bucket(test_miner), MinerBucket.PLAGIARISM)
+            self.assertIn(test_miner, self.challengeperiod_manager.get_plagiarism_miners())
+
+            # Verify the miner is NOT eliminated yet
+            elimination_hotkeys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
+            self.assertNotIn(test_miner, elimination_hotkeys)
+
+            # Call refresh 2 weeks later (PLAGIARISM_REVIEW_PERIOD_MS + 1ms)
+            elimination_time = plagiarism_time + ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS + 1
+            self.challengeperiod_manager.refresh(current_time=elimination_time)
+            self.elimination_manager.process_eliminations(PositionLocks())
+
+            # Verify the miner is now eliminated
+            elimination_hotkeys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
+            self.assertIn(test_miner, elimination_hotkeys)
+
+            # Verify the miner is no longer in PLAGIARISM bucket or any other bucket
+            self.assertIsNone(self.challengeperiod_manager.get_miner_bucket(test_miner))
+
+            # Verify elimination reason is PLAGIARISM
+            eliminations = self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk()
+            plagiarism_elimination_found = False
+            for elimination in eliminations:
+                if elimination["hotkey"] == test_miner:
+                    self.assertEqual(elimination["reason"], EliminationReason.PLAGIARISM.value)
+                    plagiarism_elimination_found = True
+                    break
+
+            self.assertTrue(plagiarism_elimination_found, f"Could not find plagiarism elimination record for {test_miner}")
 
 

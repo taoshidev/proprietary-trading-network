@@ -99,13 +99,14 @@ class ChallengePeriodManager(CacheController):
         elimination_hotkeys = set(x['hotkey'] for x in eliminations)
         maincomp_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
         probation_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.PROBATION)
+        plagiarism_hotkeys = self.get_hotkeys_by_bucket(MinerBucket.PLAGIARISM)
 
         any_changes = False
         for hotkey in new_hotkeys:
             if hotkey in elimination_hotkeys:
                 continue
 
-            if hotkey in maincomp_hotkeys or hotkey in probation_hotkeys:
+            if hotkey in maincomp_hotkeys or hotkey in probation_hotkeys or hotkey in plagiarism_hotkeys:
                 continue
 
             first_order_time = hk_to_first_order_time.get(hotkey)
@@ -619,7 +620,7 @@ class ChallengePeriodManager(CacheController):
 
                 # Miner is a plagiarist
                 bt.logging.info(f"Promoting {hotkey} from {bucket_value.value} to {previous_bucket.value} with time {previous_time}")
-                self.active_miners[hotkey] = (previous_bucket, previous_time)
+                self.active_miners[hotkey] = (previous_bucket, previous_time, None, None)
 
                 # Send Slack notification
                 self.plagiarism_manager.send_plagiarism_promotion_notification(hotkey)
@@ -692,7 +693,7 @@ class ChallengePeriodManager(CacheController):
             hotkey: {
                 "bucket": bucket.value,
                 "bucket_start_time": start_time,
-                "previous_bucket": previous_bucket,
+                "previous_bucket": previous_bucket.value if previous_bucket else None,
                 "previous_bucket_start_time": previous_bucket_time
             }
             for hotkey, (bucket, start_time, previous_bucket, previous_bucket_time) in snapshot
@@ -713,10 +714,12 @@ class ChallengePeriodManager(CacheController):
 
         else:
             for hotkey, info in json_dict.items():
-                bucket = MinerBucket(info["bucket"])
-                bucket_start_time = info["bucket_start_time"]
+                bucket = MinerBucket(info["bucket"]) if info.get("bucket") else None
+                bucket_start_time = info.get("bucket_start_time")
+                previous_bucket = MinerBucket(info["previous_bucket"]) if info.get("previous_bucket") else None
+                previous_bucket_start_time = info.get("previous_bucket_start_time")
 
-                formatted_dict[hotkey] = (bucket, bucket_start_time, None, None)
+                formatted_dict[hotkey] = (bucket, bucket_start_time, previous_bucket, previous_bucket_start_time)
 
         return formatted_dict
 
