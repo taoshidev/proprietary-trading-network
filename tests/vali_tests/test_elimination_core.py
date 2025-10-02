@@ -20,6 +20,7 @@ from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
@@ -82,12 +83,14 @@ class TestEliminationCore(TestBase):
         # Set up circular references
         self.elimination_manager.position_manager = self.position_manager
         self.position_manager.perf_ledger_manager = self.ledger_manager
-        
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
+
         # Create challenge period manager
         self.challengeperiod_manager = ChallengePeriodManager(
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.ledger_manager,
+            plagiarism_manager=self.plagiarism_manager,
             running_unit_tests=True
         )
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
@@ -145,12 +148,14 @@ class TestEliminationCore(TestBase):
         # Most miners in main competition
         for miner in [self.MDD_MINER, self.REGULAR_MINER, self.ZOMBIE_MINER, 
                       self.PLAGIARIST_MINER, self.LIQUIDATED_MINER]:
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, 0)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, 0, None, None)
         
         # Challenge fail miner in challenge period
         self.challengeperiod_manager.active_miners[self.CHALLENGE_FAIL_MINER] = (
             MinerBucket.CHALLENGE,
-            TimeUtil.now_in_millis() - (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS * 24 * 60 * 60 * 1000) - MS_IN_8_HOURS
+            TimeUtil.now_in_millis() - (ValiConfig.CHALLENGE_PERIOD_MINIMUM_DAYS * 24 * 60 * 60 * 1000) - MS_IN_8_HOURS,
+            None,
+            None
         )
 
     def _setup_perf_ledgers(self):
@@ -310,37 +315,6 @@ class TestEliminationCore(TestBase):
         self.assertIsNotNone(challenge_elim)
         self.assertEqual(challenge_elim["reason"], EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value)
         self.assertEqual(challenge_elim["dd"], 0.08)
-
-    @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
-    @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
-    @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
-    def test_plagiarism_elimination(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
-        """Test elimination for plagiarism"""
-        # Mock the API calls to return appropriate values for testing
-        mock_candle_fetcher.return_value = []
-        mock_get_candles.return_value = []
-        from vali_objects.utils.live_price_fetcher import PriceSource
-        mock_market_close.return_value = PriceSource(open=50000, high=50000, low=50000, close=50000, volume=0, vwap=50000, timestamp=0)
-        
-        # Mock high plagiarism score
-        self.challengeperiod_manager.miner_plagiarism_scores = {
-            self.PLAGIARIST_MINER: ValiConfig.MAX_MINER_PLAGIARISM_SCORE + 0.1
-        }
-        
-        # Mock the refresh method that doesn't exist in base class
-        self.challengeperiod_manager._refresh_plagiarism_scores_in_memory_and_disk = MagicMock()
-        
-        # Call plagiarism elimination directly
-        self.elimination_manager._handle_plagiarism_eliminations(self.position_locks)
-        
-        # Assert the mock was called
-        self.assertTrue(mock_candle_fetcher.called)
-        
-        # Check that plagiarist was eliminated
-        eliminations = self.elimination_manager.get_eliminations_from_memory()
-        plagiarism_elim = next((e for e in eliminations if e["hotkey"] == self.PLAGIARIST_MINER), None)
-        self.assertIsNotNone(plagiarism_elim)
-        self.assertEqual(plagiarism_elim["reason"], EliminationReason.PLAGIARISM.value)
 
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')

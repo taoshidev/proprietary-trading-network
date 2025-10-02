@@ -3,6 +3,7 @@ from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.vali_utils import ValiUtils
 from tests.shared_objects.test_utilities import (
     generate_losing_ledger,
@@ -65,10 +66,11 @@ class TestEliminationManager(TestBase):
 
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
-
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
+                                                              plagiarism_manager=self.plagiarism_manager,
                                                               running_unit_tests=True)
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
 
@@ -79,8 +81,8 @@ class TestEliminationManager(TestBase):
         self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
-        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0)
-        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
 
     def tearDown(self):
         super().tearDown()

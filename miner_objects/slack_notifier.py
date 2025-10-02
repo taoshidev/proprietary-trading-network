@@ -543,6 +543,30 @@ class SlackNotifier:
         except Exception as e:
             bt.logging.error(f"Failed to send Slack summary: {e}")
 
+    def send_plagiarism_demotion_notification(self, hotkey: str):
+        """Send notification when a miner is demoted due to plagiarism"""
+        if not self.enabled:
+            return
+
+        message = f"🚨 Miner Demoted for Plagiarism\n\nMiner ...{hotkey[-8:]} has been demoted to PLAGIARISM bucket due to detected plagiarism behavior."
+        self.send_message(message, level="warning")
+
+    def send_plagiarism_promotion_notification(self, hotkey: str):
+        """Send notification when a miner is promoted from plagiarism back to probation"""
+        if not self.enabled:
+            return
+
+        message = f"✅ Miner Restored from Plagiarism\n\nMiner ...{hotkey[-8:]} has been promoted from PLAGIARISM bucket back to PROBATION."
+        self.send_message(message, level="success")
+
+    def send_plagiarism_elimination_notification(self, hotkey: str):
+        """Send notification when a miner is eliminated from plagiarism"""
+        if not self.enabled:
+            return
+
+        message = f"🚨 Miner Eliminated for Plagiarism\n\nMiner ...{hotkey[-8:]}"
+        self.send_message(message, level="warning")
+
     def shutdown(self):
         """Clean shutdown - save metrics"""
         try:

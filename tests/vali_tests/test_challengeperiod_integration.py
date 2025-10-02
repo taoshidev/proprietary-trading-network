@@ -15,6 +15,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
@@ -117,10 +118,12 @@ class TestChallengePeriodIntegration(TestBase):
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager,
                                                     live_price_fetcher=self.live_price_fetcher)
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
                                                               contract_manager=self.contract_manager,
+                                                              plagiarism_manager=self.plagiarism_manager,
                                                               running_unit_tests=True)
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
@@ -171,16 +174,16 @@ class TestChallengePeriodIntegration(TestBase):
 
         self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
                                      challenge=self.TESTING_MINER_NAMES,
-                                     probation=self.PROBATION_MINER_NAMES,)
+                                     probation=self.PROBATION_MINER_NAMES)
 
     def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
         miners = {}
         for hotkey in maincomp:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in challenge:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in probation:
-            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey], None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def tearDown(self):
@@ -296,7 +299,7 @@ class TestChallengePeriodIntegration(TestBase):
         position.close_ms = None
 
         self.position_manager.save_miner_position(position)
-        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS)}
+        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS, None, None)}
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Now loading the data
