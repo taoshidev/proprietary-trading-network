@@ -38,13 +38,16 @@ class PriceSlippageModel:
                 live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
             PriceSlippageModel.live_price_fetcher = live_price_fetcher
 
+        if not PriceSlippageModel.slippage_estimates:
+            PriceSlippageModel.slippage_estimates = self.read_slippage_estimates()
+
         PriceSlippageModel.is_backtesting = is_backtesting
         PriceSlippageModel.fetch_slippage_data = fetch_slippage_data
         PriceSlippageModel.recalculate_slippage = recalculate_slippage
         PriceSlippageModel.capital = capital
 
     @classmethod
-    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital=ValiConfig.DEFAULT_CAPITAL):
+    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital:float=ValiConfig.DEFAULT_CAPITAL):
         """
         returns the percentage slippage of the current order.
         each asset class uses a unique model
@@ -65,7 +68,7 @@ class PriceSlippageModel:
         elif trade_pair.is_forex:
             slippage_percentage = cls.calc_slippage_forex(bid, ask, order)
         elif trade_pair.is_crypto:
-            slippage_percentage = cls.calc_slippage_crypto(order)
+            slippage_percentage = cls.calc_slippage_crypto(order, capital)
         else:
             raise ValueError(f"Invalid trade pair {trade_pair.trade_pair_id} to calculate slippage")
         return float(np.clip(slippage_percentage, 0.0, 0.03))
@@ -136,10 +139,19 @@ class PriceSlippageModel:
         return slippage_pct
 
     @classmethod
-    def calc_slippage_crypto(cls, order:Order) -> float:
+    def calc_slippage_crypto(cls, order:Order, capital:float) -> float:
         """
         slippage values for crypto
         """
+        if order.processed_ms > SLIPPAGE_V2_TIME_MS:
+            side = "long" if order.leverage > 0 else "short"
+            size = abs(order.leverage) * capital
+            slippage_size_buckets = cls.parameters["crypto"][order.trade_pair.trade_pair_id+"C"][side]
+            for bucket, slippage in slippage_size_buckets.items():
+                low, high = bucket[1:-1].split(",")
+                if low <= size < high:
+                    return slippage * 3     # conservative 3x multiplier on slippage
+
         trade_pair = order.trade_pair
         if trade_pair in [TradePair.BTCUSD, TradePair.ETHUSD]:
             return 0.00002
@@ -257,8 +269,12 @@ class PriceSlippageModel:
     @staticmethod
     def read_slippage_model_parameters() -> dict:
         equity_parameters = ValiUtils.get_vali_json_file_dict(ValiBkpUtils.get_slippage_model_parameters_file())
-        # print(equity_parameters)
         return equity_parameters
+
+    @staticmethod
+    def read_slippage_estimates() -> dict:
+        slippage_estimates = ValiUtils.get_vali_json_file_dict(ValiBkpUtils.get_slippage_estimates_file())
+        return slippage_estimates
 
     def update_historical_slippage(self, positions_at_t_f):
         assert self.is_backtesting, "This method is only for backtesting"
