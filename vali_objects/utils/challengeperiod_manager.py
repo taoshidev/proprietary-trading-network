@@ -652,14 +652,11 @@ class ChallengePeriodManager(CacheController):
             self.active_miners[hotkey] = (MinerBucket.PROBATION, current_time, None, None)
 
     def _demote_plagiarism_in_memory(self, hotkeys: list[str], current_time):
-        if hotkeys:
-            bt.logging.info(f"Demoting {len(hotkeys)} miners due to plagiarism")
-
         for hotkey in hotkeys:
             try:
                 prev_bucket_value = self.get_miner_bucket(hotkey)
+                # Check if miner is an active miner, if not, no need to demote
                 if prev_bucket_value is None:
-                    bt.logging.error(f"Hotkey {hotkey} is not an active miner. Skipping demotion")
                     continue
                 prev_bucket_time = self.active_miners.get(hotkey)[1]
                 bt.logging.info(f"Demoting {hotkey} to PLAGIARISM from {prev_bucket_value}")
