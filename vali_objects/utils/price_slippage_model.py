@@ -152,7 +152,7 @@ class PriceSlippageModel:
             for bucket, slippage in slippage_size_buckets.items():
                 low, high = bucket[1:-1].split(",")
                 last_slippage = slippage
-                if low <= size < high:
+                if int(low) <= size < int(high):
                     return last_slippage * 3     # conservative 3x multiplier on slippage
             return last_slippage * 3
 
