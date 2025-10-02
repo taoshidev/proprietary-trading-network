@@ -19,6 +19,7 @@ SLIPPAGE_V2_TIME_MS = 1759431540000
 class PriceSlippageModel:
     features = defaultdict(dict)
     parameters: dict = {}
+    slippage_estimates: dict = {}
     live_price_fetcher: LivePriceFetcher = None
     holidays_nyse = None
     is_backtesting = False
@@ -146,7 +147,7 @@ class PriceSlippageModel:
         if order.processed_ms > SLIPPAGE_V2_TIME_MS:
             side = "long" if order.leverage > 0 else "short"
             size = abs(order.leverage) * capital
-            slippage_size_buckets = cls.parameters["crypto"][order.trade_pair.trade_pair_id+"C"][side]
+            slippage_size_buckets = cls.slippage_estimates["crypto"][order.trade_pair.trade_pair_id+"C"][side]
             last_slippage = 0
             for bucket, slippage in slippage_size_buckets.items():
                 low, high = bucket[1:-1].split(",")
