@@ -48,7 +48,7 @@ class PriceSlippageModel:
         PriceSlippageModel.capital = capital
 
     @classmethod
-    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital:float=ValiConfig.DEFAULT_CAPITAL):
+    def calculate_slippage(cls, bid:float, ask:float, order:Order, capital:float=None):
         """
         returns the percentage slippage of the current order.
         each asset class uses a unique model
@@ -58,6 +58,8 @@ class PriceSlippageModel:
             if not trade_pair.is_crypto:  # For now, crypto does not have slippage
                 bt.logging.warning(f'Tried to calculate slippage with bid: {bid} and ask: {ask}. order: {order}. Returning 0')
                 return 0  # Need valid bid and ask.
+        if capital is None:
+            capital = ValiConfig.MIN_CAPITAL
         size = abs(order.leverage) * capital
         if size <= 1000:
             return 0  # assume 0 slippage when order size is under 1k
