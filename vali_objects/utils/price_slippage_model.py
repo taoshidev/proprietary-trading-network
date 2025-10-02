@@ -14,7 +14,7 @@ from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair, ValiConfig, ForexSubcategory
 from vali_objects.vali_dataclasses.order import Order
 
-SLIPPAGE_V2_TIME_MS = 1759258740000
+SLIPPAGE_V2_TIME_MS = 1759431540000
 
 class PriceSlippageModel:
     features = defaultdict(dict)
@@ -147,10 +147,13 @@ class PriceSlippageModel:
             side = "long" if order.leverage > 0 else "short"
             size = abs(order.leverage) * capital
             slippage_size_buckets = cls.parameters["crypto"][order.trade_pair.trade_pair_id+"C"][side]
+            last_slippage = 0
             for bucket, slippage in slippage_size_buckets.items():
                 low, high = bucket[1:-1].split(",")
+                last_slippage = slippage
                 if low <= size < high:
-                    return slippage * 3     # conservative 3x multiplier on slippage
+                    return last_slippage * 3     # conservative 3x multiplier on slippage
+            return last_slippage * 3
 
         trade_pair = order.trade_pair
         if trade_pair in [TradePair.BTCUSD, TradePair.ETHUSD]:

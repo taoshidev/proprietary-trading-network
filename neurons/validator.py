@@ -914,6 +914,7 @@ class Validator:
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
+                account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
                 if existing_position:
                     order = Order(
                         trade_pair=trade_pair,
@@ -928,7 +929,7 @@ class Validator:
                         ask=best_price_source.ask,
                     )
                     self.price_slippage_model.refresh_features_daily()
-                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
