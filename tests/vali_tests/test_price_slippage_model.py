@@ -147,7 +147,7 @@ class TestPriceSlippageModel(TestBase):
         self.forex_order_sell = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                          order_uuid=self.DEFAULT_ORDER_UUID,
                                          trade_pair=TradePair.USDCAD,
-                                         order_type=OrderType.SHORT, leverage=-1)
+                                         order_type=OrderType.SHORT, leverage=-3)
         slippage_sell = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                               self.forex_order_sell)
 
@@ -158,15 +158,16 @@ class TestPriceSlippageModel(TestBase):
                                               order_type=OrderType.LONG, leverage=3)
         large_slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                                    self.forex_order_buy_large)
-        assert large_slippage_buy > slippage_buy
+        # forex slippage does not depend on size
+        assert large_slippage_buy == slippage_buy
 
         self.forex_order_sell_small = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
                                                order_uuid=self.DEFAULT_ORDER_UUID,
                                                trade_pair=TradePair.USDCAD,
-                                               order_type=OrderType.SHORT, leverage=-0.1)
+                                               order_type=OrderType.SHORT, leverage=-1)
         small_slippage_sell = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                                     self.forex_order_sell_small)
-        assert small_slippage_sell < slippage_sell
+        assert small_slippage_sell == slippage_sell
 
     def test_crypto_slippage(self):
         """
@@ -193,7 +194,7 @@ class TestPriceSlippageModel(TestBase):
                                            order_type=OrderType.LONG, leverage=0.5)
         large_slippage_buy = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                                    self.crypto_order_buy_large)
-        ## crypto slippage does not depend on size
+        ## crypto slippage depends on size
         assert large_slippage_buy == slippage_buy
 
         self.crypto_order_sell_small = Order(price=100, processed_ms=self.DEFAULT_OPEN_MS,
@@ -202,7 +203,7 @@ class TestPriceSlippageModel(TestBase):
                                             order_type=OrderType.SHORT, leverage=-0.1)
         small_slippage_sell = PriceSlippageModel.calculate_slippage(self.default_bid, self.default_ask,
                                                                     self.crypto_order_sell_small)
-        assert small_slippage_sell == slippage_sell
+        assert small_slippage_sell < slippage_sell
 
 
 

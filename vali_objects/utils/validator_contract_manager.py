@@ -86,7 +86,7 @@ class ValidatorContractManager:
         else:
             self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
-        self.setup()    # TODO: remove temp setup method
+        self.setup()
 
     @property
     def account_sizes_lock(self):
@@ -131,9 +131,7 @@ class ValidatorContractManager:
         if now_ms > TARGET_MS:
             return
 
-        miners_to_reinstate = {
-            "5CS99SkrSo6AiYHFeNX5Wg3CFCWgDs1hUb7MHT7F2Z8AukDx": 294.85
-        }
+        miners_to_reinstate = {}
         for miner, amount in miners_to_reinstate.items():
             self.force_deposit(amount, miner)
 
