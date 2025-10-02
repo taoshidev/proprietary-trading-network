@@ -39,9 +39,6 @@ class PriceSlippageModel:
                 live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
             PriceSlippageModel.live_price_fetcher = live_price_fetcher
 
-        if not PriceSlippageModel.slippage_estimates:
-            PriceSlippageModel.slippage_estimates = self.read_slippage_estimates()
-
         PriceSlippageModel.is_backtesting = is_backtesting
         PriceSlippageModel.fetch_slippage_data = fetch_slippage_data
         PriceSlippageModel.recalculate_slippage = recalculate_slippage
@@ -53,6 +50,9 @@ class PriceSlippageModel:
         returns the percentage slippage of the current order.
         each asset class uses a unique model
         """
+        if not PriceSlippageModel.slippage_estimates:
+            PriceSlippageModel.slippage_estimates = cls.read_slippage_estimates()
+
         trade_pair = order.trade_pair
         if bid * ask == 0:
             if not trade_pair.is_crypto:  # For now, crypto does not have slippage
