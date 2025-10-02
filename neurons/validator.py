@@ -940,7 +940,8 @@ class Validator:
                 account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
                 if existing_position:
                     price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position)
-                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, ValiConfig.CAPITAL)
+                    miner_account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
+                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, miner_account_size)
 
                     order = Order(
                         trade_pair=trade_pair,
