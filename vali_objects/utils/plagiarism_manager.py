@@ -97,7 +97,6 @@ class PlagiarismManager:
                 print(f"Error fetching plagiarism elimination scores: {e}")
                 return None
         else:
-            bt.logging.info(f"Too soon to update plagiarism elimination scores at time: {current_time}")
             return self.plagiarism_miners
 
     def send_plagiarism_demotion_notification(self, hotkey: str):
