@@ -1,0 +1,197 @@
+name: Claude AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # Only need base + head commit for diff
+
+      - name: Get PR diff
+        id: pr-diff
+        run: |
+          # Get the diff for this PR (much faster than full history)
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+
+          # Limit diff size (Claude has token limits)
+          if [ $(wc -c < pr_diff.txt) -gt 100000 ]; then
+            echo "WARNING: Diff is very large, truncating..." >> pr_diff.txt
+            head -c 100000 pr_diff.txt > pr_diff_truncated.txt
+            mv pr_diff_truncated.txt pr_diff.txt
+          fi
+
+      - name: Get PR metadata
+        id: pr-metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            core.setOutput('title', pr.data.title);
+            core.setOutput('description', pr.data.body || 'No description provided');
+            core.setOutput('author', pr.data.user.login);
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Claude SDK
+        run: pip install anthropic
+
+      - name: Review with Claude
+        id: claude-review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_TITLE: ${{ steps.pr-metadata.outputs.title }}
+          PR_DESCRIPTION: ${{ steps.pr-metadata.outputs.description }}
+        run: |
+
+          # Create Python script for Claude API call
+          cat > claude_review.py << 'EOF'
+          import anthropic
+          import os
+          import sys
+
+          client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+          # Read the diff
+          with open('pr_diff.txt', 'r') as f:
+              diff = f.read()
+
+          pr_title = os.environ.get('PR_TITLE', '')
+          pr_description = os.environ.get('PR_DESCRIPTION', '')
+
+          prompt = f"""You are an expert code reviewer. For suggestions, follow best practices, and keep in mind first principle problem solving, but keep suggestions practical. Perfect is the enemy of done. For critical issues, focus on major security concerns, design principles, and maintainability. Provide a timestamp in HH:MM:SS format to the top of the review showing how fresh the review is, something like last reviewed on: timestamp. Please review this pull request:
+
+          **PR Title:** {pr_title}
+
+          **PR Description:**
+          {pr_description}
+
+          **Code Changes:**
+          ```diff
+          {diff}
+          ```
+
+          Please provide a thorough code review focusing on:
+          1. **Code Quality** - Clean code, readability, best practices
+          2. **Security** - Potential vulnerabilities or security issues
+          3. **Performance** - Potential bottlenecks or inefficiencies
+          4. **Testing** - Test coverage and quality
+          5. **Documentation** - Comments, docstrings, README updates
+          6. **Architecture** - Design patterns, maintainability
+
+          Format your review as:
+          ## 🤖 Claude AI Code Review
+
+          ### Summary
+          [Brief overview of changes]
+
+          ### ✅ Strengths
+          - [What's done well]
+
+          ### ⚠️ Concerns
+          - [Issues to address]
+
+          ### 💡 Suggestions
+          - [Improvement ideas]
+
+          ### 🔒 Security Notes
+          - [Security considerations]
+
+          Be constructive, specific, and reference line numbers when possible.
+          """
+
+          try:
+              message = client.messages.create(
+                  model="claude-sonnet-4-5-20250929",  # Latest Sonnet
+                  max_tokens=8000,  # Allow longer reviews for complex PRs
+                  messages=[{
+                      "role": "user",
+                      "content": prompt
+                  }]
+              )
+
+              review = message.content[0].text
+
+              # Save review to file
+              with open('claude_review.md', 'w') as f:
+                  f.write(review)
+
+              print("Review completed successfully!")
+
+          except Exception as e:
+              print(f"Error calling Claude API: {e}")
+              sys.exit(1)
+          EOF
+
+          # Run the review
+          python claude_review.py
+
+      - name: Post review as comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('claude_review.md', 'utf8');
+
+            // Check if we've already commented
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('🤖 Claude AI Code Review')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: review
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: review
+              });
+            }
+
+      - name: Check for blocking issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('claude_review.md', 'utf8');
+
+            // Check for critical security issues
+            const hasCriticalIssues = review.toLowerCase().includes('critical') ||
+                                     review.toLowerCase().includes('security vulnerability');
+
+            if (hasCriticalIssues) {
+              core.warning('Critical issues found - please review');
+            }
