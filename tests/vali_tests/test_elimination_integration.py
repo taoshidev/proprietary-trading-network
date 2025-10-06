@@ -17,6 +17,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
@@ -72,13 +73,15 @@ class TestEliminationIntegration(TestBase):
             running_unit_tests=True,
             perf_ledger_hks_to_invalidate={}
         )
-        
+
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
             self.live_price_fetcher,
             None,
             running_unit_tests=True,
-            ipc_manager=self.mock_ipc_manager
+            ipc_manager=self.mock_ipc_manager,
+            contract_manager=self.contract_manager
         )
         
         self.position_manager = EnhancedMockPositionManager(
@@ -89,12 +92,14 @@ class TestEliminationIntegration(TestBase):
         )
 
         self.contract_manager = ValidatorContractManager(running_unit_tests=True)
-        
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
+
         self.challengeperiod_manager = EnhancedMockChallengePeriodManager(
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.perf_ledger_manager,
             contract_manager=self.contract_manager,
+            plagiarism_manager=self.plagiarism_manager,
             running_unit_tests=True
         )
         
@@ -370,11 +375,7 @@ class TestEliminationIntegration(TestBase):
         
         # 1. MDD elimination condition
         # Already set up in perf ledgers
-        
-        # 2. Plagiarism detection
-        self.challengeperiod_manager.miner_plagiarism_scores = {
-            self.PLAGIARIST_MINER: ValiConfig.MAX_MINER_PLAGIARISM_SCORE + 0.05
-        }
+
         
         # 3. Challenge period failure
         self.challengeperiod_manager.eliminations_with_reasons = {
@@ -395,9 +396,7 @@ class TestEliminationIntegration(TestBase):
         
         # Process all eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
-        
-        # Also process plagiarism (currently commented out in process_eliminations)
-        self.elimination_manager._handle_plagiarism_eliminations(self.position_locks)
+
         
         # Assert the mock was called
         self.assertTrue(mock_candle_fetcher.called)
@@ -408,7 +407,6 @@ class TestEliminationIntegration(TestBase):
         
         # Check each elimination type
         self.assertIn(self.MDD_MINER, eliminated_hotkeys)
-        self.assertIn(self.PLAGIARIST_MINER, eliminated_hotkeys)
         self.assertIn(self.CHALLENGE_FAIL_MINER, eliminated_hotkeys)
         self.assertIn(self.LIQUIDATED_MINER, eliminated_hotkeys)
         
@@ -416,8 +414,6 @@ class TestEliminationIntegration(TestBase):
         for elim in eliminations:
             if elim['hotkey'] == self.MDD_MINER:
                 self.assertEqual(elim['reason'], EliminationReason.MAX_TOTAL_DRAWDOWN.value)
-            elif elim['hotkey'] == self.PLAGIARIST_MINER:
-                self.assertEqual(elim['reason'], EliminationReason.PLAGIARISM.value)
             elif elim['hotkey'] == self.CHALLENGE_FAIL_MINER:
                 self.assertEqual(elim['reason'], EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value)
             elif elim['hotkey'] == self.LIQUIDATED_MINER:

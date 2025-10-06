@@ -25,6 +25,7 @@ from vali_objects.position import Position
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
@@ -68,7 +69,8 @@ class TestProbationComprehensive(TestBase):
 
         # Setup system components
         self.mock_metagraph = MockMetagraph(self.ALL_MINER_NAMES)
-        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True, contract_manager=self.contract_manager)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
@@ -76,12 +78,13 @@ class TestProbationComprehensive(TestBase):
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager,
                                                     live_price_fetcher=self.live_price_fetcher)
-        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
 
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
                                                               contract_manager=self.contract_manager,
+                                                              plagiarism_manager=self.plagiarism_manager,
                                                               running_unit_tests=True)
         self.weight_setter = SubtensorWeightSetter(self.mock_metagraph,
                                                    self.position_manager,
@@ -137,13 +140,13 @@ class TestProbationComprehensive(TestBase):
         """Setup initial miner bucket assignments"""
         miners = {}
         for hotkey in self.SUCCESS_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME)
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.START_TIME, None, None)
         for hotkey in self.CHALLENGE_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
         for hotkey in self.PROBATION_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.PROBATION, self.PROBATION_START_TIME)
+            miners[hotkey] = (MinerBucket.PROBATION, self.PROBATION_START_TIME, None, None)
         for hotkey in self.ELIMINATED_MINER_NAMES:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME)
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def tearDown(self):
@@ -170,6 +173,8 @@ class TestProbationComprehensive(TestBase):
         self.challengeperiod_manager.active_miners[expired_miner] = (
             MinerBucket.PROBATION,
             self.PROBATION_START_TIME,
+            None,
+            None
         )
 
         # Setup probation miner still within time limit
@@ -177,6 +182,8 @@ class TestProbationComprehensive(TestBase):
         self.challengeperiod_manager.active_miners[valid_miner] = (
             MinerBucket.PROBATION,
             self.PROBATION_EXPIRED - 10000,
+            None,
+            None
         )
 
         # Refresh challenge period at current time
@@ -216,10 +223,10 @@ class TestProbationComprehensive(TestBase):
         # Clear and setup new miner configuration
         self.challengeperiod_manager.active_miners.clear()
         for miner in exactly_25_miners:
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, self.START_TIME)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.MAINCOMP, self.START_TIME, None, None)
 
-        self.challengeperiod_manager.active_miners[challenge_miner] = (MinerBucket.CHALLENGE, self.START_TIME)
-        self.challengeperiod_manager.active_miners[probation_miner] = (MinerBucket.PROBATION, self.START_TIME)
+        self.challengeperiod_manager.active_miners[challenge_miner] = (MinerBucket.CHALLENGE, self.START_TIME, None, None)
+        self.challengeperiod_manager.active_miners[probation_miner] = (MinerBucket.PROBATION, self.START_TIME, None, None)
 
         # Setup positions and ledgers for new miners
         for miner in exactly_25_miners + [challenge_miner, probation_miner]:
@@ -351,7 +358,7 @@ class TestProbationComprehensive(TestBase):
         }
 
         for miner, timestamp in test_probation_miners.items():
-            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.PROBATION, timestamp)
+            self.challengeperiod_manager.active_miners[miner] = (MinerBucket.PROBATION, timestamp, None, None)
 
         # Force save to disk
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
@@ -669,7 +676,7 @@ class TestProbationComprehensive(TestBase):
         expired_start_time = self.PROBATION_EXPIRED
 
         self.challengeperiod_manager.active_miners[expired_probation_miner] = (
-            MinerBucket.PROBATION, expired_start_time,
+            MinerBucket.PROBATION, expired_start_time, None, None
         )
 
         # Create minimal required data for this miner
@@ -767,7 +774,7 @@ class TestProbationComprehensive(TestBase):
         original_probation_time = self.PROBATION_START_TIME
 
         self.challengeperiod_manager.active_miners[probation_miner] = (
-            MinerBucket.PROBATION, original_probation_time,
+            MinerBucket.PROBATION, original_probation_time, None, None
         )
 
         # Run multiple refresh cycles

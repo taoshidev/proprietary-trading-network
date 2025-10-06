@@ -81,12 +81,14 @@ class TestEliminationWeightCalculation(TestBase):
             running_unit_tests=True,
             perf_ledger_hks_to_invalidate={}
         )
-        
+
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
         self.elimination_manager = EliminationManager(
             self.mock_metagraph,
             self.live_price_fetcher,
             None,
-            running_unit_tests=True
+            running_unit_tests=True,
+            contract_manager=self.contract_manager
         )
         
         self.position_manager = EnhancedMockPositionManager(
@@ -164,24 +166,28 @@ class TestEliminationWeightCalculation(TestBase):
     def _setup_challenge_period_status(self):
         """Set up challenge period status"""
         # Main competition miners
-        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_1] = (MinerBucket.MAINCOMP, 0)
-        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_2] = (MinerBucket.MAINCOMP, 0)
-        self.challengeperiod_manager.active_miners[self.ELIMINATED_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_1] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_2] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.ELIMINATED_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
         
         # Challenge period miner
         self.challengeperiod_manager.active_miners[self.CHALLENGE_MINER] = (
             MinerBucket.CHALLENGE,
-            TimeUtil.now_in_millis() - MS_IN_24_HOURS
+            TimeUtil.now_in_millis() - MS_IN_24_HOURS,
+            None,
+            None
         )
         
         # Probation miner
         self.challengeperiod_manager.active_miners[self.PROBATION_MINER] = (
             MinerBucket.PROBATION,
-            TimeUtil.now_in_millis() - MS_IN_24_HOURS * 3
+            TimeUtil.now_in_millis() - MS_IN_24_HOURS * 3,
+            None,
+            None
         )
         
         # Zombie miner (will be removed from metagraph)
-        self.challengeperiod_manager.active_miners[self.ZOMBIE_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.ZOMBIE_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
 
     def _setup_perf_ledgers(self):
         """Set up performance ledgers"""

@@ -14,6 +14,8 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
+TARGET_MS = 1759202639000
+
 class CollateralRecord:
     def __init__(self, account_size, account_size_theta, update_time_ms):
         self.account_size = account_size
@@ -50,7 +52,8 @@ class ValidatorContractManager:
     def __init__(self, config=None, position_manager=None, ipc_manager=None, running_unit_tests=False, is_backtesting=False, metagraph=None):
         self.config = config
         self.position_manager = position_manager
-        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_mothership = 'ms' in self.secrets
         self.is_backtesting = is_backtesting
         self.metagraph = metagraph
         self._account_sizes_lock = None
@@ -71,7 +74,6 @@ class ValidatorContractManager:
 
         # GCP secret manager
         self._gcp_secret_manager_client = None
-        self.secrets = None
         # Initialize vault wallet as None for all validators
         self.vault_wallet = None
 
@@ -84,6 +86,7 @@ class ValidatorContractManager:
         else:
             self.miner_account_sizes: Dict[str, List[CollateralRecord]] = {}
         self._load_miner_account_sizes_from_disk()
+        self.setup()
 
     @property
     def account_sizes_lock(self):
@@ -117,6 +120,21 @@ class ValidatorContractManager:
         else:
             return ValiConfig.MIN_COLLATERAL_BALANCE_THETA
 
+    def setup(self):
+        """
+        reinstate wrongfully eliminated miner deposits
+        """
+        if not self.is_mothership:
+            return
+
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > TARGET_MS:
+            return
+
+        miners_to_reinstate = {}
+        for miner, amount in miners_to_reinstate.items():
+            self.force_deposit(amount, miner)
+
     def load_contract_owner(self):
         """
         Load EVM contract owner secrets and vault wallet.
@@ -126,7 +144,6 @@ class ValidatorContractManager:
             return
         try:
             # Load from secrets.json using ValiUtils
-            self.secrets = ValiUtils.get_secrets()
             self.vault_wallet = bt.wallet(config=self.config)
             bt.logging.info(f"Vault wallet loaded: {self.vault_wallet}")
         except Exception as e:
@@ -375,6 +392,33 @@ class ValidatorContractManager:
                 "error_message": error_msg
             }
 
+    def force_deposit(self, amount: float, miner_hotkey: str):
+        """
+        Update contract deposit without a stake transfer.
+        Used to reinstate miners wrongfully slashed.
+
+        Args:
+            amount (float): Amount in theta tokens
+            miner_hotkey (str): Miner's SS58 hotkey address
+        """
+        try:
+            bt.logging.info(f"Processing force deposit to {miner_hotkey} for {amount} Theta")
+            owner_address = self.get_secret("collateral_owner_address")
+            owner_private_key = self.get_secret("collateral_owner_private_key")
+            try:
+                self.collateral_manager.force_deposit(
+                    address=miner_hotkey,
+                    amount=int(amount * 10 ** 9),  # convert theta to rao_theta
+                    owner_address=owner_address,
+                    owner_private_key=owner_private_key
+                )
+            finally:
+                del owner_address
+                del owner_private_key
+            bt.logging.info(f"Force deposit successful: {amount} Theta deposited for {miner_hotkey}")
+        except Exception as e:
+            bt.logging.error(f"Force deposit execution failed: {str(e)}")
+
     def process_withdrawal_request(self, amount: float, miner_coldkey: str, miner_hotkey: str) -> Dict[str, Any]:
         """
         Process a collateral withdrawal request using raw data.
@@ -558,15 +602,32 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to compute slash amount for {miner_hotkey}: {e}")
             return 0.0
 
-    def slash_miner_collateral(self, miner_hotkey: str, slash_amount=None) -> bool:
+    def slash_miner_collateral_proportion(self, miner_hotkey: str, slash_proportion:float) -> bool:
         """
-        Slash miner's collateral
+        Slash miner's collateral by a proportion
+        """
+        if not self.is_mothership:
+            return False
+        current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
+        if current_balance_theta is None or current_balance_theta <= 0:
+            bt.logging.info(f"No slashing available for {miner_hotkey}, balance is {current_balance_theta}")
+            return False
+
+        slash_amount = current_balance_theta * slash_proportion
+        return self.slash_miner_collateral(miner_hotkey, slash_amount)
+
+    def slash_miner_collateral(self, miner_hotkey: str, slash_amount:float=None) -> bool:
+        """
+        Slash miner's collateral by a raw theta amount
 
         Args:
             miner_hotkey: miner hotkey to slash from
         """
+        if not self.is_mothership:
+            return False
         current_balance_theta = self.get_miner_collateral_balance(miner_hotkey)
         if current_balance_theta is None or current_balance_theta <= 0:
+            bt.logging.info(f"No slashing available for {miner_hotkey}, balance is {current_balance_theta}")
             return False
 
         if slash_amount is None:

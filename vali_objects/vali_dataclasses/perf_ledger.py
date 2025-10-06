@@ -45,10 +45,8 @@ class FeeCache():
         self.carry_fee_next_increase_time_ms: int = 0  # Compute fees based off the prior interval
 
     def get_spread_fee(self, position: Position, current_time_ms: int) -> (float, bool):
-        # Non cache after SLIPPAGE_V1_TIME_MS. Fee is just 1.
-        if current_time_ms < position_file.SLIPPAGE_V1_TIME_MS:
-            if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
-                return self.spread_fee, False
+        if position.orders[-1].processed_ms == self.spread_fee_last_order_processed_ms:
+            return self.spread_fee, False
 
         if position.is_closed_position:
             current_time_ms = min(current_time_ms, position.close_ms)
@@ -1135,20 +1133,22 @@ class PerfLedgerManager(CacheController):
         """
         # Check if we should use bypass (all closed + no position just closed + same trade pair if applicable)
         position_just_closed = any(pos is not None and not pos.is_open_position for pos in tp_id_to_realtime_position_to_pop.values())
+        prev_cp = perf_ledger.cps[-1]
         use_bypass = (any_open == TradePairReturnStatus.TP_NO_OPEN_POSITIONS and
                       not position_just_closed and
                       (not tp_id_to_realtime_position_to_pop or tp_id in tp_id_to_realtime_position_to_pop) and
-                      len(perf_ledger.cps) > 0)
+                      len(perf_ledger.cps) > 0 and
+                      calculated_spread_fee == prev_cp.prev_portfolio_spread_fee and
+                      calculated_carry_fee == prev_cp.prev_portfolio_carry_fee
+                      )
 
         if use_bypass:
             # Reuse previous checkpoint's exact values to avoid floating point drift
-            prev_cp = perf_ledger.cps[-1]
-            return (prev_cp.prev_portfolio_ret,
-                    prev_cp.prev_portfolio_spread_fee,
-                    prev_cp.prev_portfolio_carry_fee)
+            return_val = prev_cp.prev_portfolio_ret
         else:
-            # Use freshly calculated values
-            return (calculated_return, calculated_spread_fee, calculated_carry_fee)
+            return_val = calculated_return
+
+        return (return_val, calculated_spread_fee, calculated_carry_fee)
 
     def debug_significant_portfolio_drop(self, mode, portfolio_return, perf_ledger_bundle, t_ms, miner_hotkey,
                                          tp_to_historical_positions, open_positions_tp_ids, start_time_ms, end_time_ms):
@@ -1379,7 +1379,7 @@ class PerfLedgerManager(CacheController):
 
         #print(f"Building perf ledger for {miner_hotkey} from {TimeUtil.millis_to_verbose_formatted_date_str(start_time_ms)} to {TimeUtil.millis_to_verbose_formatted_date_str(end_time_ms)} ({(end_time_ms - start_time_ms) // 1000} s) \
         #       mode_to_n_updates {self.mode_to_n_updates}. update_to_n_open_positions {self.update_to_n_open_positions}")
-        tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, tp_to_historical_positions_dense, \
+        tp_to_closed_pos_return, tp_to_closed_pos_spread_fee, tp_to_closed_pos_carry_fee, tp_to_historical_positions_dense, \
             open_positions_tp_ids = self.condense_positions(tp_ids_to_build, tp_to_historical_positions)
 
         # Clean up prices for closed positions
@@ -1417,7 +1417,7 @@ class PerfLedgerManager(CacheController):
 
             current_return, current_spread_fee, current_carry_fee = self.get_bypass_values_if_applicable(
                 perf_ledger, tp_id, TradePairReturnStatus.TP_NO_OPEN_POSITIONS,
-                tp_to_initial_return[tp_id], tp_to_initial_spread_fee[tp_id], tp_to_initial_carry_fee[tp_id],
+                tp_to_closed_pos_return[tp_id], tp_to_closed_pos_spread_fee[tp_id], tp_to_closed_pos_carry_fee[tp_id],
                 tp_id_to_realtime_position_to_pop
             )
 
@@ -1430,10 +1430,10 @@ class PerfLedgerManager(CacheController):
         if start_time_ms + accumulated_time_ms >= end_time_ms:
             # This should have been caught by the shortcut logic, but handle it defensively
             # Initialize variables needed after the loop with initial values
-            tp_to_current_return = tp_to_initial_return.copy()
+            tp_to_current_return = initial_tp_to_return.copy()
             tp_to_any_open = {tp_id: TradePairReturnStatus.TP_NO_OPEN_POSITIONS for tp_id in tp_ids_to_build}
-            tp_to_current_spread_fee = tp_to_initial_spread_fee.copy()
-            tp_to_current_carry_fee = tp_to_initial_carry_fee.copy()
+            tp_to_current_spread_fee = initial_tp_to_spread_fee.copy()
+            tp_to_current_carry_fee = initial_tp_to_carry_fee.copy()
             
             bt.logging.warning(f"build_perf_ledger: while loop will not execute for miner {miner_hotkey}. "
                              f"start_time: {TimeUtil.millis_to_formatted_date_str(start_time_ms)}, "
@@ -1489,7 +1489,7 @@ class PerfLedgerManager(CacheController):
 
             tp_to_current_return, tp_to_any_open, tp_to_current_spread_fee, tp_to_current_carry_fee, = \
                 self.positions_to_portfolio_return(tp_ids_to_build, tp_to_historical_positions_dense, t_ms, mode,
-                   end_time_ms, tp_to_initial_return, tp_to_initial_spread_fee, tp_to_initial_carry_fee, portfolio_pl)
+                   end_time_ms, tp_to_closed_pos_return, tp_to_closed_pos_spread_fee, tp_to_closed_pos_carry_fee, portfolio_pl)
             portfolio_return = tp_to_current_return[TP_ID_PORTFOLIO]
 
             if portfolio_return == 0 and self.check_liquidated(miner_hotkey, portfolio_return, t_ms, tp_to_historical_positions, perf_ledger_bundle):
@@ -1696,6 +1696,11 @@ class PerfLedgerManager(CacheController):
 
         t0 = time.time()
         perf_ledger_bundle_candidate = existing_perf_ledger_bundles.get(hotkey)
+        if perf_ledger_bundle_candidate and TP_ID_PORTFOLIO in perf_ledger_bundle_candidate and now_ms < perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms:
+            now_formatted = TimeUtil.millis_to_formatted_date_str(now_ms)
+            last_update_formatted = TimeUtil.millis_to_formatted_date_str(perf_ledger_bundle_candidate[TP_ID_PORTFOLIO].last_update_ms)
+            raise Exception(f'Trying to update in the past for {hotkey}. now {now_formatted} < last update {last_update_formatted}')
+
         continuity_established = False  # Track if we've already established price continuity
 
         if perf_ledger_bundle_candidate and self._is_v1_perf_ledger(perf_ledger_bundle_candidate):
@@ -1974,11 +1979,19 @@ class PerfLedgerManager(CacheController):
                 [testing_one_hotkey], sort_positions=True
             )
         else:
-            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
+            # Not-pickleable. Make it here.
+            if not self.live_price_fetcher:
+                self.live_price_fetcher = LivePriceFetcher(self.secrets, disable_ws=True)
+            eliminations = self.position_manager.elimination_manager.get_eliminations_from_memory()
+            hotkey_to_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True, eliminations=eliminations)
             n_positions_total = 0
             n_hotkeys_total = len(hotkey_to_positions)
             # Keep only hotkeys with positions
             for k, positions in hotkey_to_positions.items():
+                # Rebuild closed positions to ensure returns are accurate WRT latest fee structure and retro prices.
+                for p in positions:
+                    if p.is_closed_position:
+                        p.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 n_positions = len(positions)
                 n_positions_total += n_positions
                 if n_positions == 0:
@@ -2350,7 +2363,7 @@ if __name__ == "__main__":
     crypto_only = False # Whether to process only crypto trade pairs
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5D4gJ9QfbcMg338813wz3MKuRofTKfE6zR3iPaGHaWEnNKoo'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5GA214EQwrWKtDxf2BZptLmeaxF1Nmm6WxVD93YUZRn8Bk5s'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 
@@ -2386,8 +2399,7 @@ if __name__ == "__main__":
         position_source_manager = PositionSourceManager(source_type)
         hk_to_positions = position_source_manager.load_positions(
             end_time_ms=end_time_ms if use_database_positions else None,
-            hotkeys=hotkeys_to_process if use_database_positions else None
-        )
+            hotkeys=hotkeys_to_process if use_database_positions else None)
 
         # Update hotkeys to process based on loaded positions
         if hk_to_positions:

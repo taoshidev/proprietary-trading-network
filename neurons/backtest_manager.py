@@ -131,12 +131,13 @@ class BacktestManager:
         self.metagraph = MockMetagraph(hotkeys=list(positions_at_t_f.keys()))
         shutdown_dict = {}
 
-        self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
-                                                      None, shutdown_dict=shutdown_dict, is_backtesting=True)
-
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True, is_backtesting=True)
 
         self.contract_manager = ValidatorContractManager(is_backtesting=True)
+
+        self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
+                                                      None, shutdown_dict=shutdown_dict, is_backtesting=True,
+                                                      contract_manager=self.contract_manager)
 
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph,
                                                      shutdown_dict=shutdown_dict,

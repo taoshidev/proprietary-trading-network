@@ -213,6 +213,10 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/all_model_parameters.json"
 
     @staticmethod
+    def get_slippage_estimates_file() -> str:
+        return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/slippage_estimates.json"
+
+    @staticmethod
     def get_slippage_model_features_file() -> str:
         return ValiConfig.BASE_DIR + "/vali_objects/utils/model_parameters/model_features.json"
 

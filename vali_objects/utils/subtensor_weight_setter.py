@@ -15,6 +15,7 @@ from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from shared_objects.error_utils import ErrorUtils
 
 
 
@@ -65,7 +66,10 @@ class SubtensorWeightSetter(CacheController):
         # augmented ledger should have the gain, loss, n_updates, and time_duration
         challenge_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
         probation_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PROBATION))
-        testing_hotkeys = challenge_hotkeys +  probation_hotkeys
+
+        # Still need to provide plagiarism miners dust in case of false positives
+        plagiarism_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PLAGIARISM))
+        testing_hotkeys = challenge_hotkeys +  probation_hotkeys + plagiarism_hotkeys
         success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
         maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*success_hotkeys, *probation_hotkeys])  # ledger of all miners in maincomp, including probation
@@ -194,13 +198,16 @@ class SubtensorWeightSetter(CacheController):
             except Exception as e:
                 bt.logging.error(f"Error in weight setter update loop: {e}")
                 bt.logging.error(traceback.format_exc())
-                
+
                 # Send error notification
                 if self.slack_notifier:
+                    # Get compact stack trace using shared utility
+                    compact_trace = ErrorUtils.get_compact_stacktrace(e)
                     self.slack_notifier.send_message(
                         f"❌ Weight setter process error!\n"
                         f"Error: {str(e)}\n"
-                        f"This occurred in the weight setter update loop",
+                        f"This occurred in the weight setter update loop\n"
+                        f"Trace: {compact_trace}",
                         level="error"
                     )
                 time.sleep(30)
@@ -230,6 +237,18 @@ class SubtensorWeightSetter(CacheController):
         except Exception as e:
             bt.logging.error(f"Error sending weight request: {e}")
             bt.logging.error(traceback.format_exc())
+
+            # Send error notification
+            if self.slack_notifier:
+                # Get compact stack trace using shared utility
+                compact_trace = ErrorUtils.get_compact_stacktrace(e)
+                self.slack_notifier.send_message(
+                    f"❌ Weight request IPC error!\n"
+                    f"Error: {str(e)}\n"
+                    f"This occurred while sending weight request via IPC\n"
+                    f"Trace: {compact_trace}",
+                    level="error"
+                )
 
     def set_weights(self, current_time):
         # Compute weights (existing logic)

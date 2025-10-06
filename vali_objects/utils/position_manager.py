@@ -6,6 +6,7 @@ import shutil
 import time
 import traceback
 from collections import defaultdict
+from multiprocessing import Process
 from pickle import UnpicklingError
 from typing import List, Dict
 import bittensor as bt
@@ -18,6 +19,7 @@ from vali_objects.decoders.generalized_json_decoder import GeneralizedJSONDecode
 from vali_objects.exceptions.corrupt_data_exception import ValiBkpCorruptDataException
 from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMissingException
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.positions_to_snap import positions_to_snap
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
@@ -27,7 +29,8 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1755040744000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1759202639000 + (1000 * 60 * 60 * 3)  # + 3 hours
+
 
 
 class PositionManager(CacheController):
@@ -42,7 +45,8 @@ class PositionManager(CacheController):
                  live_price_fetcher=None,
                  is_backtesting=False,
                  shared_queue_websockets=None,
-                 split_positions_on_disk_load=False):
+                 split_positions_on_disk_load=False,
+                 closed_position_daemon=False):
 
         super().__init__(metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         # Populate memory with positions
@@ -69,6 +73,25 @@ class PositionManager(CacheController):
         self.secrets = secrets
         self.live_price_fetcher = live_price_fetcher
         self._populate_memory_positions_for_first_time()
+        if closed_position_daemon:
+            self.compaction_process = Process(target=self.run_closed_position_daemon_forever, daemon=True)
+            self.compaction_process.start()
+            bt.logging.info("Started run_closed_position_daemon_forever process.")
+
+    def run_closed_position_daemon_forever(self):
+        try:
+            self.ensure_position_consistency_serially()
+        except Exception as e:
+            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        while True:
+            try:
+                t0 = time.time()
+                self.compact_price_sources()
+                bt.logging.info(f'compacted price sources in {time.time() - t0:.2f} seconds')
+            except Exception as e:
+                bt.logging.error(f"Error {e} in run_closed_position_daemon_forever: {traceback.format_exc()}")
+                time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
+            time.sleep(ValiConfig.PRICE_SOURCE_COMPACTING_SLEEP_INTERVAL_SECONDS)
 
     def _default_split_stats(self):
         """Default split statistics for each miner. Used to make defaultdict pickleable."""
@@ -80,6 +103,9 @@ class PositionManager(CacheController):
 
     @timeme
     def _populate_memory_positions_for_first_time(self):
+        """
+        Load positions from disk into memory and apply position splitting if enabled.
+        """
         if self.is_backtesting:
             return
 
@@ -140,9 +166,73 @@ class PositionManager(CacheController):
                     bt.logging.error(f"  ... and {len(hotkeys_with_errors) - 5} more")
             bt.logging.info("=" * 60)
 
+        # Load positions into memory
         for hk, positions in initial_hk_to_positions.items():
-            if positions:  # Only populate if there are no positions in the miner dir
+            if positions:
                 self.hotkey_to_positions[hk] = positions
+
+    def ensure_position_consistency_serially(self):
+        """
+        Ensures position consistency by checking all closed positions for return calculation changes
+        and updating them to disk if needed. This should be called before starting main processing loops.
+        """
+        if self.is_backtesting:
+            return
+
+        if not self.live_price_fetcher:
+            self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
+
+        start_time = time.time()
+        last_log_time = start_time
+        n_positions_checked_for_change = 0
+        successful_updates = 0
+        failed_updates = 0
+
+        # Calculate total positions for progress tracking
+        total_positions = sum(len([p for p in positions if not p.is_open_position])
+                            for positions in self.hotkey_to_positions.values())
+        bt.logging.info(f'Starting position consistency check on {total_positions} closed positions...')
+
+        # Check all positions and immediately save if return changed
+        for hk_index, (hk, positions) in enumerate(self.hotkey_to_positions.items()):
+            for p in positions:
+                if p.is_open_position:
+                    continue
+                n_positions_checked_for_change += 1
+                original_return = p.return_at_close
+                p.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                new_return = p.return_at_close
+                if new_return != original_return:
+                    try:
+                        self.save_miner_position(p, delete_open_position_if_exists=False)
+                        successful_updates += 1
+                    except Exception as e:
+                        failed_updates += 1
+                        bt.logging.error(f'Failed to update position {p.position_uuid} for hotkey {hk}: {e}')
+
+                # Log progress every 1000 positions or every 5 minutes
+                current_time = time.time()
+                if n_positions_checked_for_change % 1000 == 0 or (current_time - last_log_time) >= 300:
+                    elapsed = current_time - start_time
+                    progress_pct = (n_positions_checked_for_change / total_positions) * 100 if total_positions > 0 else 0
+                    bt.logging.info(
+                        f'Position consistency progress: {n_positions_checked_for_change}/{total_positions} '
+                        f'({progress_pct:.1f}%) checked, {successful_updates} updated, {failed_updates} failed. '
+                        f'Elapsed: {elapsed:.1f}s'
+                    )
+                    if (current_time - last_log_time) >= 300:
+                        last_log_time = current_time
+
+        # Log final results
+        elapsed = time.time() - start_time
+        if successful_updates > 0 or failed_updates > 0:
+            bt.logging.warning(
+                f'Position consistency completed: Updated {successful_updates} positions out of {n_positions_checked_for_change} checked '
+                f'for return changes due to difference in return calculation. '
+                f'({failed_updates} failures). Serial updates completed in {elapsed:.2f} seconds.'
+            )
+        else:
+            bt.logging.info(f'Position consistency completed: No positions needed return updates out of {n_positions_checked_for_change} checked in {elapsed:.2f} seconds.')
 
     def filtered_positions_for_scoring(
             self,
@@ -167,13 +257,6 @@ class PositionManager(CacheController):
         """
         Run this outside of init so that cross object dependencies can be set first. See validator.py
         """
-        if self.perform_compaction:
-            try:
-                self.compact_price_sources()
-            except Exception as e:
-                bt.logging.error(f"Error performing compaction: {e}")
-                traceback.print_exc()
-
         if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()
@@ -435,10 +518,9 @@ class PositionManager(CacheController):
 
         # Promote miners that would have passed challenge period
         for miner in miners_to_promote:
-            if miner in self.challengeperiod_manager.challengeperiod_testing:
-                self.challengeperiod_manager.challengeperiod_testing.pop(miner)
-            if miner not in self.challengeperiod_manager.challengeperiod_success:
-                self.challengeperiod_manager.challengeperiod_success[miner] = now_ms
+            if miner in self.challengeperiod_manager.active_miners:
+                if self.challengeperiod_manager.active_miners[miner][0] != MinerBucket.MAINCOMP:
+                    self.challengeperiod_manager._promote_challengeperiod_in_memory([miner], now_ms)
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Wipe miners_to_wipe below
@@ -453,10 +535,12 @@ class PositionManager(CacheController):
                 print(f"Removed elimination for hotkey {e['hotkey']}")
         n_eliminations_after = len(self.elimination_manager.get_eliminations_from_memory())
         print(f'    n_eliminations_before {n_eliminations_before} n_eliminations_after {n_eliminations_after}')
+        update_perf_ledgers = False
         for miner_hotkey, positions in hotkey_to_positions.items():
             n_attempts += 1
             self.dedupe_positions(positions, miner_hotkey)
             if miner_hotkey in miners_to_wipe: # and now_ms < TARGET_MS:
+                update_perf_ledgers = True
                 bt.logging.info(f"Resetting hotkey {miner_hotkey}")
                 n_corrections += 1
                 unique_corrections.update([p.position_uuid for p in positions])
@@ -469,20 +553,18 @@ class PositionManager(CacheController):
                             pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
                             self.save_miner_position(pos)
                             print(f'Removed eliminated orders from position {pos}')
-                if miner_hotkey in self.challengeperiod_manager.challengeperiod_testing:
-                    self.challengeperiod_manager.challengeperiod_testing.pop(miner_hotkey)
-                    print(f'Removed challengeperiod testing for {miner_hotkey}')
-                if miner_hotkey in self.challengeperiod_manager.challengeperiod_success:
-                    self.challengeperiod_manager.challengeperiod_success.pop(miner_hotkey)
-                    print(f'Removed challengeperiod success for {miner_hotkey}')
+                if miner_hotkey in self.challengeperiod_manager.active_miners:
+                    self.challengeperiod_manager.active_miners.pop(miner_hotkey)
+                    print(f'Removed challengeperiod status for {miner_hotkey}')
 
                 self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
-                perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
-                print('n perf ledgers before:', len(perf_ledgers))
-                perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k != miner_hotkey}
-                print('n perf ledgers after:', len(perf_ledgers_new))
-                self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
+        if update_perf_ledgers:
+            perf_ledgers = self.perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+            print('n perf ledgers before:', len(perf_ledgers))
+            perf_ledgers_new = {k:v for k,v in perf_ledgers.items() if k not in miners_to_wipe}
+            print('n perf ledgers after:', len(perf_ledgers_new))
+            self.perf_ledger_manager.save_perf_ledgers(perf_ledgers_new)
 
 
             """

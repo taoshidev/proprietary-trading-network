@@ -3,6 +3,7 @@
 *.pickle
 # model parameters
 !vali_objects/utils/model_parameters/all_model_parameters.json
+!vali_objects/utils/model_parameters/slippage_estimates.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

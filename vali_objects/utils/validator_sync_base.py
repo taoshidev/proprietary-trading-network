@@ -122,11 +122,11 @@ class ValidatorSyncBase():
 
             challengeperiod_dict = ChallengePeriodManager.parse_checkpoint_dict(challengeperiod_data)
             new_testing_keys = {
-                    hotkey for hotkey, (bucket, _) in challengeperiod_dict.items()
+                    hotkey for hotkey, (bucket, _, _, _) in challengeperiod_dict.items()
                     if bucket is MinerBucket.CHALLENGE
                     }
             new_success_keys = {
-                    hotkey for hotkey, (bucket, _) in challengeperiod_dict.items()
+                    hotkey for hotkey, (bucket, _, _, _) in challengeperiod_dict.items()
                     if bucket is MinerBucket.MAINCOMP
                     }
 

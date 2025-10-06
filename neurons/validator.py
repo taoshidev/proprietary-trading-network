@@ -31,6 +31,7 @@ from runnable.generate_request_outputs import RequestOutputGenerator
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.timestamp_manager import TimestampManager
 from vali_objects.uuid_tracker import UUIDTracker
@@ -192,7 +193,8 @@ class Validator:
         self.elimination_manager = EliminationManager(self.metagraph, None,  # Set after self.pm creation
                                                       None, shutdown_dict=shutdown_dict,
                                                       ipc_manager=self.ipc_manager,
-                                                      shared_queue_websockets=self.shared_queue_websockets)
+                                                      shared_queue_websockets=self.shared_queue_websockets,
+                                                      contract_manager=self.contract_manager)
 
         self.asset_selection_manager = AssetSelectionManager(config=self.config, metagraph=self.metagraph, ipc_manager=self.ipc_manager)
 
@@ -228,16 +230,19 @@ class Validator:
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
                                                 secrets=self.secrets,
-                                                shared_queue_websockets=self.shared_queue_websockets)
+                                                shared_queue_websockets=self.shared_queue_websockets,
+                                                closed_position_daemon=True)
 
         self.position_locks = PositionLocks(hotkey_to_positions=self.position_manager.get_positions_for_all_miners())
 
-
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=self.slack_notifier,
+                                                    ipc_manager=self.ipc_manager)
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
                                                               ipc_manager=self.ipc_manager,
-                                                              contract_manager=self.contract_manager)
+                                                              contract_manager=self.contract_manager,
+                                                              plagiarism_manager=self.plagiarism_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
@@ -382,7 +387,7 @@ class Validator:
         self.plagiarism_thread.start()
 
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict, compaction_enabled=True)
+                                      shutdown_dict=shutdown_dict)
 
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph,
@@ -719,7 +724,7 @@ class Validator:
                     raise SignalException(
                         f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
                         f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
-                        f"See https://docs.taoshi.io/ptn/ptncli/ for more information."
+                        f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
                     )
 
                 open_position = Position(
@@ -909,6 +914,7 @@ class Validator:
                 positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
                 trade_pair_to_open_position = {position.trade_pair: position for position in positions}
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
+                account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
                 if existing_position:
                     order = Order(
                         trade_pair=trade_pair,
@@ -923,7 +929,7 @@ class Validator:
                         ask=best_price_source.ask,
                     )
                     self.price_slippage_model.refresh_features_daily()
-                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
                     self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
                     net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
                     existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)

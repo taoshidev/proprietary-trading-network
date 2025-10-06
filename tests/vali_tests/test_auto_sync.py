@@ -1258,11 +1258,15 @@ class TestPositions(TestBase):
         candidate_data['challengeperiod'] = {
             self.DEFAULT_MINER_HOTKEY: {
                 "bucket": MinerBucket.CHALLENGE.value,
-                "bucket_start_time": self.DEFAULT_OPEN_MS
+                "bucket_start_time": self.DEFAULT_OPEN_MS,
+                "previous_bucket": None,
+                "previous_bucket_start_time": None
             },
             test_hotkey2: {
                 "bucket": MinerBucket.MAINCOMP.value,
-                "bucket_start_time": self.DEFAULT_OPEN_MS - 1000 * 60 * 60 * 24
+                "bucket_start_time": self.DEFAULT_OPEN_MS - 1000 * 60 * 60 * 24,
+                "previous_bucket": None,
+                "previous_bucket_start_time": None
             }
         }
         
@@ -1277,8 +1281,8 @@ class TestPositions(TestBase):
         assert self.DEFAULT_MINER_HOTKEY in self.position_manager.challengeperiod_manager.active_miners
         assert test_hotkey2 in self.position_manager.challengeperiod_manager.active_miners
         
-        bucket1, _ = self.position_manager.challengeperiod_manager.active_miners[self.DEFAULT_MINER_HOTKEY]
-        bucket2, _ = self.position_manager.challengeperiod_manager.active_miners[test_hotkey2]
+        bucket1, _, _, _ = self.position_manager.challengeperiod_manager.active_miners[self.DEFAULT_MINER_HOTKEY]
+        bucket2, _, _, _ = self.position_manager.challengeperiod_manager.active_miners[test_hotkey2]
         
         assert bucket1 == MinerBucket.CHALLENGE
         assert bucket2 == MinerBucket.MAINCOMP

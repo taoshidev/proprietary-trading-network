@@ -15,6 +15,7 @@ from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.elimination_manager import EliminationManager, EliminationReason
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
@@ -107,8 +108,8 @@ class TestChallengePeriodIntegration(TestBase):
         # Set up live price fetcher
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
-
-        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True, contract_manager=self.contract_manager)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         self.ledger_manager.clear_all_ledger_data()
         # Ensure no perf ledgers present
@@ -117,11 +118,12 @@ class TestChallengePeriodIntegration(TestBase):
                                                     perf_ledger_manager=self.ledger_manager,
                                                     elimination_manager=self.elimination_manager,
                                                     live_price_fetcher=self.live_price_fetcher)
-        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
                                                               contract_manager=self.contract_manager,
+                                                              plagiarism_manager=self.plagiarism_manager,
                                                               running_unit_tests=True)
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
@@ -172,16 +174,16 @@ class TestChallengePeriodIntegration(TestBase):
 
         self._populate_active_miners(maincomp=self.SUCCESS_MINER_NAMES,
                                      challenge=self.TESTING_MINER_NAMES,
-                                     probation=self.PROBATION_MINER_NAMES,)
+                                     probation=self.PROBATION_MINER_NAMES)
 
     def _populate_active_miners(self, *, maincomp=[], challenge=[], probation=[]):
         miners = {}
         for hotkey in maincomp:
-            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.MAINCOMP, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in challenge:
-            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.CHALLENGE, self.HK_TO_OPEN_MS[hotkey], None, None)
         for hotkey in probation:
-            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey])
+            miners[hotkey] = (MinerBucket.PROBATION, self.HK_TO_OPEN_MS[hotkey], None, None)
         self.challengeperiod_manager.active_miners = miners
 
     def tearDown(self):
@@ -297,7 +299,7 @@ class TestChallengePeriodIntegration(TestBase):
         position.close_ms = None
 
         self.position_manager.save_miner_position(position)
-        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS)}
+        self.challengeperiod_manager.active_miners = {self.DEFAULT_MINER_HOTKEY: (MinerBucket.CHALLENGE, self.DEFAULT_OPEN_MS, None, None)}
         self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
 
         # Now loading the data
@@ -598,7 +600,55 @@ class TestChallengePeriodIntegration(TestBase):
         self.assertEqual(len(eliminated_for_mdd), len(self.FAILING_MINER_NAMES))
         self.assertEqual(len(eliminated_for_time), len(self.TESTING_MINER_NAMES + self.PROBATION_MINER_NAMES))
 
- #TODO
- #   def test_no_miners_in_main_competition(self):
+    def test_plagiarism_detection_and_elimination(self):
+        """Test that miners detected as plagiarists are moved to PLAGIARISM bucket,
+        then eliminated after PLAGIARISM_REVIEW_PERIOD_MS (2 weeks)"""
+
+        # Start with a clean state - use first testing miner
+        test_miner = self.TESTING_MINER_NAMES[0]
+
+        # Ensure the miner starts in CHALLENGE bucket
+        self.assertEqual(self.challengeperiod_manager.get_miner_bucket(test_miner), MinerBucket.CHALLENGE)
+
+        # Mock the plagiarism API to return the test miner as a plagiarist
+        plagiarism_time = self.max_open_ms
+        plagiarism_data = {test_miner: {"time": plagiarism_time}}
+
+        # Mock get_plagiarism_elimination_scores to return our plagiarism data
+        with patch.object(self.plagiarism_manager, 'get_plagiarism_elimination_scores', return_value=plagiarism_data):
+            # Call refresh - miner should be moved to PLAGIARISM bucket
+            self.challengeperiod_manager.refresh(current_time=self.max_open_ms)
+            self.elimination_manager.process_eliminations(PositionLocks())
+
+            # Verify the miner is in PLAGIARISM bucket
+            self.assertEqual(self.challengeperiod_manager.get_miner_bucket(test_miner), MinerBucket.PLAGIARISM)
+            self.assertIn(test_miner, self.challengeperiod_manager.get_plagiarism_miners())
+
+            # Verify the miner is NOT eliminated yet
+            elimination_hotkeys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
+            self.assertNotIn(test_miner, elimination_hotkeys)
+
+            # Call refresh 2 weeks later (PLAGIARISM_REVIEW_PERIOD_MS + 1ms)
+            elimination_time = plagiarism_time + ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS + 1
+            self.challengeperiod_manager.refresh(current_time=elimination_time)
+            self.elimination_manager.process_eliminations(PositionLocks())
+
+            # Verify the miner is now eliminated
+            elimination_hotkeys = self.challengeperiod_manager.elimination_manager.get_eliminated_hotkeys()
+            self.assertIn(test_miner, elimination_hotkeys)
+
+            # Verify the miner is no longer in PLAGIARISM bucket or any other bucket
+            self.assertIsNone(self.challengeperiod_manager.get_miner_bucket(test_miner))
+
+            # Verify elimination reason is PLAGIARISM
+            eliminations = self.challengeperiod_manager.elimination_manager.get_eliminations_from_disk()
+            plagiarism_elimination_found = False
+            for elimination in eliminations:
+                if elimination["hotkey"] == test_miner:
+                    self.assertEqual(elimination["reason"], EliminationReason.PLAGIARISM.value)
+                    plagiarism_elimination_found = True
+                    break
+
+            self.assertTrue(plagiarism_elimination_found, f"Could not find plagiarism elimination record for {test_miner}")
 
 

@@ -3,6 +3,7 @@ from shared_objects.cache_controller import CacheController
 from tests.shared_objects.mock_classes import MockPositionManager
 from shared_objects.mock_metagraph import MockMetagraph
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
+from vali_objects.utils.plagiarism_manager import PlagiarismManager
 from vali_objects.utils.vali_utils import ValiUtils
 from tests.shared_objects.test_utilities import (
     generate_losing_ledger,
@@ -16,6 +17,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_lock import PositionLocks
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
+from vali_objects.utils.validator_contract_manager import ValidatorContractManager
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
@@ -35,7 +37,8 @@ class TestEliminationManager(TestBase):
         secrets = ValiUtils.get_secrets(running_unit_tests=True)
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
 
-        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True)
+        self.contract_manager = ValidatorContractManager(running_unit_tests=True)
+        self.elimination_manager = EliminationManager(self.mock_metagraph, self.live_price_fetcher, None, running_unit_tests=True, contract_manager=self.contract_manager)
         self.ledger_manager = PerfLedgerManager(self.mock_metagraph, running_unit_tests=True)
         self.position_manager = MockPositionManager(self.mock_metagraph,
                                                     perf_ledger_manager=self.ledger_manager,
@@ -63,10 +66,11 @@ class TestEliminationManager(TestBase):
 
         self.position_manager.perf_ledger_manager = self.ledger_manager
         self.elimination_manager.position_manager = self.position_manager
-
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
         self.challengeperiod_manager = ChallengePeriodManager(self.mock_metagraph,
                                                               position_manager=self.position_manager,
                                                               perf_ledger_manager=self.ledger_manager,
+                                                              plagiarism_manager=self.plagiarism_manager,
                                                               running_unit_tests=True)
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
 
@@ -77,8 +81,8 @@ class TestEliminationManager(TestBase):
         self.LEDGERS[self.REGULAR_MINER] = generate_winning_ledger(0, ValiConfig.CHALLENGE_PERIOD_MAXIMUM_MS)
         self.ledger_manager.save_perf_ledgers(self.LEDGERS)
 
-        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0)
-        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0)
+        self.challengeperiod_manager.active_miners[self.MDD_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.REGULAR_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
 
     def tearDown(self):
         super().tearDown()

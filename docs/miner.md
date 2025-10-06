@@ -9,12 +9,12 @@ A long position is a bet that the trade pair will increase, while a short positi
 ## Basic Rules
 
 1. Your miner must register on the Bittensor network to participate.
-   - There is a registration fee of 2.5 TAO on mainnet.
-   - There is an immunity period of 9 days to help miners submit orders to become competitive with existing miners. Eliminated miners do not benefit from being in the immunity period.
-2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 150 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
-   - Have at least 120 full days of trading
+   - There is a minimal registration fee <1 TAO on mainnet.
+   - There is an immunity period of 4 hours. Eliminated miners do not benefit from being in the immunity period.
+2. Your miner will start in the challenge period upon entry. Miners must demonstrate consistent performance within 90 days to pass the challenge period. During this period, they will receive a small amount of TAO that will help them avoid getting deregistered. The minimum requirements to pass the challenge period:
+   - Have at least 61 full days of trading
    - Don't exceed 10% max drawdown
-   - Score at or above the 25th miner in main competition. The details may be found [here](https://docs.taoshi.io/tips/p21/).
+   - Score at or above the 15th miner in each asset class in main competition. The details may be found [here](https://docs.taoshi.io/tips/p21/).
 3. Positions are uni-directional. Meaning, if a position starts LONG (the first order it receives is LONG),
    it can't flip SHORT. If you try and have it flip SHORT (using more leverage SHORT than exists LONG) it will close out
    the position. You'll then need to open a second position which is SHORT with the difference.
@@ -26,7 +26,7 @@ A long position is a bet that the trade pair will increase, while a short positi
    of size .25x leverage to reduce the size of the position. LONG and SHORT signals can be thought of working in opposite
    directions in this way.
 7. Miners that have passed challenge period will be eliminated for a drawdown that exceeds 10%.
-8. Miners in main competition who fall below the top 25 will be observed under a probation period. 
+8. Miners in main competition who fall below the top 15 in each asset class will be observed under a probation period. 
    - Miners in probation period have 30 days from time of demotion to be promoted back into main competition.
    - If they fail to do so within this window, they will be eliminated.
 9. A miner can have a maximum of 1 open position per trade pair. No limit on the number of closed positions.
@@ -141,25 +141,36 @@ The Max Drawdown penalty and Risk Profiling penalty help us detect the absolute 
 
 ### Fees and Transaction Costs
 
-We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated two primary costs: **Cost of Carry** and **Slippage**.
+We want to simulate real costs of trading for our miners, to make signals from PTN more valuable outside our platform. To do this, we have incorporated three primary costs: **Cost of Carry**, **Slippage**, and **Spread Fee**.
 
 Cost of carry is reflective of real exchanges, and how they manage the cost of holding a position overnight. This rate changes depending on the asset class, the logic of which may be found in [our proposal 4](https://docs.taoshi.io/tips/p4/).
 
 Slippage costs are modeled to estimate the difference between a trade's expected price (typically the last traded price or mid-price between the best bid and ask) and its actual execution price. This cost is higher for larger orders, as well as for assets with lower liquidity and higher volatility. Read more in [proposal 16](https://docs.taoshi.io/tips/p16/).
 
+Spread fee is applied to crypto pairs only and is calculated as 0.1% multiplied by the leverage of each order. This fee simulates a transaction cost that a normal exchange would add.
+
 ##### Implementation Details
+
+**Carry Fees:**
 
 | Market   | Fee Period | Times                   | Rates Applied   | Triple Wednesday |
 | -------- | ---------- | ----------------------- | --------------- | ---------------- |
 | Forex    | 24h        | 21:00 UTC               | Mon-Fri         | ✓                |
 | Crypto   | 8h         | 04:00, 12:00, 20:00 UTC | Daily (Mon-Sun) |                  |
 
-The magnitude of the fees will reflect the following distribution:
+The magnitude of the carry fees will reflect the following distribution:
 
 | Market   | Base Rate (Annual) | Daily Rate Calculation      |
 | -------- | ------------------ | --------------------------- |
 | Forex    | 3%                 | 0.008% \* Max Seen Leverage |
 | Crypto   | 10.95%             | 0.03% \* Max Seen Leverage  |
+
+**Spread Fee (Transaction Fee):**
+
+| Market   | Spread Fee Rate    | Applied To           |
+| -------- | ------------------ | -------------------- |
+| Forex    | None               | N/A                  |
+| Crypto   | 0.1% \* Leverage   | Each order placed    |
 
 ### Leverage Limits
 

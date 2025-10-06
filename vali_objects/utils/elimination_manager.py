@@ -35,7 +35,7 @@ class EliminationManager(CacheController):
 
     def __init__(self, metagraph, position_manager, challengeperiod_manager,
                  running_unit_tests=False, shutdown_dict=None, ipc_manager=None, is_backtesting=False,
-                 shared_queue_websockets=None):
+                 shared_queue_websockets=None, contract_manager=None):
         super().__init__(metagraph=metagraph, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.shutdown_dict = shutdown_dict
@@ -45,6 +45,7 @@ class EliminationManager(CacheController):
         self.shared_queue_websockets = shared_queue_websockets
         secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
         self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+        self.contract_manager = contract_manager
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
@@ -79,6 +80,7 @@ class EliminationManager(CacheController):
                                                                                                 timespan_ms=1000,
                                                                                                 websocket=False)
             self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
+            self.contract_manager.slash_miner_collateral_proportion(e['hotkey'], ValiConfig.SLASH_PROPORTION)
 
         if n_eliminations:
             self.save_eliminations()
@@ -140,6 +142,7 @@ class EliminationManager(CacheController):
             elim_mdd = eliminations_with_reasons[hotkey][1]
             self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, reason=elim_reason)
             self.handle_eliminated_miner(hotkey, {}, position_locks)
+            self.contract_manager.slash_miner_collateral_proportion(hotkey, ValiConfig.SLASH_PROPORTION)
 
         self.challengeperiod_manager.eliminations_with_reasons = {}
 
@@ -170,27 +173,11 @@ class EliminationManager(CacheController):
         self.handle_first_refresh(position_locks)
         self.handle_perf_ledger_eliminations(position_locks)
         self.handle_challenge_period_eliminations(position_locks)
-        # self._handle_plagiarism_eliminations()
         self.handle_mdd_eliminations(position_locks)
         self.handle_zombies(position_locks)
         self._delete_eliminated_expired_miners()
 
         self.set_last_update_time()
-
-    def _handle_plagiarism_eliminations(self, position_locks):
-        bt.logging.debug("checking plagiarism.")
-        if self.shutdown_dict:
-            return
-        self.challengeperiod_manager._refresh_plagiarism_scores_in_memory_and_disk()
-        # miner_copying_json[miner_hotkey] = current_hotkey_mc
-        for miner_hotkey, current_plagiarism_score in self.challengeperiod_manager.miner_plagiarism_scores.items():
-            if self.shutdown_dict:
-                return
-            if self.hotkey_in_eliminations(miner_hotkey):
-                continue
-            if current_plagiarism_score > ValiConfig.MAX_MINER_PLAGIARISM_SCORE:
-                self.append_elimination_row(miner_hotkey, current_plagiarism_score, EliminationReason.PLAGIARISM.value)
-                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
 
     def is_zombie_hotkey(self, hotkey, all_hotkeys_set):
         if hotkey in all_hotkeys_set:
@@ -329,6 +316,7 @@ class EliminationManager(CacheController):
             if miner_exceeds_mdd:
                 self.append_elimination_row(miner_hotkey, drawdown_percentage, EliminationReason.MAX_TOTAL_DRAWDOWN.value)
                 self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
+                self.contract_manager.slash_miner_collateral_proportion(miner_hotkey, ValiConfig.SLASH_PROPORTION)
 
     def handle_zombies(self, position_locks):
         """
