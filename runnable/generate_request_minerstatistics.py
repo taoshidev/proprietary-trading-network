@@ -864,12 +864,15 @@ class MinerStatisticsManager:
                 }
             elif hotkey in sorted_challengeperiod_plagiarism:
                 bucket_start = sorted_challengeperiod_plagiarism[hotkey]
-                bucket_end = max(bucket_start + ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS, asset_split_grace_timestamp)
+                bucket_end = max(
+                    bucket_start + ValiConfig.PLAGIARISM_REVIEW_PERIOD_MS,
+                    asset_split_grace_timestamp,
+                )
                 remaining = bucket_end - time_now
                 challengeperiod_info = {
                     "status": "plagiarism",
                     "start_time_ms": bucket_start,
-                    "remaining_time_ms": max(remaining, 0)
+                    "remaining_time_ms": max(remaining, 0),
                 }
 
             # Build a small function to extract ScoreResult -> dict for each metric

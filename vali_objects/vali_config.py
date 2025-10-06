@@ -304,9 +304,9 @@ class ValiConfig:
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
     MINER_COPYING_WEIGHT = 0.01
     MAX_MINER_PLAGIARISM_SCORE = 0.9  # want to make sure we're filtering out the bad actors
-    PLAGIARISM_UPDATE_FREQUENCY_MS = 1000 * 60 * 60 # 1 hour
-    PLAGIARISM_REVIEW_PERIOD_MS = 1000 * 60 * 60 * 24 * 14 # Time from plagiarism detection to elimination, 2 weeks
-    PLAGIARISM_URL = "https://plagiarism.ultron.ts.taoshi.io/plagiarism" # Public domain for getting plagiarism scores
+    PLAGIARISM_UPDATE_FREQUENCY_MS = 1000 * 60 * 60  # 1 hour
+    PLAGIARISM_REVIEW_PERIOD_MS = 1000 * 60 * 60 * 24 * 14  # Time from plagiarism detection to elimination, 2 weeks
+    PLAGIARISM_URL = "https://plagiarism.ultron.ts.taoshi.io/plagiarism"  # Public domain for getting plagiarism scores
 
     BASE_DIR = base_directory = BASE_DIR
 
