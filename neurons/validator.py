@@ -50,7 +50,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.order import Order, OrderSource
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
@@ -681,115 +681,54 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order, miner_hotkey: str):
-        # Check if there are too many orders across all open positions.
-        # If so, check if the current order is a FLAT order (reduces number of open orders).
-        # If not a FLAT order, automatically close the position for this trade pair and create a new one.
-        n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
-        # Check if adding this order would exceed the limit
-        if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
-            if signal_to_order.order_type != OrderType.FLAT:
-                # Automatically close the position for this trade pair to make room for new orders
-                target_position = trade_pair_to_open_position.get(signal_to_order.trade_pair)
-                if target_position and not target_position.is_closed_position:
-                    bt.logging.info(
-                        f"Miner [{miner_hotkey}] hit {ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY} order limit. "
-                        f"Automatically closing position for {signal_to_order.trade_pair.trade_pair_id} "
-                        f"with {len(target_position.orders)} orders to make room for new position."
-                    )
-
-                    # Create FLAT order to close the position
-                    from vali_objects.vali_dataclasses.order import OrderSource
-                    flat_order = Order(
-                        trade_pair=signal_to_order.trade_pair,
-                        order_type=OrderType.FLAT,
-                        leverage=0.0,
-                        price=signal_to_order.price,  # Use same price as the triggering order
-                        processed_ms=signal_to_order.processed_ms,
-                        order_uuid=f"auto_close_{signal_to_order.order_uuid}",
-                        price_sources=signal_to_order.price_sources,
-                        bid=signal_to_order.bid,
-                        ask=signal_to_order.ask,
-                        src=OrderSource.MAX_ORDERS_PER_POSITION_CLOSE
-                    )
-
-                    # Add the FLAT order and close the position
-                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    target_position.add_order(flat_order, self.live_price_fetcher, net_portfolio_leverage)
-                    target_position.is_closed_position = True
-                    target_position.close_ms = signal_to_order.processed_ms
-
-                    # Save the closed position
-                    self.position_manager.save_miner_position(target_position)
-
-                    # Remove from the open positions dict so a new position can be created
-                    del trade_pair_to_open_position[signal_to_order.trade_pair]
-
-                    bt.logging.info(
-                        f"Successfully closed position for {signal_to_order.trade_pair.trade_pair_id} "
-                        f"with {len(target_position.orders)} orders (including auto-close FLAT order). "
-                        f"New position will be created for the incoming order."
-                    )
-                else:
-                    # If no position exists for this trade pair, raise exception as before
-                    raise SignalException(
-                        f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
-                        f"order [{signal_to_order}] is not a FLAT order. No existing position found to close."
-                    )
-
     def _get_or_create_open_position_from_new_order(self, trade_pair: TradePair, order_type: OrderType, order_time_ms: int,
-                                        miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
+                                        miner_hotkey: str, miner_order_uuid: str, now_ms:int, price_sources, miner_repo_version, account_size):
 
-        # if a position already exists, add the order to it
-        if trade_pair in trade_pair_to_open_position:
-            # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
-            # loop thread.
-            if trade_pair_to_open_position[trade_pair].is_closed_position:
-                raise SignalException(
-                    f"miner [{miner_hotkey}] sent signal for "
-                    f"closed position [{trade_pair}]")
-            bt.logging.debug("adding to existing position")
-            open_position = trade_pair_to_open_position[trade_pair]
-        else:
-            bt.logging.debug("processing new position")
-            # if the order is FLAT ignore (noop)
-            if order_type == OrderType.FLAT:
-                open_position = None
-            else:
-                # Get relevant account size
-                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
-                if account_size is None:
-                    account_size = ValiConfig.MIN_CAPITAL
-                else:
-                    account_size = max(account_size, ValiConfig.MIN_CAPITAL)
+        # gather open positions and see which trade pairs have an open position
+        best_price_source = price_sources[0]
+        positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
+        trade_pair_to_open_position = {position.trade_pair: position for position in positions}
 
-                # if a position doesn't exist, then make a new one
-                # Validate asset class selection
-                if not self.asset_selection_manager.validate_order_asset_class(miner_hotkey, trade_pair.trade_pair_category, order_time_ms):
-                    raise SignalException(
-                        f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
-                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
-                        f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
-                    )
-
-                open_position = Position(
-                    miner_hotkey=miner_hotkey,
-                    position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-                    open_ms=order_time_ms,
-                    trade_pair=trade_pair,
-                    account_size=account_size
+        existing_open_pos = trade_pair_to_open_position.get(trade_pair)
+        if existing_open_pos:
+            if len(existing_open_pos.orders) >= ValiConfig.MAX_ORDERS_PER_POSITION:
+                bt.logging.info(
+                    f"Miner [{miner_hotkey}] hit {ValiConfig.MAX_ORDERS_PER_POSITION} order limit. "
+                    f"Automatically closing position for {trade_pair.trade_pair_id} "
+                    f"with {len(existing_open_pos.orders)} orders to make room for new position."
                 )
-        return open_position
+                force_close_order_time = now_ms - 1 # 2 orders for the same trade pair cannot have the same timestamp
+                force_close_order_uuid = existing_open_pos.position_uuid[::-1] # uuid will stay the same across validators
+                self._add_order_to_existing_position(existing_open_pos, trade_pair, OrderType.FLAT,
+                                                     0.0, force_close_order_time, miner_hotkey,
+                                                     price_sources, force_close_order_uuid, miner_repo_version,
+                                                     OrderSource.MAX_ORDERS_PER_POSITION_CLOSE, account_size)
 
-    def enforce_no_duplicate_order(self, synapse: template.protocol.SendSignal):
-        order_uuid = synapse.miner_order_uuid
-        if order_uuid:
-            if self.uuid_tracker.exists(order_uuid):
-                msg = (f"Order with uuid [{order_uuid}] has already been processed. "
-                       f"Please try again with a new order.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
-                synapse.error_message = msg
+            else:
+                # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
+                # loop thread.
+                if trade_pair_to_open_position[trade_pair].is_closed_position:
+                    raise SignalException(
+                        f"miner [{miner_hotkey}] sent signal for "
+                        f"closed position [{trade_pair}]")
+                bt.logging.debug("adding to existing position")
+                # Return existing open position
+                return trade_pair_to_open_position[trade_pair]
+
+
+        # if the order is FLAT ignore (noop)
+        if order_type == OrderType.FLAT:
+            open_position = None
+        else:
+            # if a position doesn't exist, then make a new one
+            open_position = Position(
+                miner_hotkey=miner_hotkey,
+                position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                open_ms=order_time_ms,
+                trade_pair=trade_pair,
+                account_size=account_size
+            )
+        return open_position
 
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None, now_ms=None) -> bool:
@@ -844,31 +783,39 @@ class Validator:
             synapse.error_message = msg
             return True
 
-        if signal:
-            tp = self.parse_trade_pair_from_signal(signal)
+        order_uuid = synapse.miner_order_uuid
+        tp = self.parse_trade_pair_from_signal(signal)
+        if order_uuid and self.uuid_tracker.exists(order_uuid):
+            msg = (f"Order with uuid [{order_uuid}] has already been processed. "
+                   f"Please try again with a new order.")
+            bt.logging.error(msg)
+            synapse.error_message = msg
 
-            if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
+        elif signal and tp:
+            # Validate asset class selection
+            if not self.asset_selection_manager.validate_order_asset_class(synapse.dendrite.hotkey, tp.trade_pair_category, now_ms):
+                msg = (
+                    f"miner [{synapse.dendrite.hotkey}] cannot trade asset class [{tp.trade_pair_category.value}]. "
+                    f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(synapse.dendrite.hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
+                    f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
+                )
+                synapse.error_message = msg
+
+            elif not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
                 synapse.error_message = msg
-                return True
 
-            if tp and tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
+            elif tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
                        f"Please try again with a different trade pair.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
                 synapse.error_message = msg
-                return True
 
-            self.enforce_no_duplicate_order(synapse)
-            if synapse.error_message:
-                return True
+        synapse.successfully_processed = not bool(synapse.error_message)
+        if synapse.error_message:
+            bt.logging.error(synapse.error_message)
 
-
-        return False
+        return bool(synapse.error_message)
 
     def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
         """
@@ -905,6 +852,46 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
+    def _add_order_to_existing_position(self, existing_position, trade_pair, signal_order_type: OrderType,
+                                        signal_leverage: float, order_time_ms: int, miner_hotkey: str,
+                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource,
+                                        account_size):
+        # Must be locked by caller
+        best_price_source = price_sources[0]
+        order = Order(
+            trade_pair=trade_pair,
+            order_type=signal_order_type,
+            leverage=signal_leverage,
+            price=best_price_source.parse_appropriate_price(order_time_ms, trade_pair.is_forex, signal_order_type,
+                                                            existing_position),
+            processed_ms=order_time_ms,
+            order_uuid=miner_order_uuid,
+            price_sources=price_sources,
+            bid=best_price_source.bid,
+            ask=best_price_source.ask,
+            src=src
+        )
+        self.price_slippage_model.refresh_features_daily(time_ms=order_time_ms)
+        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
+        net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+        existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
+        self.position_manager.save_miner_position(existing_position)
+        # Update cooldown cache after successful order processing
+        self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = order_time_ms
+        self.uuid_tracker.add(miner_order_uuid)
+
+        if self.config.serve:
+            # Add the position to the queue for broadcasting
+            self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
+
+    def _get_account_size(self, miner_hotkey, now_ms):
+        account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=now_ms)
+        if account_size is None:
+            account_size = ValiConfig.MIN_CAPITAL
+        else:
+            account_size = max(account_size, ValiConfig.MIN_CAPITAL)
+        return account_size
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -937,7 +924,6 @@ class Validator:
             if not price_sources:
                 raise SignalException(
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
-            best_price_source = price_sources[0]
 
             signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
@@ -951,41 +937,17 @@ class Validator:
                     synapse.successfully_processed = False
                     synapse.error_message = err_msg
                     return synapse
-                    
-                self.enforce_no_duplicate_order(synapse)
-                if synapse.error_message:
-                    return synapse
-                # gather open positions and see which trade pairs have an open position
-                positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
-                trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
+
+                # Get relevant account size
+                account_size = self._get_account_size(miner_hotkey, now_ms)
+                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type,
+                    now_ms, miner_hotkey, miner_order_uuid, now_ms, price_sources, miner_repo_version, account_size)
                 if existing_position:
-                    order = Order(
-                        trade_pair=trade_pair,
-                        order_type=signal_order_type,
-                        leverage=signal_leverage,
-                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        existing_position),
-                        processed_ms=now_ms,
-                        order_uuid=miner_order_uuid,
-                        price_sources=price_sources,
-                        bid=best_price_source.bid,
-                        ask=best_price_source.ask,
-                    )
-                    self.price_slippage_model.refresh_features_daily()
-                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
-                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order, miner_hotkey)
-                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
-                    self.position_manager.save_miner_position(existing_position)
-                    # Update cooldown cache after successful order processing
-                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
-                    if self.config.serve:
-                        # Add the position to the queue for broadcasting
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
-                    synapse.order_json = order.__str__()
-                    self.uuid_tracker.add(miner_order_uuid)
+                    self._add_order_to_existing_position(existing_position, trade_pair, signal_order_type,
+                                                        signal_leverage, now_ms, miner_hotkey,
+                                                        price_sources, miner_order_uuid, miner_repo_version,
+                                                        OrderSource.ORGANIC, account_size)
+                    synapse.order_json = existing_position.orders[-1].__str__()
                 else:
                     # Happens if a FLAT is sent when no position exists
                     pass
