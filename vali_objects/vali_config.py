@@ -319,6 +319,7 @@ class ValiConfig:
     BASE_COLLATERAL_RETURNED = 0.5
     # 50% of drawdown proportion is slashed
     SLASH_PROPORTION = 0.5
+    CHALLENGEPERIOD_SLASH_PROPORTION = 0.1  # 10% slashed upon challenge period elimination
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE

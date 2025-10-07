@@ -14,7 +14,7 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
-TARGET_MS = 1759202639000
+TARGET_MS = 1759817759000
 
 class CollateralRecord:
     def __init__(self, account_size, account_size_theta, update_time_ms):
@@ -131,7 +131,9 @@ class ValidatorContractManager:
         if now_ms > TARGET_MS:
             return
 
-        miners_to_reinstate = {}
+        miners_to_reinstate = {
+            "5FsjZqFW4soyaToAaMWehDWDtemHKVDMY5bcQrbmU1QBu8N3": 299
+        }
         for miner, amount in miners_to_reinstate.items():
             self.force_deposit(amount, miner)
 
