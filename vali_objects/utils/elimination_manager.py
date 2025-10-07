@@ -142,7 +142,7 @@ class EliminationManager(CacheController):
             elim_mdd = eliminations_with_reasons[hotkey][1]
             self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, reason=elim_reason)
             self.handle_eliminated_miner(hotkey, {}, position_locks)
-            self.contract_manager.slash_miner_collateral_proportion(hotkey, ValiConfig.SLASH_PROPORTION)
+            self.contract_manager.slash_miner_collateral_proportion(hotkey, ValiConfig.CHALLENGEPERIOD_SLASH_PROPORTION)
 
         self.challengeperiod_manager.eliminations_with_reasons = {}
 
