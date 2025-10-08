@@ -351,15 +351,15 @@ class TestEliminationWeightCalculation(TestBase):
             hotkeys=success_hotkeys
         )
 
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        subcategory_min_days = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        asset_class_min_days = {asset_class: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for asset_class in asset_classes}
         
         # Compute scores
         if len(filtered_ledger) > 0:
             scores = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
-                subcategory_min_days=subcategory_min_days,
+                subcategory_min_days=asset_class_min_days,
                 evaluation_time_ms=TimeUtil.now_in_millis(),
                 all_miner_account_sizes={}
             )

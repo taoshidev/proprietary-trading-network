@@ -65,8 +65,8 @@ class TestWeights(TestBase):
             }
         }
 
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        self.SUBCATEGORY_MIN_DAYS = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        self.SUBCATEGORY_MIN_DAYS = {asset_class: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for asset_class in asset_classes}
 
         self.DEFAULT_LEDGER = generate_ledger(0.1)
 
