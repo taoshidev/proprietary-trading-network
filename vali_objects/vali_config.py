@@ -468,9 +468,21 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if this trade pair is blocked from trading"""
+        BLOCKED_TRADE_PAIR_IDS = {
+            'SPX', 'DJI', 'NDX', 'VIX', 'FTSE', 'GDAXI',  # Indices
+            'XAUUSD', 'XAGUSD',  # Commodities
+            'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOG', 'META',  # Equities
+            'AUDJPY', 'CADJPY', 'CHFJPY', 'EURJPY', 'NZDJPY', 'GBPJPY', 'USDJPY'  # Forex JPY pairs
+        }
+        return self.trade_pair_id in BLOCKED_TRADE_PAIR_IDS
 
     @property
     def leverage_multiplier(self) -> int:

@@ -818,6 +818,14 @@ class Validator:
                 synapse.error_message = msg
                 return True
 
+            if tp and tp.is_blocked:
+                msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked"
+                       f"Please try again with a different trade pair.")
+                bt.logging.error(msg)
+                synapse.successfully_processed = False
+                synapse.error_message = msg
+                return True
+
             self.enforce_no_duplicate_order(synapse)
             if synapse.error_message:
                 return True
