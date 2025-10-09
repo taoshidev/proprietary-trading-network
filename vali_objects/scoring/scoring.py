@@ -86,7 +86,7 @@ class Scoring:
     def compute_results_checkpoint(
             ledger_dict: dict[str, dict[str, PerfLedger]],
             full_positions: dict[str, list[Position]],
-            subcategory_min_days: dict[str, int],
+            asset_class_min_days: dict[str, int],
             evaluation_time_ms: int = None,
             verbose=True,
             weighting=False,
@@ -125,7 +125,7 @@ class Scoring:
         _, asset_softmaxed_scores = Scoring.score_miner_asset_classes(
             ledger_dict=ledger_dict,
             positions=full_positions,
-            asset_class_min_days=subcategory_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=evaluation_time_ms,
             weighting=weighting,
             all_miner_account_sizes=all_miner_account_sizes

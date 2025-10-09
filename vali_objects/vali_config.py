@@ -137,22 +137,11 @@ class ValiConfig:
     ASSET_CLASS_BREAKDOWN = {
         TradePairCategory.CRYPTO: {
             "emission": 0.5,  # Total emission for crypto
-            "subcategory_weights": {
-                CryptoSubcategory.MAJORS: 0.8,  # 80% of crypto emission for majors
-                CryptoSubcategory.ALTS: 0.2,  # 20% of crypto emission for alts
-            },
             "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
         # These are based on margin requirements on brokerage accounts
         TradePairCategory.FOREX: {
             "emission": 0.5,  # Total emission for forex
-            "subcategory_weights": {
-                ForexSubcategory.G1: 0.2927,  # 29.27% of forex emission for group 1
-                ForexSubcategory.G2: 0.1463,  # 14.63% of forex emission for group 2
-                ForexSubcategory.G3: 0.2073,  # 20.73% of forex emission for group 3
-                ForexSubcategory.G4: 0.0976,  # 9.76% of forex emission for group 4
-                ForexSubcategory.G5: 0.2561,  # 25.61% of forex emission for group 5
-            },
             "days_in_year": DAYS_IN_YEAR_FOREX,
         },
     }

@@ -356,7 +356,7 @@ class ChallengePeriodManager(CacheController):
 
             valid_candidate_hotkeys.append(hotkey)
 
-        # Calculate dynamic minimum participation days for asset subcategories
+        # Calculate dynamic minimum participation days for asset classes
         maincomp_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in [*success_hotkeys, *probation_hotkeys]}   # ledger of all miners in maincomp, including probation
         asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
         asset_class_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
@@ -420,11 +420,11 @@ class ChallengePeriodManager(CacheController):
                 combined_scores_dict[asset_class]['metrics'][metric_name]["scores"] += candidate_metric["scores"]
             combined_scores_dict[asset_class]["penalties"].update(candidate_scores_dict["penalties"])
 
-        # score them based on asset subcategory
+        # score them based on asset class
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        # combine asset subcategories
+        # combine asset
         weighted_scores = defaultdict(lambda: defaultdict(float))
         for asset_class, miner_scores in asset_softmaxed_scores.items():
             weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["emission"]

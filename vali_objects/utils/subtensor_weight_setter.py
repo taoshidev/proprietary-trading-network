@@ -73,17 +73,17 @@ class SubtensorWeightSetter(CacheController):
         success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
         maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*success_hotkeys, *probation_hotkeys])  # ledger of all miners in maincomp, including probation
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            maincomp_ledger, asset_subcategories
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        asset_class_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
+            maincomp_ledger, asset_classes
         )
-        bt.logging.info(f"subtensor_weight_setter subcategory_min_days: {subcategory_min_days}")
+        bt.logging.info(f"subtensor_weight_setter asset_class_min_days: {asset_class_min_days}")
 
         if self.is_backtesting:
             hotkeys_to_compute_weights_for = testing_hotkeys + success_hotkeys
         else:
             hotkeys_to_compute_weights_for = success_hotkeys
-        checkpoint_netuid_weights, checkpoint_results = self._compute_miner_weights(hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days=subcategory_min_days, scoring_challenge=False)
+        checkpoint_netuid_weights, checkpoint_results = self._compute_miner_weights(hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, asset_class_min_days=asset_class_min_days, scoring_challenge=False)
 
         if checkpoint_netuid_weights is None or len(checkpoint_netuid_weights) == 0:
             bt.logging.info("No returns to set weights with. Do nothing for now.")
@@ -92,7 +92,7 @@ class SubtensorWeightSetter(CacheController):
         if self.is_backtesting:
             challengeperiod_weights = []
         else:
-            challengeperiod_weights, _ = self._compute_miner_weights(testing_hotkeys, hotkey_to_idx, current_time, subcategory_min_days=subcategory_min_days, scoring_challenge=True)
+            challengeperiod_weights, _ = self._compute_miner_weights(testing_hotkeys, hotkey_to_idx, current_time, asset_class_min_days=asset_class_min_days, scoring_challenge=True)
 
         transformed_list = checkpoint_netuid_weights + challengeperiod_weights
         self.handle_block_reg_failures(transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks, idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures)
@@ -102,7 +102,7 @@ class SubtensorWeightSetter(CacheController):
 
         return checkpoint_results, transformed_list
 
-    def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days, scoring_challenge: bool = False):
+    def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, asset_class_min_days, scoring_challenge: bool = False):
         miner_group = "challenge period" if scoring_challenge else "main competition"
 
         # only collect ledger elements for the miners that passed the challenge period
@@ -120,7 +120,7 @@ class SubtensorWeightSetter(CacheController):
             checkpoint_results = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
-                subcategory_min_days=subcategory_min_days,
+                asset_class_min_days=asset_class_min_days,
                 evaluation_time_ms=current_time,
                 verbose=True,
                 weighting=True,

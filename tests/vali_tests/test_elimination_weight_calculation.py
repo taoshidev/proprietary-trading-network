@@ -359,7 +359,7 @@ class TestEliminationWeightCalculation(TestBase):
             scores = Scoring.compute_results_checkpoint(
                 filtered_ledger,
                 filtered_positions,
-                subcategory_min_days=asset_class_min_days,
+                asset_class_min_days=asset_class_min_days,
                 evaluation_time_ms=TimeUtil.now_in_millis(),
                 all_miner_account_sizes={}
             )

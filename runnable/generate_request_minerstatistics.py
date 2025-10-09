@@ -626,7 +626,7 @@ class MinerStatisticsManager:
         checkpoint_results = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
-            subcategory_min_days=asset_class_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -642,7 +642,7 @@ class MinerStatisticsManager:
         testing_checkpoint_results = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
-            subcategory_min_days=asset_class_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
