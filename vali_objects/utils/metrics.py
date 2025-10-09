@@ -27,14 +27,14 @@ class Metrics:
         return list(weighted_returns)
 
     @staticmethod
-    def weighting_distribution(log_returns: Union[list[float], np.ndarray]) -> np.ndarray:
+    def weighting_distribution(log_returns: Union[list[float], np.ndarray],
+                               max_weight: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX,
+                               min_weight: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN,
+                               decay_rate: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_RATE) -> np.ndarray:
         """
         Returns the weighting distribution that decays from max_weight to min_weight
         using the configured decay rate
         """
-        max_weight = ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX
-        min_weight = ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN
-        decay_rate = ValiConfig.WEIGHTED_AVERAGE_DECAY_RATE
 
         if len(log_returns) < 1:
             return np.ones(0)
@@ -48,14 +48,18 @@ class Metrics:
         return decay_values[::-1][-len(log_returns):]
 
     @staticmethod
-    def average(log_returns: Union[list[float], np.ndarray], weighting=False, indices: Union[list[int], None] = None) -> float:
+    def average(log_returns: Union[list[float], np.ndarray], weighting=False,
+                indices: Union[list[int], None] = None,
+                max_weight: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_MAX,
+                min_weight: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN,
+                decay_rate: float = ValiConfig.WEIGHTED_AVERAGE_DECAY_RATE) -> float:
         """
         Returns the mean of the log returns
         """
         if len(log_returns) == 0:
             return 0.0
 
-        weighting_distribution = Metrics.weighting_distribution(log_returns)
+        weighting_distribution = Metrics.weighting_distribution(log_returns, max_weight=max_weight, min_weight=min_weight, decay_rate=decay_rate)
 
         if indices is not None and len(indices) != 0:
             indices = [i for i in indices if i in range(len(log_returns))]
@@ -432,5 +436,5 @@ class Metrics:
             return ValiConfig.PNL_NOCONFIDENCE_VALUE
             
         # Apply time weighting if requested
-        return Metrics.average(daily_pnl_values, weighting=weighting)
+        return Metrics.average(daily_pnl_values, weighting=weighting, min_weight=ValiConfig.WEIGHTED_AVERAGE_DECAY_MIN_PNL)
 

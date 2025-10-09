@@ -661,14 +661,31 @@ class TestMetrics(TestBase):
         # First 20 days: positive, last 10 days: negative
         pnl_pattern = [50.0] * 20 + [-100.0] * 10
         ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
-        
+
         weighted_score = Metrics.pnl_score([], ledger, weighting=True)
         unweighted_score = Metrics.pnl_score([], ledger, weighting=False)
-        
+
         # Unweighted: (20*50 + 10*(-100)) / 30 = 0/30 = 0
         expected_unweighted = sum(pnl_pattern) / len(pnl_pattern)
         self.assertAlmostEqual(unweighted_score, expected_unweighted, places=1)
-        
+
         # Time weighting should make the score more negative due to recent losses
         self.assertLess(weighted_score, unweighted_score,
                        "Recent negative values should dominate with time weighting")
+
+    def test_pnl_score_70_percent_weight_in_first_30_days(self):
+        """Test that roughly 70% of the weight for PnL metric is in the most recent 30 days"""
+        # Create a 100-day dataset where:
+        # - First 70 days have PnL = 0
+        # - Last 30 days have PnL = 100
+        # If ~70% of weight is in the last 30 days, weighted average should be ~70
+        pnl_pattern = [0.0] * 90 + [100.0] * 30
+        ledger = create_daily_checkpoints_with_pnl(pnl_pattern)
+
+        weighted_score = Metrics.pnl_score([], ledger, weighting=True)
+
+        # With 70% weight on recent 30 days (value=100) and 30% on older 70 days (value=0):
+        # Expected weighted score ≈ 70
+        # Using a tolerance of ±5 to account for the decay distribution
+        self.assertAlmostEqual(weighted_score, 70.0, delta=1.0,
+                             msg=f"Expected weighted score ~70 if 70% weight in recent 30 days, got {weighted_score:.2f}")
