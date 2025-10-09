@@ -479,9 +479,18 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def lot_size(self):
+        trade_pair_lot_size = {TradePairCategory.CRYPTO: 1,
+                               TradePairCategory.FOREX: 100_000,
+                               TradePairCategory.INDICES: 1,
+                               TradePairCategory.EQUITIES: 1}
+        return trade_pair_lot_size[self.trade_pair_category]
 
     @property
     def leverage_multiplier(self) -> int:
