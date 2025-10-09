@@ -72,6 +72,7 @@ This daily calculation and evaluation framework closely aligns with real-world f
 Annualization is used for the Sharpe ratio, Sortino ratio, and risk adjusted return with either volatility or returns being annualized to better evaluate the long-term value of strategies and standardize our metrics. Volatility is the standard deviation of returns and is a key factor in the Sharpe and Sortino calculations.
 
 In determining the correct annualization factor, we weigh more recent trading days slightly higher than older trading days. This should encourage miners to regularly update their strategies and adapt to changing market conditions, continually providing the network with the most relevant signals. The most recent 10 days account for 25% of the total score, the most recent 30 days account for 50%, and the most recent 70 days account for 75%, with a pattern that tapers exponentially over time.
+The average daily PnL metric has a more aggressive recency weighting to encourage frequent trading activity. The first 10 days has 40% of the total score, the first 30 days account for 70%, and the first 70 days account for 87% also with weight that tapers exponentially over time.
 
 Additionally, normalization with annual risk-free rate of T-bills further standardizes our metrics and allows us to measure miner performance on a more consistent basis.
 
@@ -115,12 +116,12 @@ $$
 
 | Metric                 | Scoring Weight |
 |------------------------|----------------|
-| Average Daily PnL      | 50%            |
-| Calmar Ratio           | 10%            |
-| Sharpe Ratio           | 10%            |
-| Omega Ratio            | 10%            |
-| Sortino Ratio          | 10%            |
-| Statistical Confidence | 10%            |
+| Average Daily PnL      | 90%            |
+| Calmar Ratio           | 2%             |
+| Sharpe Ratio           | 2%             |
+| Omega Ratio            | 2%             |
+| Sortino Ratio          | 2%             |
+| Statistical Confidence | 2%             |
 
 ### Scoring Penalties
 

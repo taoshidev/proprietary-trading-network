@@ -425,16 +425,54 @@ class TestAssetSegmentation(TestBase):
     def test_days_in_year_invalid_category_raises_error(self):
         """Test that days_in_year_from_asset_category raises error for invalid category"""
         segmentation_machine = AssetSegmentation(self.test_ledgers)
-        
+
         # Create a mock invalid category that doesn't exist in ASSET_CLASS_BREAKDOWN
         from unittest.mock import Mock
         invalid_category = Mock()
         invalid_category.name = "INVALID_CATEGORY"
-        
+
         with self.assertRaises(ValueError) as context:
             segmentation_machine.days_in_year_from_asset_category(invalid_category)
-        
+
         self.assertIn("Days in year must be positive", str(context.exception))
+
+    def test_aggregate_pnl_single_subcategory(self):
+        """Test that PnL is correctly aggregated for a single subcategory"""
+        default_ledger = PerfLedger()
+
+        # Create checkpoints with explicit PnL values for crypto_majors
+        checkpoints_btc = [
+            checkpoint_generator(last_update_ms=1000, gain=0.05, loss=-0.02, pnl_gain=100.0, pnl_loss=-20.0, n_updates=1),
+            checkpoint_generator(last_update_ms=2000, gain=0.03, loss=-0.01, pnl_gain=50.0, pnl_loss=-10.0, n_updates=1)
+        ]
+        checkpoints_eth = [
+            checkpoint_generator(last_update_ms=1000, gain=0.04, loss=-0.015, pnl_gain=80.0, pnl_loss=-15.0, n_updates=1),
+            checkpoint_generator(last_update_ms=2000, gain=0.02, loss=-0.005, pnl_gain=40.0, pnl_loss=-5.0, n_updates=1)
+        ]
+
+        btc_ledger = ledger_generator(checkpoints=checkpoints_btc)
+        eth_ledger = ledger_generator(checkpoints=checkpoints_eth)
+
+        sub_ledgers = {
+            "BTCUSD": btc_ledger,
+            "ETHUSD": eth_ledger
+        }
+
+        result = AssetSegmentation.aggregate_miner_subledgers(default_ledger, sub_ledgers)
+
+        # Verify aggregation at timestamp 1000
+        cp_1000 = next(cp for cp in result.cps if cp.last_update_ms == 1000)
+        self.assertEqual(cp_1000.pnl_gain, 180.0)  # 100 + 80
+        self.assertEqual(cp_1000.pnl_loss, -35.0)  # -20 + -15
+        self.assertEqual(cp_1000.gain, 0.09)  # 0.05 + 0.04
+        self.assertEqual(cp_1000.loss, -0.035)  # -0.02 + -0.015
+
+        # Verify aggregation at timestamp 2000
+        cp_2000 = next(cp for cp in result.cps if cp.last_update_ms == 2000)
+        self.assertEqual(cp_2000.pnl_gain, 90.0)  # 50 + 40
+        self.assertEqual(cp_2000.pnl_loss, -15.0)  # -10 + -5
+        self.assertEqual(cp_2000.gain, 0.05)  # 0.03 + 0.02
+        self.assertEqual(cp_2000.loss, -0.015)  # -0.01 + -0.005
 
 if __name__ == '__main__':
     unittest.main()
