@@ -224,7 +224,7 @@ class Validator:
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
-                                                perform_order_corrections=False,
+                                                perform_order_corrections=True,
                                                 ipc_manager=self.ipc_manager,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
