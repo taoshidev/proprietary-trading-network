@@ -331,7 +331,7 @@ def process_miner_with_main_logic(
     bt.logging.info(f"📅 Total days in range: {total_days}")
     
     # Step through each day (same as main logic)
-    current_ms = start_ms
+    current_ms = end_ms
     day_counter = 0
 
     # Batch process: Calculate all returns first, then insert all at once
@@ -339,7 +339,7 @@ def process_miner_with_main_logic(
     dates_processed = []
     
     bt.logging.info(f"📊 Calculating returns for all days...")
-    while current_ms <= end_ms:
+    while current_ms >= start_ms:
         day_counter += 1
         current_date = datetime.fromtimestamp(current_ms / 1000, tz=timezone.utc)
         
@@ -348,7 +348,7 @@ def process_miner_with_main_logic(
         
         # Skip if this hotkey-date pair already exists (fine-grained checking)
         if (hotkey, current_date_str) in existing_hotkey_date_pairs:
-            current_ms += MS_IN_24_HOURS
+            current_ms -= MS_IN_24_HOURS
             continue
         
         # Filter positions and identify required trade pairs using date string
@@ -358,7 +358,7 @@ def process_miner_with_main_logic(
         
         if not filtered_positions_by_hotkey or hotkey not in filtered_positions_by_hotkey:
             bt.logging.info(f"⏭️  No positions or eliminated for {hotkey[:12]}... on {current_date_str}")
-            current_ms += MS_IN_24_HOURS
+            current_ms -= MS_IN_24_HOURS
             continue
         
         # Process this day
@@ -1529,194 +1529,6 @@ def analyze_miners_with_orders(all_positions: Dict[str, List[Position]]) -> Dict
     return miners_with_orders
 
 
-def run_single_miner_backfill(hotkey: str, expected_days: int, shared_data_manager=None) -> int:
-    """
-    Run portfolio returns calculation for a single miner directly (no subprocess).
-    
-    Args:
-        hotkey: The miner hotkey to process
-        expected_days: Expected number of days to process
-        shared_data_manager: SharedDataManager with pre-loaded positions, eliminations, and portfolio data
-        
-    Returns:
-        Number of days processed (>= 0 for success, -1 for failure)
-    """
-    try:
-        # Use shared data if provided, otherwise load individually (less efficient)
-        if shared_data_manager and shared_data_manager.positions_loaded:
-            bt.logging.info(f"   📊 Using shared position data for {hotkey}...")
-            all_positions = {hotkey: shared_data_manager.all_positions.get(hotkey, [])}
-        else:
-            # Fall back to individual loading
-            bt.logging.info(f"   📊 Loading position data individually for {hotkey}...")
-            position_source_manager = PositionSourceManager(source_type=PositionSource.DATABASE)
-            all_positions = position_source_manager.load_positions(
-                start_time_ms=None,
-                end_time_ms=None,
-                hotkeys=[hotkey]
-            )
-        
-        if not all_positions or hotkey not in all_positions:
-            bt.logging.warning(f"   ⚠️  No positions found for {hotkey}")
-            return 0
-        
-        # Log position details
-        positions = all_positions[hotkey]
-        bt.logging.info(f"   📊 Found {len(positions)} positions with orders for {hotkey}")
-        
-        # Get order timestamps for better logging
-        first_order_ms = None
-        last_order_ms = None
-        total_orders = 0
-        
-        for position in positions:
-            if hasattr(position, 'orders') and position.orders:
-                total_orders += len(position.orders)
-                for order in position.orders:
-                    if hasattr(order, 'processed_ms') and order.processed_ms:
-                        if first_order_ms is None or order.processed_ms < first_order_ms:
-                            first_order_ms = order.processed_ms
-                        if last_order_ms is None or order.processed_ms > last_order_ms:
-                            last_order_ms = order.processed_ms
-        
-        if first_order_ms and last_order_ms:
-            first_order_date = TimeUtil.millis_to_formatted_date_str(first_order_ms)[:10]
-            last_order_date = TimeUtil.millis_to_formatted_date_str(last_order_ms)[:10]
-            bt.logging.info(f"   📊 Total orders: {total_orders} | First order: {first_order_date} | Last order: {last_order_date}")
-        else:
-            bt.logging.warning(f"   ⚠️  No orders found in {len(positions)} positions")
-        
-        # Use shared elimination tracker if provided (even if failed to load), otherwise create new one
-        if shared_data_manager and shared_data_manager.elimination_tracker:
-            elimination_tracker = shared_data_manager.elimination_tracker
-            if shared_data_manager.eliminations_loaded:
-                bt.logging.debug(f"   📋 Using shared elimination data")
-            else:
-                bt.logging.debug(f"   📋 Using shared elimination tracker (elimination data failed to load)")
-        else:
-            bt.logging.debug(f"   📋 Loading elimination data for {hotkey[:12]}...")
-            elimination_source = EliminationSource.DATABASE
-            elimination_tracker = EliminationTracker(elimination_source_type=elimination_source)
-            elimination_timestamps = elimination_tracker.load_all_eliminations(hotkeys=[hotkey])
-            
-            # Fast-fail validation: eliminations must be loaded
-            if not elimination_tracker.loaded:
-                raise RuntimeError(f"❌ Failed to load elimination data for {hotkey[:12]} - this is required for accurate date bounds calculation")
-        
-        # Determine date bounds from positions
-        start_ms, end_ms = DateUtils.determine_date_bounds(all_positions, elimination_tracker.elimination_timestamps if elimination_tracker else {})
-        
-        bt.logging.info(f"   🔄 Processing from {TimeUtil.millis_to_formatted_date_str(start_ms)} to {TimeUtil.millis_to_formatted_date_str(end_ms)}")
-        
-        # Use shared database manager if provided, otherwise create new one
-        if shared_data_manager and shared_data_manager.portfolio_data_loaded:
-            db_manager = shared_data_manager.db_manager
-            bt.logging.debug(f"   📋 Using shared database manager with portfolio cache")
-        else:
-            bt.logging.debug(f"   📋 Initializing new database manager for {hotkey[:12]}...")
-            secrets = ValiUtils.get_secrets()
-            database_url = secrets.get('database_url') or secrets.get('db_ptn_editor_url')
-            if not database_url:
-                database_url = get_database_url_from_config()
-            if not database_url:
-                bt.logging.error("   ❌ No database URL available")
-                return -1
-
-            db_manager = DatabaseManager(database_url)
-
-
-        # Get existing hotkey-date pairs for fine-grained skipping
-        start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
-        end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
-        
-        existing_hotkey_date_pairs = db_manager.get_existing_hotkey_date_pairs(
-            start_date_str, end_date_str, [hotkey]
-        )
-        
-        # Use shared price fetcher from shared_data_manager if available for efficiency
-        if shared_data_manager and hasattr(shared_data_manager, 'live_price_fetcher'):
-            live_price_fetcher = shared_data_manager.live_price_fetcher
-            bt.logging.debug(f"   📋 Using shared price fetcher (cached across miners)")
-        else:
-            secrets = ValiUtils.get_secrets()
-            live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-            bt.logging.debug(f"   📋 Created new price fetcher for {hotkey[:12]}...")
-
-        # Process each day
-        total_days = int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
-        days_processed = 0
-        days_inserted = 0
-        
-        bt.logging.info(f"   📅 Total days in range: {total_days}")
-        bt.logging.info(f"   📋 Found {len(existing_hotkey_date_pairs)} existing hotkey-date pairs to skip")
-        
-        if existing_hotkey_date_pairs:
-            # Show sample of existing pairs
-            sample_pairs = list(existing_hotkey_date_pairs)[:3]
-            for hk, date_str in sample_pairs:
-                if hk == hotkey:
-                    bt.logging.info(f"      Will skip: {date_str} (already exists)")
-            if len([p for p in existing_hotkey_date_pairs if p[0] == hotkey]) > 3:
-                bt.logging.info(f"      ... and more existing dates")
-        
-        for day_offset in range(total_days):
-            current_time_ms = start_ms + (day_offset * MS_IN_24_HOURS)
-            current_date = datetime.fromtimestamp(current_time_ms / 1000, tz=timezone.utc)
-            current_date_str = current_date.strftime('%Y-%m-%d')
-            
-            # Skip if this hotkey-date pair already exists (fine-grained checking)
-            if (hotkey, current_date_str) in existing_hotkey_date_pairs:
-                bt.logging.debug(f"   ⏭️  Skipping {current_date_str} - already exists for {hotkey[:12]}...")
-                continue
-            
-            # Use all positions directly - elimination logic now in DateUtils.determine_date_bounds
-            if hotkey not in all_positions or not all_positions[hotkey]:
-                bt.logging.debug(f"   ⏭️  No positions for {hotkey[:12]}... on {current_date_str}")
-                continue
-            
-            bt.logging.debug(f"   ⚡ Processing {current_date_str} for {hotkey[:12]}...")
-            days_processed += 1
-            
-            # Get cached price sources for required trade pairs
-            if not required_trade_pair_ids:
-                cached_price_sources = {}  # Empty dict but not None
-            else:
-                # Use smart caching strategy with date string
-                cached_price_sources = get_cached_or_fetch_price_sources(
-                    shared_data_manager,
-                    current_date_str,  # Pass the pre-calculated date string
-                    current_time_ms,
-                    required_trade_pair_ids
-                )
-            
-            # Calculate portfolio returns for this date
-            calculator = PortfolioCalculator({hotkey: all_positions[hotkey]}, live_price_fetcher)
-            daily_returns = calculator.calculate_daily_returns(current_date, cached_price_sources, live_price_fetcher)
-            
-            if daily_returns:
-                # Insert returns for this date
-                success = db_manager.insert_daily_returns(
-                    daily_returns, current_date_str, skip_duplicates=True
-                )
-                if success:
-                    days_inserted += 1
-                    bt.logging.debug(f"   ✅ Inserted {len(daily_returns)} returns for {current_date_str}")
-                else:
-                    bt.logging.warning(f"   ❌ Failed to insert returns for {current_date_str}")
-            else:
-                bt.logging.warning(f"   ⚠️  No returns calculated for {current_date_str}")
-            
-            if days_processed % 20 == 0:  # Progress every 20 days
-                bt.logging.info(f"   📊 Progress: {days_processed} processed, {days_inserted} inserted")
-        
-        bt.logging.info(f"   ✨ Completed! Processed {days_processed} days, inserted {days_inserted} new records")
-        return days_processed
-        
-    except Exception as e:
-        bt.logging.error(f"   ❌ Error processing {hotkey}: {e}")
-        return -1
-
-
 def run_automated_backfill(miners_with_orders: Dict[str, Dict[str, Any]], shared_data_manager: SharedDataManager = None,
                            dry_run: bool = False) -> Dict[str, Any]:
     """Run automated backfill process for miners with missing data.
@@ -2087,9 +1899,9 @@ def main():
     total_days = int((end_ms - start_ms) // MS_IN_24_HOURS) + 1
     
     # Step through each day
-    current_ms = start_ms
+    current_ms = end_ms
     day_counter = 0
-    while current_ms <= end_ms:
+    while current_ms >= start_ms:
         day_start_time = time.time()
         
         day_counter += 1
@@ -2112,13 +1924,45 @@ def main():
             if not filtered_positions_by_hotkey:
                 day_elapsed_time = time.time() - day_start_time
                 bt.logging.info(f"No valid positions remaining after filtering on {current_date_str} UTC, skipping... (took {day_elapsed_time:.2f}s)")
-                current_ms += MS_IN_24_HOURS
+                current_ms -= MS_IN_24_HOURS
                 continue
-            
-            # Use filtered positions directly - elimination logic now in DateUtils.determine_date_bounds
-            
+
             bt.logging.info(f"Found {len(filtered_positions_by_hotkey)} active miners with {sum(len(positions) for positions in filtered_positions_by_hotkey.values())} valid positions on {current_date_str} UTC")
-            
+
+            # Early duplicate check - skip price fetching if all miners already have data for this date
+            if existing_hotkey_date_pairs:
+                # Check which miners would be skipped
+                miners_to_skip = set()
+                for miner_hotkey in filtered_positions_by_hotkey.keys():
+                    if (miner_hotkey, current_date_str) in existing_hotkey_date_pairs:
+                        miners_to_skip.add(miner_hotkey)
+
+                if miners_to_skip:
+                    bt.logging.info(f"⏭️  Will skip {len(miners_to_skip)} miners that already have data for {current_date_str}")
+
+                    # If ALL miners would be skipped, skip the entire day
+                    if len(miners_to_skip) == len(filtered_positions_by_hotkey):
+                        bt.logging.info(f"All {len(filtered_positions_by_hotkey)} miners already have data for {current_date_str}, skipping entire day...")
+                        current_ms -= MS_IN_24_HOURS
+                        continue
+
+                    # Remove miners that already have data from our working set
+                    for miner_to_skip in miners_to_skip:
+                        del filtered_positions_by_hotkey[miner_to_skip]
+
+                    # Recalculate required trade pairs after removing miners
+                    remaining_positions = []
+                    for positions in filtered_positions_by_hotkey.values():
+                        remaining_positions.extend(positions)
+
+                    required_trade_pair_ids = set()
+                    for position in remaining_positions:
+                        if position.is_closed_position and position.close_ms <= current_ms:
+                            continue
+                        required_trade_pair_ids.add(position.trade_pair.trade_pair_id)
+
+                    bt.logging.info(f"After skipping duplicates: {len(filtered_positions_by_hotkey)} miners with {len(remaining_positions)} positions remain")
+
             # Step 2: Get prices using smart caching strategy
             if not required_trade_pair_ids:
                 bt.logging.info(f"No open positions needing prices on {current_date_str} UTC, using closed position returns...")
@@ -2158,19 +2002,19 @@ def main():
                 miner_category_returns, current_date
             )
             
-            # Filter out existing hotkey-date pairs (fine-grained duplicate checking)
+            # Note: Duplicate checking already done before price fetching - this is just a safety check
             if existing_hotkey_date_pairs:
                 original_count = len(daily_returns)
                 daily_returns = [
-                    dr for dr in daily_returns 
+                    dr for dr in daily_returns
                     if (dr['miner_hotkey'], dr['date']) not in existing_hotkey_date_pairs
                 ]
                 skipped_count = original_count - len(daily_returns)
                 if skipped_count > 0:
-                    bt.logging.info(f"⏭️  Filtered out {skipped_count} existing hotkey-date pairs for {current_date_str}")
+                    bt.logging.warning(f"⚠️  Found {skipped_count} unexpected duplicates that should have been filtered earlier")
                 if not daily_returns:
-                    bt.logging.info(f"All {original_count} miners already have data for {current_date_str}, skipping...")
-                    current_ms += MS_IN_24_HOURS
+                    bt.logging.warning(f"All {original_count} miners unexpectedly had duplicates, this shouldn't happen")
+                    current_ms -= MS_IN_24_HOURS
                     continue
 
             
@@ -2206,7 +2050,7 @@ def main():
             raise RuntimeError(f"Date processing failed for {current_date_str}: {e}") from e
         
         # Move to next day
-        current_ms += MS_IN_24_HOURS
+        current_ms -= MS_IN_24_HOURS
     
     # Handle CSV output if requested
     if args.save_csv and results:

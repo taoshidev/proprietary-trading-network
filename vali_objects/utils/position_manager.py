@@ -29,7 +29,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1759202639000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1760381040000 + (1000 * 60 * 60 * 6)  # + 6 hours
 
 
 
@@ -480,20 +480,25 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > TARGET_MS:
+            return
+            
         hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
-        now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
+        position_uuids_to_delete = []
         wipe_positions = False
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = []# All miners that should have been promoted
+            miners_to_wipe = ['5FxUrVZM9McqXQ5rG6KHk4bmprVDzhnNRJtuG3x8FbQTueSG']# All miners that should have been promoted
+            position_uuids_to_delete = ['ee4e17c2-384b-4f6e-9d9f-8a14882caa73']
             miners_to_promote = []
 
             for p in positions_to_snap:
@@ -546,6 +551,9 @@ class PositionManager(CacheController):
                 unique_corrections.update([p.position_uuid for p in positions])
                 for pos in positions:
                     if wipe_positions:
+                        self.delete_position(pos)
+                    elif pos.position_uuid in position_uuids_to_delete:
+                        print(f'Deleting position {pos.position_uuid} for trade pair {pos.trade_pair.trade_pair_id} for hk {pos.miner_hotkey}')
                         self.delete_position(pos)
                     else:
                         if any(o.src == 1 for o in pos.orders):

@@ -15,12 +15,14 @@ class OrderSource(IntEnum):
     ELIMINATION_FLAT = 1               # order inserted when a miner is eliminated (0 used for price. DEPRECATED)
     DEPRECATION_FLAT = 2               # order inserted when a trade pair is removed (0 used for price)
     PRICE_FILLED_ELIMINATION_FLAT = 3  # order inserted when a miner is eliminated but we price fill it accurately.
+    MAX_ORDERS_PER_POSITION_CLOSE = 4  # order inserted when position hits max orders limit and needs to be closed
 
 # Backward compatibility constants - to be removed after migration
 ORDER_SRC_ORGANIC = OrderSource.ORGANIC
 ORDER_SRC_ELIMINATION_FLAT = OrderSource.ELIMINATION_FLAT
 ORDER_SRC_DEPRECATION_FLAT = OrderSource.DEPRECATION_FLAT
 ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT = OrderSource.PRICE_FILLED_ELIMINATION_FLAT
+ORDER_SRC_MAX_ORDERS_PER_POSITION_CLOSE = OrderSource.MAX_ORDERS_PER_POSITION_CLOSE
 
 class Order(Signal):
     price: float

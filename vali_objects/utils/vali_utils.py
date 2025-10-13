@@ -29,6 +29,13 @@ class ValiUtils:
             raise ValiFileMissingException("Vali secrets file is missing")
 
         return ans
+
+    @staticmethod
+    def get_taoshi_ts_secrets():
+        secrets = ValiBkpUtils.get_file(ValiBkpUtils.get_taoshi_api_keys_file_location())
+        ans = json.loads(secrets)
+        return ans
+
     @staticmethod
     def get_vali_json_file(vali_dir: str, key: str = None) -> List | Dict:
         # wrapping here to allow simpler error handling & original for other error handling
