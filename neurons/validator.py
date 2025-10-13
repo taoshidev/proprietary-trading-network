@@ -685,13 +685,13 @@ class Validator:
                                         miner_hotkey: str, miner_order_uuid: str, now_ms:int, price_sources, miner_repo_version, account_size):
 
         # gather open positions and see which trade pairs have an open position
-        best_price_source = price_sources[0]
         positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
         trade_pair_to_open_position = {position.trade_pair: position for position in positions}
 
         existing_open_pos = trade_pair_to_open_position.get(trade_pair)
         if existing_open_pos:
-            if len(existing_open_pos.orders) >= ValiConfig.MAX_ORDERS_PER_POSITION:
+            # If the position has too many orders, we need to close it out to make room.
+            if len(existing_open_pos.orders) >= ValiConfig.MAX_ORDERS_PER_POSITION and order_type != OrderType.FLAT:
                 bt.logging.info(
                     f"Miner [{miner_hotkey}] hit {ValiConfig.MAX_ORDERS_PER_POSITION} order limit. "
                     f"Automatically closing position for {trade_pair.trade_pair_id} "
@@ -703,7 +703,7 @@ class Validator:
                                                      0.0, force_close_order_time, miner_hotkey,
                                                      price_sources, force_close_order_uuid, miner_repo_version,
                                                      OrderSource.MAX_ORDERS_PER_POSITION_CLOSE, account_size)
-
+                time.sleep(0.1)  # Put 100ms between two consecutive websocket writes for the same trade pair and hotkey. We need the new order to be seen after the FLAT.
             else:
                 # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
                 # loop thread.
@@ -712,7 +712,7 @@ class Validator:
                         f"miner [{miner_hotkey}] sent signal for "
                         f"closed position [{trade_pair}]")
                 bt.logging.debug("adding to existing position")
-                # Return existing open position
+                # Return existing open position (nominal path)
                 return trade_pair_to_open_position[trade_pair]
 
 
