@@ -480,12 +480,15 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > TARGET_MS:
+            return
+            
         hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
-        now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
