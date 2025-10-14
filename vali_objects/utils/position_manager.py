@@ -521,8 +521,8 @@ class PositionManager(CacheController):
             bt.logging.info(f"Applied {n_slippage_corrections} forex slippage corrections")
 
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = ['5FxUrVZM9McqXQ5rG6KHk4bmprVDzhnNRJtuG3x8FbQTueSG']# All miners that should have been promoted
-            position_uuids_to_delete = ['ee4e17c2-384b-4f6e-9d9f-8a14882caa73']
+            miners_to_wipe = []# All miners that should have been promoted
+            position_uuids_to_delete = []
             miners_to_promote = []
 
             for p in positions_to_snap:
