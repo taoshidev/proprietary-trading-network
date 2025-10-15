@@ -30,7 +30,7 @@ from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
-TARGET_MS = 1760511599000 + (1000 * 60 * 60 * 6)  # + 6 hours
+TARGET_MS = 1760554799000 + (1000 * 60 * 60 * 6)  # + 6 hours
 
 
 
