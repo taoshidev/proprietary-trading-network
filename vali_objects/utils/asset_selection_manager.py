@@ -197,14 +197,14 @@ class AssetSelectionManager:
                 'error_message': 'Internal server error processing asset selection request'
             }
 
-    def _broadcast_asset_selection_to_validators(self, hotkey: str, asset_selection: str):
+    def _broadcast_asset_selection_to_validators(self, hotkey: str, asset_selection: TradePairCategory):
         """
         Broadcast AssetSelection synapse to other validators.
         Runs in a separate thread to avoid blocking the main process.
         """
         def run_broadcast():
             try:
-                asyncio.run(self._async_broadcast_asset_selection(hotkey, asset_selection))
+                asyncio.run(self._async_broadcast_asset_selection(hotkey, asset_selection.value))
             except Exception as e:
                 bt.logging.error(f"Failed to broadcast asset selection for {hotkey}: {e}")
 
@@ -223,7 +223,7 @@ class AssetSelectionManager:
                 validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
 
             if not validator_axons:
-                bt.logging.debug("No other validators to broadcast CollateralRecord to")
+                bt.logging.debug("No other validators to broadcast AssetSelection to")
                 return
 
             # Create AssetSelection synapse with the data
@@ -248,12 +248,12 @@ class AssetSelectionManager:
                     if response.successfully_processed:
                         success_count += 1
                     elif response.error_message:
-                        bt.logging.warning(f"Failed to send CollateralRecord to {response.axon.hotkey}: {response.error_message}")
+                        bt.logging.warning(f"Failed to send AssetSelection to {response.axon.hotkey}: {response.error_message}")
 
-                bt.logging.info(f"CollateralRecord broadcast completed: {success_count}/{len(responses)} validators updated")
+                bt.logging.info(f"AssetSelection broadcast completed: {success_count}/{len(responses)} validators updated")
 
         except Exception as e:
-            bt.logging.error(f"Error in async broadcast collateral record: {e}")
+            bt.logging.error(f"Error in async broadcast asset selection: {e}")
             import traceback
             bt.logging.error(traceback.format_exc())
 
@@ -310,7 +310,7 @@ class AssetSelectionManager:
                     return True
 
                 # Add the new record
-                self.asset_selections[hotkey] = asset_selection
+                self.asset_selections[hotkey] = TradePairCategory(asset_selection)
 
                 # Save to disk
                 self._save_asset_selections_to_disk()
@@ -319,7 +319,7 @@ class AssetSelectionManager:
                 return True
 
         except Exception as e:
-            bt.logging.error(f"Error processing collateral record update: {e}")
+            bt.logging.error(f"Error processing asset selection update: {e}")
             import traceback
             bt.logging.error(traceback.format_exc())
             return False
