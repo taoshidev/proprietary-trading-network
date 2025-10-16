@@ -10,7 +10,6 @@ from copy import deepcopy
 from enum import Enum
 from typing import List, Dict, Tuple
 import bittensor as bt
-from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
 from vali_objects.utils.position_source import PositionSourceManager, PositionSource
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
@@ -91,24 +90,45 @@ class TradePairReturnStatus(Enum):
     def __gt__(self, other):
         return self.value > other.value
 
-class PerfCheckpoint(BaseModel):
-    last_update_ms: int
-    prev_portfolio_ret: float
-    prev_portfolio_spread_fee: float = 1.0
-    prev_portfolio_carry_fee: float = 1.0
-    accum_ms: int = 0
-    open_ms: int = 0
-    n_updates: int = 0
-    gain: float = 0.0
-    loss: float = 0.0
-    spread_fee_loss: float = 0.0
-    carry_fee_loss: float = 0.0
-    mdd: float = 1.0
-    mpv: float = 0.0
-    pnl_gain: float = 0.0
-    pnl_loss: float = 0.0
+class PerfCheckpoint:
+    def __init__(
+        self,
+        last_update_ms: int,
+        prev_portfolio_ret: float,
+        prev_portfolio_spread_fee: float = 1.0,
+        prev_portfolio_carry_fee: float = 1.0,
+        accum_ms: int = 0,
+        open_ms: int = 0,
+        n_updates: int = 0,
+        gain: float = 0.0,
+        loss: float = 0.0,
+        spread_fee_loss: float = 0.0,
+        carry_fee_loss: float = 0.0,
+        mdd: float = 1.0,
+        mpv: float = 0.0,
+        pnl_gain: float = 0.0,
+        pnl_loss: float = 0.0,
+        **kwargs  # Support extra fields like BaseModel's extra="allow"
+    ):
+        self.last_update_ms = last_update_ms
+        self.prev_portfolio_ret = prev_portfolio_ret
+        self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
+        self.prev_portfolio_carry_fee = prev_portfolio_carry_fee
+        self.accum_ms = accum_ms
+        self.open_ms = open_ms
+        self.n_updates = n_updates
+        self.gain = gain
+        self.loss = loss
+        self.spread_fee_loss = spread_fee_loss
+        self.carry_fee_loss = carry_fee_loss
+        self.mdd = mdd
+        self.mpv = mpv
+        self.pnl_gain = pnl_gain
+        self.pnl_loss = pnl_loss
 
-    model_config = ConfigDict(extra="allow")
+        # Store any extra fields (equivalent to model_config extra="allow")
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def __str__(self):
         return str(self.to_dict())
@@ -2363,7 +2383,7 @@ if __name__ == "__main__":
     crypto_only = False # Whether to process only crypto trade pairs
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5GA214EQwrWKtDxf2BZptLmeaxF1Nmm6WxVD93YUZRn8Bk5s'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5FRWVox3FD5Jc2VnS7FUCCf8UJgLKfGdEnMAN7nU3LrdMWHu'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 
