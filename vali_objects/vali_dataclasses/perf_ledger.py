@@ -110,31 +110,46 @@ class PerfCheckpoint:
         pnl_loss: float = 0.0,
         **kwargs  # Support extra fields like BaseModel's extra="allow"
     ):
-        self.last_update_ms = last_update_ms
-        self.prev_portfolio_ret = prev_portfolio_ret
-        self.prev_portfolio_spread_fee = prev_portfolio_spread_fee
-        self.prev_portfolio_carry_fee = prev_portfolio_carry_fee
-        self.accum_ms = accum_ms
-        self.open_ms = open_ms
-        self.n_updates = n_updates
-        self.gain = gain
-        self.loss = loss
-        self.spread_fee_loss = spread_fee_loss
-        self.carry_fee_loss = carry_fee_loss
-        self.mdd = mdd
-        self.mpv = mpv
-        self.pnl_gain = pnl_gain
-        self.pnl_loss = pnl_loss
+        # Type coercion to match BaseModel behavior (handles numpy types and ensures correct types)
+        self.last_update_ms = int(last_update_ms)
+        self.prev_portfolio_ret = float(prev_portfolio_ret)
+        self.prev_portfolio_spread_fee = float(prev_portfolio_spread_fee)
+        self.prev_portfolio_carry_fee = float(prev_portfolio_carry_fee)
+        self.accum_ms = int(accum_ms)
+        self.open_ms = int(open_ms)
+        self.n_updates = int(n_updates)
+        self.gain = float(gain)
+        self.loss = float(loss)
+        self.spread_fee_loss = float(spread_fee_loss)
+        self.carry_fee_loss = float(carry_fee_loss)
+        self.mdd = float(mdd)
+        self.mpv = float(mpv)
+        self.pnl_gain = float(pnl_gain)
+        self.pnl_loss = float(pnl_loss)
 
         # Store any extra fields (equivalent to model_config extra="allow")
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    def __eq__(self, other):
+        """Equality comparison (replaces BaseModel's automatic __eq__)"""
+        if not isinstance(other, PerfCheckpoint):
+            return False
+        return self.__dict__ == other.__dict__
+
     def __str__(self):
         return str(self.to_dict())
 
     def to_dict(self):
-        return self.__dict__
+        # Convert any numpy types to Python types for JSON serialization
+        result = {}
+        for key, value in self.__dict__.items():
+            # Handle numpy int64, float64, etc.
+            if hasattr(value, 'item'):  # numpy types have .item() method
+                result[key] = value.item()
+            else:
+                result[key] = value
+        return result
 
     @property
     def lowerbound_time_created_ms(self):
