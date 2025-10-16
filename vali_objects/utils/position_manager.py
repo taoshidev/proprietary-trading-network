@@ -28,9 +28,8 @@ from vali_objects.position import Position
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
-from vali_objects.utils.price_slippage_model import PriceSlippageModel
 
-TARGET_MS = 1760554799000 + (1000 * 60 * 60 * 6)  # + 6 hours
+TARGET_MS = 1760650263000 + (1000 * 60 * 60 * 6)  # + 6 hours
 
 
 
@@ -495,33 +494,11 @@ class PositionManager(CacheController):
         miners_to_promote = []
         position_uuids_to_delete = []
         wipe_positions = False
+        reopen_force_closed_orders = False
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
-            # temp slippage correction
-            SLIPPAGE_V2_TIME_MS = 1759431540000
-            FX_SLIPPAGE_UPDATE_TIME_MS = 1759993199000
-            n_slippage_corrections = 0
-            for hotkey, positions in hotkey_to_positions.items():
-                for position in positions:
-                    needs_save = False
-                    for order in position.orders:
-                        if (order.trade_pair.is_forex and SLIPPAGE_V2_TIME_MS < order.processed_ms < FX_SLIPPAGE_UPDATE_TIME_MS):
-                            old_slippage = order.slippage
-                            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-                            if old_slippage != order.slippage:
-                                needs_save = True
-                                n_slippage_corrections += 1
-                                bt.logging.info(
-                                    f"Updated forex slippage for order {order}: "
-                                    f"{old_slippage:.6f} -> {order.slippage:.6f}")
-
-                    if needs_save:
-                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
-                        self.save_miner_position(position)
-            bt.logging.info(f"Applied {n_slippage_corrections} forex slippage corrections")
-
             # All miners that wanted their challenge period restarted
-            miners_to_wipe = []# All miners that should have been promoted
+            miners_to_wipe = ['5FRWVox3FD5Jc2VnS7FUCCf8UJgLKfGdEnMAN7nU3LrdMWHu']# All miners that should have been promoted
             position_uuids_to_delete = []
             miners_to_promote = []
 
@@ -579,7 +556,7 @@ class PositionManager(CacheController):
                     elif pos.position_uuid in position_uuids_to_delete:
                         print(f'Deleting position {pos.position_uuid} for trade pair {pos.trade_pair.trade_pair_id} for hk {pos.miner_hotkey}')
                         self.delete_position(pos)
-                    else:
+                    elif reopen_force_closed_orders:
                         if any(o.src == 1 for o in pos.orders):
                             pos.orders = [o for o in pos.orders if o.src != 1]
                             pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -1007,7 +984,7 @@ class PositionManager(CacheController):
         hk = position.miner_hotkey
         existing_positions = self.get_existing_positions(hk)
 
-        # Santiy check
+        # Sanity check
         if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in existing_positions:
             existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
