@@ -435,7 +435,8 @@ class Validator:
                 contract_manager=self.contract_manager,
                 miner_statistics_manager=self.miner_statistics_manager,
                 request_core_manager=self.request_core_manager,
-                asset_selection_manager=self.asset_selection_manager
+                asset_selection_manager=self.asset_selection_manager,
+                slack_webhook_url=self.config.slack_webhook_url
             )
 
             # Start the API Manager in a separate process
@@ -522,6 +523,8 @@ class Validator:
                             help="Port for the REST API server")
         parser.add_argument("--api-ws-port", type=int, default=8765,
                             help="Port for the WebSocket server")
+        parser.add_argument("--slack-webhook-url", type=str, default=None,
+                            help="Slack webhook URL for API server health alerts (can also use SLACK_WEBHOOK_URL env var)")
 
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
