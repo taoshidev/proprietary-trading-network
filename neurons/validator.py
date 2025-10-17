@@ -523,8 +523,6 @@ class Validator:
                             help="Port for the REST API server")
         parser.add_argument("--api-ws-port", type=int, default=8765,
                             help="Port for the WebSocket server")
-        parser.add_argument("--slack-webhook-url", type=str, default=None,
-                            help="Slack webhook URL for API server health alerts (can also use SLACK_WEBHOOK_URL env var)")
 
         # (developer): Adds your custom arguments to the parser.
         # Adds override arguments for network and netuid.
