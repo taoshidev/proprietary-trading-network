@@ -47,6 +47,7 @@ def start_websocket_server(shared_queue, host="localhost", port=8765, refresh_in
         print(f"Starting WebSocket server process with host={host}, port={port}")
 
         # Create and run the WebSocket server with the shared queue
+        print(f"Creating WebSocketServer instance...")
         websocket_server = WebSocketServer(
             api_keys_file=api_keys_file,
             shared_queue=shared_queue,
@@ -54,9 +55,12 @@ def start_websocket_server(shared_queue, host="localhost", port=8765, refresh_in
             port=port,
             refresh_interval=refresh_interval
         )
+        print(f"WebSocketServer instance created, calling run()...")
         websocket_server.run()
+        print(f"WebSocketServer.run() returned (this shouldn't happen unless shutting down)")
     except Exception as e:
-        print(f"Error in WebSocket server process: {e}")
+        print(f"FATAL: Exception in WebSocket server process: {type(e).__name__}: {e}")
+        print(f"Full traceback:")
         print(traceback.format_exc())
         raise
 
@@ -126,7 +130,7 @@ class APIManager:
             name="RestServer"
         )
         rest_process.start()
-        print(f"REST API server started at http://{self.rest_host}:{self.rest_port}")
+        print(f"REST API server process started (PID: {rest_process.pid}) at http://{self.rest_host}:{self.rest_port}")
 
         # Start WebSocket server process with host/port configuration
         ws_process = Process(
@@ -135,18 +139,64 @@ class APIManager:
             name="WebSocketServer"
         )
         ws_process.start()
-        print(f"WebSocket server started at ws://{self.ws_host}:{self.ws_port}")
+        print(f"WebSocket server process started (PID: {ws_process.pid}) at ws://{self.ws_host}:{self.ws_port}")
 
-        # Keep the main process running to manage the child processes
+        # Monitor processes for crashes
         try:
-            # Wait for processes to complete (which they won't unless interrupted)
-            rest_process.join()
-            ws_process.join()
+            # Periodically check if processes are still alive
+            while True:
+                time.sleep(5)  # Check every 5 seconds
+
+                # Check REST server
+                if not rest_process.is_alive():
+                    print(f"WARNING: REST server process (PID: {rest_process.pid}) has died!")
+                    print(f"REST server exit code: {rest_process.exitcode}")
+                    if rest_process.exitcode != 0:
+                        print(f"ERROR: REST server exited with non-zero exit code: {rest_process.exitcode}")
+                    break
+
+                # Check WebSocket server
+                if not ws_process.is_alive():
+                    print(f"WARNING: WebSocket server process (PID: {ws_process.pid}) has died!")
+                    print(f"WebSocket server exit code: {ws_process.exitcode}")
+                    if ws_process.exitcode != 0:
+                        print(f"ERROR: WebSocket server exited with non-zero exit code: {ws_process.exitcode}")
+                    break
+
+            # If we get here, one of the processes died
+            print("One or more API services have stopped. Waiting for remaining processes to exit...")
+
+            # Give remaining processes time to clean up
+            rest_process.join(timeout=10)
+            ws_process.join(timeout=10)
+
+            # Terminate any that are still running
+            if rest_process.is_alive():
+                print(f"Terminating REST server process (PID: {rest_process.pid})...")
+                rest_process.terminate()
+                rest_process.join(timeout=5)
+
+            if ws_process.is_alive():
+                print(f"Terminating WebSocket server process (PID: {ws_process.pid})...")
+                ws_process.terminate()
+                ws_process.join(timeout=5)
+
+            print("All API services have been stopped.")
+
         except KeyboardInterrupt:
-            print("Shutting down API services...")
-            # Clean up processes on keyboard interrupt
-            rest_process.join()
-            ws_process.join()
+            print("\nShutting down API services due to keyboard interrupt...")
+            # Terminate processes
+            if rest_process.is_alive():
+                print(f"Terminating REST server process (PID: {rest_process.pid})...")
+                rest_process.terminate()
+            if ws_process.is_alive():
+                print(f"Terminating WebSocket server process (PID: {ws_process.pid})...")
+                ws_process.terminate()
+
+            # Wait for clean shutdown
+            rest_process.join(timeout=10)
+            ws_process.join(timeout=10)
+            print("API services shutdown complete.")
 
 
 if __name__ == "__main__":
