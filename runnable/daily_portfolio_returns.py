@@ -35,6 +35,7 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcategory, ForexSubcategory
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.utils.position_filter import PositionFilter, FilterStats
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -352,7 +353,7 @@ def process_miner_with_main_logic(
             continue
         
         # Filter positions and identify required trade pairs using date string
-        filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+        filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilterAnalyzer.filter_and_analyze_positions_for_date(
             all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
         )
         
@@ -685,20 +686,6 @@ class DatabaseManager:
 
 
 @dataclass
-class FilterStats:
-    """Statistics for position filtering operations."""
-    total_positions_before_filter: int = 0
-    equities_positions_skipped: int = 0
-    indices_positions_skipped: int = 0
-    date_filtered_out: int = 0
-    final_positions: int = 0
-    
-    def has_skipped_assets(self) -> bool:
-        """Check if any equities or indices were skipped."""
-        return self.equities_positions_skipped > 0 or self.indices_positions_skipped > 0
-
-
-@dataclass
 class DailyStats:
     """Statistics for a single day's return calculations."""
     successful_miners: int = 0
@@ -728,51 +715,12 @@ class DailyStats:
             self.elimination_stats = {"total_hotkeys": 0, "eliminated_hotkeys": 0}
 
 
-class PositionFilter:
-    """Handles filtering of positions by date and asset type."""
-    
-    @staticmethod
-    def filter_single_position(position: Position, cutoff_date_ms: int, live_price_fetcher) -> Tuple[Optional[Position], str]:
-        """
-        Filter a single position by date and asset type.
-        
-        Returns:
-            Tuple of (filtered_position, skip_reason). Position is None if skipped.
-        """
-        # Skip positions for equities and indices assets
-        if position.trade_pair.is_equities:
-            return None, "equities"
-        elif position.trade_pair.is_indices:
-            return None, "indices"
-        
-        # Filter orders to only include those before cutoff
-        # Note: cutoff_date_ms should be the END of the day we want to include
-        # So use < instead of <= to include all orders within the day
-        filtered_orders = [
-            order for order in position.orders 
-            if order.processed_ms < cutoff_date_ms  # Use < for end-of-day cutoff
-        ]
-        
-        if not filtered_orders:
-            return None, "date_filtered"
+class PositionFilterAnalyzer:
+    """Extended position filtering with analysis capabilities for daily_portfolio_returns.py
 
-        if len(filtered_orders) == len(position.orders) and position.is_closed_position:
-            return deepcopy(position), "kept"
-        
-        # Create a copy of the position with filtered orders
-        filtered_position = Position(
-            miner_hotkey=position.miner_hotkey,
-            position_uuid=position.position_uuid,
-            open_ms=position.open_ms,
-            close_ms=position.close_ms if position.close_ms and position.close_ms <= cutoff_date_ms else None,
-            trade_pair=position.trade_pair,
-            orders=filtered_orders,
-            position_type=position.position_type,
-            is_closed_position=position.is_closed_position and position.close_ms and position.close_ms <= cutoff_date_ms,
-        )
-        filtered_position.rebuild_position_with_updated_orders(live_price_fetcher)
-        return filtered_position, "kept"
-    
+    Uses PositionFilter from position_filter.py for the core filtering logic.
+    """
+
     @staticmethod
     def filter_and_analyze_positions(
         all_positions: Dict[str, List[Position]],
@@ -1916,7 +1864,7 @@ def main():
         
         try:
             # Step 1: Filter positions and identify required trade pairs using date string
-            filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+            filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilterAnalyzer.filter_and_analyze_positions_for_date(
                 all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
             )
 
