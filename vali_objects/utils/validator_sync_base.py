@@ -285,7 +285,7 @@ class ValidatorSyncBase():
             elif sync_status == PositionSyncResult.DELETED:
                 self.miners_with_position_deletions.add(hk)
             # KEPT status is handled elsewhere in the existing flow
-        
+
         # Ensure the enums align with the global stats
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
@@ -311,8 +311,8 @@ class ValidatorSyncBase():
         #        if not self.is_mothership:
         #            if position.is_closed_position:
         #                self.position_manager.delete_open_position_if_exists(position)
-        
-        # Handle multiple open positions for a hotkey - reset for each sync status to prevent cross-contamination
+
+        # Handle multiple open positions for a hotkey - track across ALL sync statuses to prevent duplicates
         prev_open_position = None
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
@@ -323,10 +323,9 @@ class ValidatorSyncBase():
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
                 kept_and_matched -= 1
-        
+
         # Insertions happen last so that there is no double open position issue
-        # Reset prev_open_position to prevent contamination from UPDATED positions
-        prev_open_position = None
+        # Do NOT reset prev_open_position - we need to track it across all sync statuses
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
@@ -336,10 +335,9 @@ class ValidatorSyncBase():
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
-        
+
         # Handle NOTHING status positions
-        # Reset prev_open_position to prevent contamination from previous sync statuses
-        prev_open_position = None
+        # Do NOT reset prev_open_position - we need to track it across all sync statuses
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
