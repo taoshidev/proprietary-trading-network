@@ -19,6 +19,8 @@ from vali_objects.utils.validator_contract_manager import ValidatorContractManag
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_filter import PositionFilter
+from vali_objects.utils.asset_segmentation import AssetSegmentation
+from vali_objects.vali_config import ValiConfig, TradePairCategory
 import bittensor as bt
 
 
@@ -27,6 +29,7 @@ class PenaltyInputType(Enum):
     POSITIONS = auto()
     PSEUDO_POSITIONS = auto()
     COLLATERAL = auto()
+    ASSET_LEDGER = auto()
 
 
 @dataclass
@@ -89,6 +92,10 @@ class DebtLedger:
         'min_collateral': PenaltyConfig(
             function=ValidatorContractManager.min_collateral_penalty,
             input_type=PenaltyInputType.COLLATERAL
+        ),
+        'risk_adjusted_performance': PenaltyConfig(
+            function=PositionPenalties.risk_adjusted_performance_penalty,
+            input_type=PenaltyInputType.ASSET_LEDGER
         )
     }
 
@@ -215,6 +222,18 @@ class DebtLedger:
 
                         elif penalty_config.input_type == PenaltyInputType.COLLATERAL:
                             penalty_value = penalty_config.function(miner_account_size)
+
+                        elif penalty_config.input_type == PenaltyInputType.ASSET_LEDGER:
+                            segmentation_machine = AssetSegmentation({miner_hotkey: ledger_dict})
+                            accumulated_penalty = 1.0
+                            for asset_class in ValiConfig.ASSET_CLASS_BREAKDOWN.keys():
+                                # TODO assumes asset subcategories removed (wip in feat/payout-scoring)
+                                asset_ledger = segmentation_machine.segmentation(asset_class).get(miner_hotkey)
+                                if not asset_ledger:
+                                    continue
+                                accumulated_penalty *= penalty_config.function(asset_ledger, asset_class)
+
+                            penalty_value = accumulated_penalty
 
                     except Exception as e:
                         if verbose:

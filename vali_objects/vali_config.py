@@ -263,6 +263,18 @@ class ValiConfig:
     DRAWDOWN_MAXVALUE_PERCENTAGE = 10
     DRAWDOWN_MINVALUE_PERCENTAGE = 0.5
 
+    # Risk Adjusted Performance Penalty
+    CRYPTO_RAT = {'sharpe': 1.0, 'sortino': 1.0, 'calmar': 2.0, 'omega': 1.4}
+    FOREX_RAT = {'sharpe': 0.5, 'sortino': 0.5, 'calmar': 2.0, 'omega': 1.2}
+
+    # Maximum metric value for capping individual metrics in RAS calculation
+    RISK_ADJUSTED_MAX_METRIC_VALUE = 10
+
+    # Sigmoid parameters for risk-adjusted performance penalty (range: 0.2 to 1.0)
+    RISK_ADJUSTED_SIGMOID_SHIFT = 0.6
+    RISK_ADJUSTED_SIGMOID_SPREAD = -14
+    RISK_ADJUSTED_PERFORMANCE_PENALTY_MIN = 0.2
+
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
