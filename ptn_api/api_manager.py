@@ -213,50 +213,10 @@ class APIManager:
         self.health_monitor_thread.start()
         print("Health monitor daemon thread started")
 
-        # Monitor processes for crashes
+        # Keep main thread alive - health monitoring happens in daemon thread
         try:
-            # Periodically check if processes are still alive
             while True:
-                time.sleep(5)  # Check every 5 seconds
-
-                # Check REST server
-                if not rest_process.is_alive():
-                    print(f"WARNING: REST server process (PID: {rest_process.pid}) has died!")
-                    print(f"REST server exit code: {rest_process.exitcode}")
-                    if rest_process.exitcode != 0:
-                        print(f"ERROR: REST server exited with non-zero exit code: {rest_process.exitcode}")
-                    break
-
-                # Check WebSocket server
-                if not ws_process.is_alive():
-                    print(f"WARNING: WebSocket server process (PID: {ws_process.pid}) has died!")
-                    print(f"WebSocket server exit code: {ws_process.exitcode}")
-                    if ws_process.exitcode != 0:
-                        print(f"ERROR: WebSocket server exited with non-zero exit code: {ws_process.exitcode}")
-                    break
-
-            # If we get here, one of the processes died
-            print("One or more API services have stopped. Waiting for remaining processes to exit...")
-
-            # Signal health monitor to stop
-            self.shutdown_event.set()
-
-            # Give remaining processes time to clean up
-            rest_process.join(timeout=10)
-            ws_process.join(timeout=10)
-
-            # Terminate any that are still running
-            if rest_process.is_alive():
-                print(f"Terminating REST server process (PID: {rest_process.pid})...")
-                rest_process.terminate()
-                rest_process.join(timeout=5)
-
-            if ws_process.is_alive():
-                print(f"Terminating WebSocket server process (PID: {ws_process.pid})...")
-                ws_process.terminate()
-                ws_process.join(timeout=5)
-
-            print("All API services have been stopped.")
+                time.sleep(60)  # Just keep alive, daemon handles all monitoring
 
         except KeyboardInterrupt:
             print("\nShutting down API services due to keyboard interrupt...")
