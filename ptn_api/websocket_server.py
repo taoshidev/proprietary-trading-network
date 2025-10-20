@@ -320,9 +320,9 @@ class WebSocketServer(APIKeyMixin):
 
         serialized_message = json.dumps(batch_message, cls=CustomEncoder)
 
-        # Send to all subscribed clients
+        # Send to all subscribed clients (iterate over copy to avoid race condition)
         disconnected_clients = []
-        for client_id in self.subscribed_clients:
+        for client_id in list(self.subscribed_clients):
             if client_id in self.connected_clients:
                 websocket = self.connected_clients[client_id]
                 try:
@@ -362,9 +362,9 @@ class WebSocketServer(APIKeyMixin):
 
         serialized_message = json.dumps(message_with_seq, cls=CustomEncoder)
 
-        # Send to all subscribed clients
+        # Send to all subscribed clients (iterate over copy to avoid race condition)
         disconnected_clients = []
-        for client_id in self.subscribed_clients:
+        for client_id in list(self.subscribed_clients):
             if client_id in self.connected_clients:
                 websocket = self.connected_clients[client_id]
                 try:

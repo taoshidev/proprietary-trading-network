@@ -4,6 +4,7 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime
+import bittensor as bt
 
 
 class SlackNotifier:
@@ -22,7 +23,7 @@ class SlackNotifier:
         self.last_alert_time = {}  # Track last alert time per alert_key
 
         if not self.webhook_url:
-            print("WARNING: No Slack webhook URL configured. Notifications disabled.")
+            bt.logging.warning("No Slack webhook URL configured. Notifications disabled.")
 
     def send_alert(self, message, alert_key=None, force=False):
         """
@@ -37,7 +38,7 @@ class SlackNotifier:
             bool: True if sent, False if skipped or failed
         """
         if not self.webhook_url:
-            print(f"[Slack] Would send: {message}")
+            bt.logging.info(f"[Slack] Would send (no webhook configured): {message}")
             return False
 
         # Rate limiting
@@ -45,7 +46,7 @@ class SlackNotifier:
             now = time.time()
             last_time = self.last_alert_time.get(alert_key, 0)
             if now - last_time < self.min_interval:
-                print(f"[Slack] Skipping alert '{alert_key}' (rate limited)")
+                bt.logging.debug(f"[Slack] Skipping alert '{alert_key}' (rate limited)")
                 return False
             self.last_alert_time[alert_key] = now
 
@@ -67,17 +68,17 @@ class SlackNotifier:
 
             with urllib.request.urlopen(req, timeout=10) as response:
                 if response.status == 200:
-                    print(f"[Slack] Alert sent: {message[:50]}...")
+                    bt.logging.info(f"[Slack] Alert sent: {message[:50]}...")
                     return True
                 else:
-                    print(f"[Slack] Failed to send alert: HTTP {response.status}")
+                    bt.logging.error(f"[Slack] Failed to send alert: HTTP {response.status}")
                     return False
 
         except urllib.error.URLError as e:
-            print(f"[Slack] Network error sending alert: {e}")
+            bt.logging.error(f"[Slack] Network error sending alert: {e}")
             return False
         except Exception as e:
-            print(f"[Slack] Error sending alert: {e}")
+            bt.logging.error(f"[Slack] Error sending alert: {e}")
             return False
 
     def send_websocket_down_alert(self, pid, exit_code, host, port):
