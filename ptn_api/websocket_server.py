@@ -9,6 +9,7 @@ from multiprocessing import Manager
 from collections import defaultdict, deque
 from multiprocessing import current_process
 from typing import Dict, Any, Optional, Set, Deque
+import bittensor as bt
 
 from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
@@ -96,9 +97,9 @@ class WebSocketServer(APIKeyMixin):
         # Start API key refresh thread
         self.start_refresh_thread()
 
-        print(f"[{current_process().name}] WebSocketServer initialized with {len(self.accessible_api_keys)} API keys")
+        bt.logging.info(f"WebSocketServer: Initialized with {len(self.accessible_api_keys)} API keys")
         if self.send_test_positions:
-            print(f"[{current_process().name}] Test orders will be sent every {self.test_positions_interval} seconds")
+            bt.logging.info(f"WebSocketServer: Test orders will be sent every {self.test_positions_interval} seconds")
 
     def _load_sequence_number(self) -> None:
         """Load the last sequence number from disk."""
@@ -106,12 +107,12 @@ class WebSocketServer(APIKeyMixin):
             if os.path.exists(self.sequence_file):
                 with open(self.sequence_file, 'r') as f:
                     self.sequence_number = int(f.read().strip())
-                print(f"[{current_process().name}] Loaded sequence number: {self.sequence_number}")
+                bt.logging.info(f"WebSocketServer: Loaded sequence number: {self.sequence_number}")
             else:
                 self.sequence_number = 0
-                print(f"[{current_process().name}] Starting with new sequence number")
+                bt.logging.info(f"WebSocketServer: Starting with new sequence number")
         except Exception as e:
-            print(f"[{current_process().name}] Error loading sequence number: {e}")
+            bt.logging.error(f"WebSocketServer: Error loading sequence number: {e}")
             self.sequence_number = 0
 
     def _save_sequence_number(self) -> None:
@@ -120,7 +121,7 @@ class WebSocketServer(APIKeyMixin):
             with open(self.sequence_file, 'w') as f:
                 f.write(str(self.sequence_number))
         except Exception as e:
-            print(f"[{current_process().name}] Error saving sequence number: {e}")
+            bt.logging.error(f"WebSocketServer: Error saving sequence number: {e}")
 
     async def _periodic_save_sequence(self) -> None:
         """Periodically save the sequence number to disk."""
@@ -133,12 +134,12 @@ class WebSocketServer(APIKeyMixin):
                 self._save_sequence_number()
                 break
             except Exception as e:
-                print(f"[{current_process().name}] Error in periodic save: {e}")
+                bt.logging.error(f"WebSocketServer: Error in periodic save: {e}")
 
     async def _check_shared_queue(self) -> None:
         """Check the shared queue for messages from other processes."""
         if self.shared_queue is None:
-            print(f"[{current_process().name}] No shared queue available")
+            bt.logging.info(f"WebSocketServer: No shared queue available")
             return
 
         # Create an event loop to handle queue notifications
@@ -174,11 +175,11 @@ class WebSocketServer(APIKeyMixin):
                 await self.message_queue.put(message_data)
 
             except asyncio.CancelledError:
-                print(f"[{current_process().name}] Shared queue monitor cancelled")
+                bt.logging.info(f"WebSocketServer: Shared queue monitor cancelled")
                 break
             except Exception as e:
-                print(f"[{current_process().name}] Error in shared queue check: {e}")
-                print(traceback.format_exc())
+                bt.logging.error(f"WebSocketServer: Error in shared queue check: {e}")
+                bt.logging.error(traceback.format_exc())
                 # Very short recovery time
                 await asyncio.sleep(1)
 
@@ -194,7 +195,7 @@ class WebSocketServer(APIKeyMixin):
                 # Queue it for processing
                 await self.message_queue.put(self._create_test_position(current_time))
 
-                print(f"[{current_process().name}] Generated test position")
+                bt.logging.info(f"WebSocketServer: Generated test position")
 
                 # Wait before generating the next order
                 await asyncio.sleep(self.test_positions_interval)
@@ -202,7 +203,7 @@ class WebSocketServer(APIKeyMixin):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[{current_process().name}] Error generating test order: {e}")
+                bt.logging.error(f"WebSocketServer: Error generating test order: {e}")
                 await asyncio.sleep(self.test_positions_interval)
 
     def _create_test_position(self, timestamp: int) -> Dict[str, Any]:
@@ -285,8 +286,8 @@ class WebSocketServer(APIKeyMixin):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[{current_process().name}] Error processing message from queue: {e}")
-                print(traceback.format_exc())
+                bt.logging.error(f"WebSocketServer: Error processing message from queue: {e}")
+                bt.logging.error(traceback.format_exc())
 
     async def broadcast_message_batch(self, messages) -> int:
         """Broadcast a batch of messages to subscribed clients.
@@ -319,9 +320,9 @@ class WebSocketServer(APIKeyMixin):
 
         serialized_message = json.dumps(batch_message, cls=CustomEncoder)
 
-        # Send to all subscribed clients
+        # Send to all subscribed clients (iterate over copy to avoid race condition)
         disconnected_clients = []
-        for client_id in self.subscribed_clients:
+        for client_id in list(self.subscribed_clients):
             if client_id in self.connected_clients:
                 websocket = self.connected_clients[client_id]
                 try:
@@ -329,9 +330,9 @@ class WebSocketServer(APIKeyMixin):
                 except websockets.exceptions.ConnectionClosed:
                     # Client disconnected, remove from subscribers
                     disconnected_clients.append(client_id)
-                    print(f"[{current_process().name}] Client {client_id} disconnected while sending batch")
+                    bt.logging.info(f"WebSocketServer: Client {client_id} disconnected while sending batch")
                 except Exception as e:
-                    print(f"[{current_process().name}] Error sending batch to client {client_id}: {e}")
+                    bt.logging.error(f"WebSocketServer: Error sending batch to client {client_id}: {e}")
                     disconnected_clients.append(client_id)
 
         # Remove disconnected clients
@@ -361,9 +362,9 @@ class WebSocketServer(APIKeyMixin):
 
         serialized_message = json.dumps(message_with_seq, cls=CustomEncoder)
 
-        # Send to all subscribed clients
+        # Send to all subscribed clients (iterate over copy to avoid race condition)
         disconnected_clients = []
-        for client_id in self.subscribed_clients:
+        for client_id in list(self.subscribed_clients):
             if client_id in self.connected_clients:
                 websocket = self.connected_clients[client_id]
                 try:
@@ -371,9 +372,9 @@ class WebSocketServer(APIKeyMixin):
                 except websockets.exceptions.ConnectionClosed:
                     # Client disconnected, mark for removal
                     disconnected_clients.append(client_id)
-                    print(f"[{current_process().name}] Client {client_id} disconnected while sending")
+                    bt.logging.info(f"WebSocketServer: Client {client_id} disconnected while sending")
                 except Exception as e:
-                    print(f"[{current_process().name}] Error sending to client {client_id}: {e}")
+                    bt.logging.error(f"WebSocketServer: Error sending to client {client_id}: {e}")
                     disconnected_clients.append(client_id)
 
         # Remove disconnected clients
@@ -401,7 +402,7 @@ class WebSocketServer(APIKeyMixin):
             if api_key and client_id in self.api_key_clients[api_key]:
                 self.api_key_clients[api_key].remove(client_id)
                 api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
-                print(f"[{current_process().name}] Removed client {client_id} from API key {api_key_alias}")
+                bt.logging.info(f"WebSocketServer: Removed client {client_id} from API key {api_key_alias}")
 
             # Remove from connected clients
             self.connected_clients.pop(client_id, None)
@@ -413,7 +414,7 @@ class WebSocketServer(APIKeyMixin):
             if client_id in self.subscribed_clients:
                 self.subscribed_clients.remove(client_id)
 
-            print(f"[{current_process().name}] Client {client_id} removed from all registries")
+            bt.logging.info(f"WebSocketServer: Client {client_id} removed from all registries")
 
     def send_message(self, message_data: Dict[str, Any]) -> bool:
         """Queue a message for broadcasting.
@@ -426,7 +427,7 @@ class WebSocketServer(APIKeyMixin):
         """
         try:
             if self.loop is None:
-                print(f"[{current_process().name}] Cannot send message: server not started")
+                bt.logging.error(f"WebSocketServer: Cannot send message: server not started")
                 return False
 
             # Use run_coroutine_threadsafe to safely run in the event loop
@@ -436,8 +437,8 @@ class WebSocketServer(APIKeyMixin):
             )
             return True
         except Exception as e:
-            print(f"[{current_process().name}] Error queueing message: {e}")
-            print(traceback.format_exc())
+            bt.logging.error(f"WebSocketServer: Error queueing message: {e}")
+            bt.logging.error(traceback.format_exc())
             return False
 
     async def handle_client(self, websocket) -> None:
@@ -447,7 +448,7 @@ class WebSocketServer(APIKeyMixin):
             websocket: WebSocket connection
         """
         client_id = str(id(websocket))
-        print(f"[{current_process().name}] New client connected (ID: {client_id})")
+        bt.logging.info(f"WebSocketServer: New client connected (ID: {client_id})")
 
         try:
             # Wait for authentication message
@@ -517,13 +518,13 @@ class WebSocketServer(APIKeyMixin):
                         # Close the connection
                         await self.connected_clients[oldest_client_id].close()
                     except Exception as e:
-                        print(f"[{current_process().name}] Error closing oldest connection {oldest_client_id}: {e}")
+                        bt.logging.error(f"WebSocketServer: Error closing oldest connection {oldest_client_id}: {e}")
 
                 # Remove the client from our records
                 self._remove_client(oldest_client_id)
                 api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
 
-                print(f"[{current_process().name}] Dropped oldest client {oldest_client_id} for API key "
+                bt.logging.info(f"WebSocketServer: Dropped oldest client {oldest_client_id} for API key "
                       f"{api_key_alias} to make room for new client {client_id}")
 
             # Send authentication success with tier information
@@ -534,7 +535,7 @@ class WebSocketServer(APIKeyMixin):
                 "tier": api_key_tier
             }))
 
-            print(f"[{current_process().name}] Client {client_id} authenticated successfully with tier {api_key_tier}")
+            bt.logging.info(f"WebSocketServer: Client {client_id} authenticated successfully with tier {api_key_tier}")
 
             # Add to connected clients
             self.connected_clients[client_id] = websocket
@@ -548,8 +549,8 @@ class WebSocketServer(APIKeyMixin):
             # Add to API key tracking (FIFO queue)
             self.api_key_clients[api_key].append(client_id)
             api_key_alias = self.api_key_to_alias.get(api_key, "Unknown")
-            print(
-                f"[{current_process().name}] Client {client_id} added to API key {api_key_alias} (active: {len(self.api_key_clients[api_key])}/{MAX_N_WS_PER_API_KEY})")
+            bt.logging.info(
+                f"WebSocketServer: Client {client_id} added to API key {api_key_alias} (active: {len(self.api_key_clients[api_key])}/{MAX_N_WS_PER_API_KEY})")
 
             # Process client messages (subscriptions, etc.)
             while True:
@@ -576,7 +577,7 @@ class WebSocketServer(APIKeyMixin):
                         # Handle subscription to all data
                         if data.get("all", False):
                             self.subscribed_clients.add(client_id)
-                            print(f"[{current_process().name}] Client {client_id} subscribed to all data")
+                            bt.logging.info(f"WebSocketServer: Client {client_id} subscribed to all data")
 
                             # Confirm subscription
                             await websocket.send(json.dumps({
@@ -592,7 +593,7 @@ class WebSocketServer(APIKeyMixin):
                         # Handle unsubscription
                         if data.get("all", False) and client_id in self.subscribed_clients:
                             self.subscribed_clients.remove(client_id)
-                            print(f"[{current_process().name}] Client {client_id} unsubscribed from all data")
+                            bt.logging.info(f"WebSocketServer: Client {client_id} unsubscribed from all data")
 
                             # Confirm unsubscription
                             await websocket.send(json.dumps({
@@ -605,18 +606,18 @@ class WebSocketServer(APIKeyMixin):
                 except websockets.exceptions.ConnectionClosed:
                     break
                 except json.JSONDecodeError:
-                    print(f"[{current_process().name}] Received invalid JSON from client {client_id}")
+                    bt.logging.warning(f"WebSocketServer: Received invalid JSON from client {client_id}")
                 except Exception as e:
-                    print(f"[{current_process().name}] Error processing message from client {client_id}: {e}")
-                    print(traceback.format_exc())
+                    bt.logging.error(f"WebSocketServer: Error processing message from client {client_id}: {e}")
+                    bt.logging.error(traceback.format_exc())
 
         except websockets.exceptions.ConnectionClosed:
-            print(f"[{current_process().name}] Client {client_id} disconnected")
+            bt.logging.info(f"WebSocketServer: Client {client_id} disconnected")
         except json.JSONDecodeError:
-            print(f"[{current_process().name}] Received invalid JSON data from client {client_id}")
+            bt.logging.warning(f"WebSocketServer: Received invalid JSON data from client {client_id}")
         except Exception as e:
-            print(f"[{current_process().name}] Error handling client {client_id}: {e}")
-            print(traceback.format_exc())
+            bt.logging.error(f"WebSocketServer: Error handling client {client_id}: {e}")
+            bt.logging.error(traceback.format_exc())
         finally:
             # Remove client from all subscriptions and connected clients
             self._remove_client(client_id)
@@ -639,46 +640,55 @@ class WebSocketServer(APIKeyMixin):
 
         # Start shared queue checker if available
         if self.shared_queue is not None:
-            print(f"[{current_process().name}] Starting shared queue monitor")
+            bt.logging.info(f"WebSocketServer: Starting shared queue monitor")
             self.shared_queue_task = asyncio.create_task(self._check_shared_queue())
         else:
-            print(f"[{current_process().name}] No shared queue provided, skipping monitor")
+            bt.logging.info(f"WebSocketServer: No shared queue provided, skipping monitor")
 
         # Start test order generator if enabled
         if self.send_test_positions and self.shared_queue is not None:
-            print(f"[{current_process().name}] Starting test order generator")
+            bt.logging.info(f"WebSocketServer: Starting test order generator")
             self.test_positions_task = asyncio.create_task(self._generate_test_ws_positions())
 
         while attempts < self.max_reconnect_attempts or self.max_reconnect_attempts <= 0:
             try:
                 # Create the server with appropriate handler
-                self.server = await websockets.serve(
-                    self.handle_client,
-                    self.host,
-                    self.port,
-                    reuse_address=True,  # Allow reuse of the address
-                    reuse_port=True  # Allow reuse of the port (on platforms that support it)
+                bt.logging.info(f"WebSocketServer: Attempting to bind WebSocket server to {self.host}:{self.port} (attempt {attempts + 1})...")
 
-                )
+                try:
+                    self.server = await websockets.serve(
+                        self.handle_client,
+                        self.host,
+                        self.port,
+                        reuse_address=True,  # Allow reuse of the address
+                        reuse_port=True  # Allow reuse of the port (on platforms that support it)
 
-                print(f"[{current_process().name}] WebSocket server started at ws://{self.host}:{self.port}")
-                print(f"[{current_process().name}] Current sequence number: {self.sequence_number}")
+                    )
+                    bt.logging.info(f"WebSocketServer: websockets.serve() completed successfully")
+                except Exception as serve_error:
+                    bt.logging.error(f"WebSocketServer: ERROR: websockets.serve() raised exception: {type(serve_error).__name__}: {serve_error}")
+                    raise
+
+                bt.logging.info(f"WebSocketServer: WebSocket server started at ws://{self.host}:{self.port}")
+                bt.logging.info(f"WebSocketServer: Current sequence number: {self.sequence_number}")
                 if self.shared_queue is not None:
-                    print(f"[{current_process().name}] Ready to receive messages from other processes via shared queue")
+                    bt.logging.info(f"WebSocketServer: Ready to receive messages from other processes via shared queue")
 
                 # Keep the server running indefinitely
+                bt.logging.info(f"WebSocketServer: Entering main event loop (await asyncio.Future())...")
                 await asyncio.Future()
 
             except OSError as e:
                 attempts += 1
-                print(
-                    f"[{current_process().name}] Failed to start WebSocket server (attempt {attempts}/{self.max_reconnect_attempts}): {e}")
+                bt.logging.error(
+                    f"WebSocketServer: Failed to start WebSocket server (attempt {attempts}/{self.max_reconnect_attempts}): OSError {e.errno}: {e}")
+                bt.logging.error(f"WebSocketServer: Error details - errno: {e.errno}, strerror: {e.strerror}")
 
                 if attempts < self.max_reconnect_attempts or self.max_reconnect_attempts <= 0:
-                    print(f"[{current_process().name}] Retrying in {self.reconnect_interval} seconds...")
+                    bt.logging.info(f"WebSocketServer: Retrying in {self.reconnect_interval} seconds...")
                     await asyncio.sleep(self.reconnect_interval)
                 else:
-                    print(f"[{current_process().name}] Maximum retry attempts reached. Giving up.")
+                    bt.logging.error(f"WebSocketServer: Maximum retry attempts reached. Giving up.")
                     raise
             except asyncio.CancelledError:
                 # Handle cancellation gracefully
@@ -714,13 +724,16 @@ class WebSocketServer(APIKeyMixin):
                 self._save_sequence_number()
                 raise
             except Exception as e:
-                print(f"[{current_process().name}] Unexpected error starting WebSocket server: {e}")
-                print(f"[{current_process().name}] {traceback.format_exc()}")
+                bt.logging.error(f"WebSocketServer: Unexpected error starting WebSocket server: {type(e).__name__}: {e}")
+                bt.logging.error(f"WebSocketServer: Full traceback:")
+                bt.logging.error(f"WebSocketServer: {traceback.format_exc()}")
+                # Save sequence number before crashing
+                self._save_sequence_number()
                 raise
 
     async def shutdown(self) -> None:
         """Gracefully shut down the WebSocket server."""
-        print(f"[{current_process().name}] Shutting down WebSocket server...")
+        bt.logging.info(f"WebSocketServer: Shutting down WebSocket server...")
 
         # Signal the shutdown to all tasks
         if self.shutdown_event:
@@ -732,14 +745,14 @@ class WebSocketServer(APIKeyMixin):
             try:
                 await self.server.wait_closed()
             except Exception as e:
-                print(f"[{current_process().name}] Error while waiting for server to close: {e}")
+                bt.logging.error(f"WebSocketServer: Error while waiting for server to close: {e}")
 
         # Close all client connections
         for client_id, websocket in list(self.connected_clients.items()):
             try:
                 await websocket.close()
             except Exception as e:
-                print(f"[{current_process().name}] Error closing client {client_id}: {e}")
+                bt.logging.error(f"WebSocketServer: Error closing client {client_id}: {e}")
 
         # Wait a bit for connections to close
         await asyncio.sleep(0.5)
@@ -765,7 +778,7 @@ class WebSocketServer(APIKeyMixin):
 
         # Wait for all tasks to complete cancellation with exception handling
         if tasks_to_cancel:
-            print(f"[{current_process().name}] Waiting for {len(tasks_to_cancel)} tasks to cancel...")
+            bt.logging.info(f"WebSocketServer: Waiting for {len(tasks_to_cancel)} tasks to cancel...")
             for task in tasks_to_cancel:
                 try:
                     # Use wait_for with a timeout to avoid hanging
@@ -774,19 +787,20 @@ class WebSocketServer(APIKeyMixin):
                     # This is expected
                     pass
                 except Exception as e:
-                    print(f"[{current_process().name}] Error cancelling task: {e}")
+                    bt.logging.error(f"WebSocketServer: Error cancelling task: {e}")
 
         # Final save of sequence number
-        print(f"[{current_process().name}] Saving final sequence number: {self.sequence_number}")
+        bt.logging.info(f"WebSocketServer: Saving final sequence number: {self.sequence_number}")
         self._save_sequence_number()
-        print(f"[{current_process().name}] WebSocket server shutdown complete")
+        bt.logging.info(f"WebSocketServer: WebSocket server shutdown complete")
 
     def run(self):
         """Start the server in the current process."""
-        print(f"[{current_process().name}] Starting WebSocket server...")
+        bt.logging.info(f"WebSocketServer: Starting WebSocket server...")
         setproctitle(f"vali_{self.__class__.__name__}")
         try:
             # Create a new event loop for this thread
+            bt.logging.info(f"WebSocketServer: Creating new event loop...")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
@@ -794,13 +808,16 @@ class WebSocketServer(APIKeyMixin):
             self.shutdown_event = asyncio.Event()
 
             # Create main task
+            bt.logging.info(f"WebSocketServer: Creating main task for start()...")
             main_task = loop.create_task(self.start())
 
             # Run the loop until keyboard interrupt
+            bt.logging.info(f"WebSocketServer: Running event loop with run_until_complete()...")
             try:
                 loop.run_until_complete(main_task)
+                bt.logging.info(f"WebSocketServer: Event loop completed (this shouldn't happen unless shutting down)")
             except KeyboardInterrupt:
-                print(f"\n[{current_process().name}] Keyboard interrupt detected! Shutting down...")
+                bt.logging.info(f"WebSocketServer: Keyboard interrupt detected! Shutting down...")
                 # Set shutdown event - this will signal all tasks to stop
                 self.shutdown_event.set()
 
@@ -818,16 +835,19 @@ class WebSocketServer(APIKeyMixin):
                 if pending:
                     loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
-                print(f"[{current_process().name}] All tasks have been stopped.")
+                bt.logging.info(f"WebSocketServer: All tasks have been stopped.")
             finally:
                 # Close the loop
                 loop.close()
 
         except Exception as e:
-            print(f"[{current_process().name}] Error in WebSocket server: {e}")
-            print(f"[{current_process().name}] {traceback.format_exc()}")
+            bt.logging.error(f"WebSocketServer: FATAL ERROR in WebSocket server run(): {type(e).__name__}: {e}")
+            bt.logging.error(f"WebSocketServer: Full traceback:")
+            bt.logging.error(f"{traceback.format_exc()}")
             # Make sure sequence number is saved
             self._save_sequence_number()
+            bt.logging.error(f"WebSocketServer: WebSocket server process exiting due to error")
+            raise
 
 
 # For standalone testing
@@ -848,16 +868,16 @@ if __name__ == "__main__":
     if not os.path.exists(args.api_keys_file):
         with open(args.api_keys_file, "w") as f:
             json.dump({"test_user": "test_key", "client": "abc"}, f)
-        print(f"Created test API keys file at {args.api_keys_file}")
+        bt.logging.info(f"WebSocketServer: Created test API keys file at {args.api_keys_file}")
 
     # Create a manager instance for testing
     mp_manager = Manager()
     test_queue = mp_manager.Queue()
 
-    print(f"Starting WebSocket server on {args.host}:{args.port}")
-    print(f"Test positions: {'Enabled' if args.test_positions else 'Disabled'}")
+    bt.logging.info(f"WebSocketServer: Starting WebSocket server on {args.host}:{args.port}")
+    bt.logging.info(f"WebSocketServer: Test positions: {'Enabled' if args.test_positions else 'Disabled'}")
     if args.test_positions:
-        print(f"Test position interval: {args.test_position_interval} seconds")
+        bt.logging.info(f"WebSocketServer: Test position interval: {args.test_position_interval} seconds")
 
     # Create and run the server
     server = WebSocketServer(

@@ -435,7 +435,8 @@ class Validator:
                 contract_manager=self.contract_manager,
                 miner_statistics_manager=self.miner_statistics_manager,
                 request_core_manager=self.request_core_manager,
-                asset_selection_manager=self.asset_selection_manager
+                asset_selection_manager=self.asset_selection_manager,
+                slack_webhook_url=self.config.slack_webhook_url
             )
 
             # Start the API Manager in a separate process
