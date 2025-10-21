@@ -179,13 +179,21 @@ class EmissionsLedgerManager:
             Set of hotkey SS58 addresses
         """
         try:
+            # Try metagraph API first
             metagraph = self.emissions_ledger.subtensor.metagraph(netuid=self.netuid)
             active_hotkeys = set(metagraph.hotkeys)
             bt.logging.info(f"Found {len(active_hotkeys)} active hotkeys in subnet {self.netuid}")
             return active_hotkeys
         except Exception as e:
-            bt.logging.error(f"Error getting active hotkeys: {e}")
-            return set()
+            bt.logging.warning(f"Metagraph API unavailable ({e}), using direct chain queries")
+            # Fallback to direct chain queries
+            hotkeys_list = self.emissions_ledger._get_all_hotkeys_from_chain()
+            active_hotkeys = set(hotkeys_list)
+            if active_hotkeys:
+                bt.logging.info(f"Found {len(active_hotkeys)} active hotkeys in subnet {self.netuid}")
+            else:
+                bt.logging.error("Could not retrieve active hotkeys from chain")
+            return active_hotkeys
 
     def update_single_hotkey(self, hotkey: str, verbose: bool = False) -> bool:
         """
