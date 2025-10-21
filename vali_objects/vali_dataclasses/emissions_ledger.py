@@ -91,20 +91,33 @@ class EmissionsLedger:
     # Default start date for emissions tracking: September 1, 2025 00:00:00 UTC
     DEFAULT_START_DATE_MS = int(datetime(2025, 9, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
 
-    def __init__(self, network: str = "finney", netuid: int = 8):
+    def __init__(
+        self,
+        network: str = "finney",
+        netuid: int = 8,
+        archive_endpoints: Optional[List[str]] = None
+    ):
         """
         Initialize EmissionsLedger with blockchain connection.
 
         Args:
             network: Bittensor network name ("finney", "test", "local")
             netuid: Subnet UID to query (default: 8 for mainnet PTN)
+            archive_endpoints: List of archive node endpoints for historical queries.
+                Example: ["wss://archive.chain.opentensor.ai:443"]
         """
         self.network = network
         self.netuid = netuid
 
-        # Initialize subtensor connection
+        # Initialize subtensor connection with archive endpoints
         bt.logging.info(f"Connecting to network: {network}, netuid: {netuid}")
-        self.subtensor = bt.subtensor(network=network)
+        if archive_endpoints:
+            bt.logging.info(f"Using archive endpoints: {archive_endpoints}")
+
+        self.subtensor = bt.subtensor(
+            network=network,
+            archive_endpoints=archive_endpoints
+        )
 
         # Storage for emissions checkpoints per hotkey
         self.emissions_ledgers: Dict[str, List[EmissionsCheckpoint]] = {}
@@ -746,6 +759,8 @@ if __name__ == "__main__":
     parser.add_argument("--hotkey", type=str, help="Hotkey to query (SS58 address)", default='5DUi8ZCaNabsR6bnHfs471y52cUN1h9DcugjRbEBo341aKhY')
     parser.add_argument("--netuid", type=int, default=8, help="Subnet UID (default: 8)")
     parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
+    parser.add_argument("--archive-endpoint", type=str, action="append", dest="archive_endpoints",
+                       help="Archive node endpoint (can be specified multiple times). Example: wss://archive.chain.opentensor.ai:443")
     parser.add_argument("--bulk", action="store_true", help="Process all hotkeys in subnet")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
@@ -756,7 +771,11 @@ if __name__ == "__main__":
         bt.logging.enable_debug()
 
     # Initialize ledger
-    ledger = EmissionsLedger(network=args.network, netuid=args.netuid)
+    ledger = EmissionsLedger(
+        network=args.network,
+        netuid=args.netuid,
+        archive_endpoints=args.archive_endpoints
+    )
 
     if args.bulk:
         # Build ledgers for all hotkeys

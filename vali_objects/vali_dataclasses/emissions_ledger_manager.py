@@ -50,7 +50,8 @@ class EmissionsLedgerManager:
         netuid: int = 8,
         persistence_dir: Optional[str] = None,
         update_interval_seconds: int = DEFAULT_UPDATE_INTERVAL_SECONDS,
-        auto_persist: bool = True
+        auto_persist: bool = True,
+        archive_endpoints: Optional[List[str]] = None
     ):
         """
         Initialize EmissionsLedgerManager.
@@ -61,6 +62,7 @@ class EmissionsLedgerManager:
             persistence_dir: Directory to save/load ledgers (default: validation/emissions_ledgers)
             update_interval_seconds: How often to update ledgers (default: 6 hours)
             auto_persist: Automatically save ledgers after updates (default: True)
+            archive_endpoints: List of archive node endpoints for historical queries
         """
         self.network = network
         self.netuid = netuid
@@ -78,7 +80,11 @@ class EmissionsLedgerManager:
         bt.logging.info(f"Update interval: {update_interval_seconds} seconds ({update_interval_seconds/3600:.1f} hours)")
 
         # Initialize emissions ledger
-        self.emissions_ledger = EmissionsLedger(network=network, netuid=netuid)
+        self.emissions_ledger = EmissionsLedger(
+            network=network,
+            netuid=netuid,
+            archive_endpoints=archive_endpoints
+        )
 
         # Track last update time per hotkey
         self.last_update_time: Dict[str, int] = {}  # hotkey -> timestamp_ms
@@ -491,6 +497,8 @@ if __name__ == "__main__":
     parser.add_argument("--persistence-dir", type=str, help="Directory to save/load state")
     parser.add_argument("--update-interval", type=int, default=EmissionsLedgerManager.DEFAULT_UPDATE_INTERVAL_SECONDS,
                        help=f"Update interval in seconds (default: {EmissionsLedgerManager.DEFAULT_UPDATE_INTERVAL_SECONDS})")
+    parser.add_argument("--archive-endpoint", type=str, action="append", dest="archive_endpoints",
+                       help="Archive node endpoint (can be specified multiple times). Example: wss://archive.chain.opentensor.ai:443")
     parser.add_argument("--no-auto-persist", action="store_true", help="Disable automatic state persistence")
     parser.add_argument("--run-once", action="store_true", help="Run once and exit (don't loop)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
@@ -507,7 +515,8 @@ if __name__ == "__main__":
         netuid=args.netuid,
         persistence_dir=args.persistence_dir,
         update_interval_seconds=args.update_interval,
-        auto_persist=not args.no_auto_persist
+        auto_persist=not args.no_auto_persist,
+        archive_endpoints=args.archive_endpoints
     )
 
     if args.run_once:
