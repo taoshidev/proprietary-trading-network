@@ -109,15 +109,25 @@ class EmissionsLedger:
         self.network = network
         self.netuid = netuid
 
-        # Initialize subtensor connection with archive endpoints
+        # Initialize subtensor connection
         bt.logging.info(f"Connecting to network: {network}, netuid: {netuid}")
-        if archive_endpoints:
-            bt.logging.info(f"Using archive endpoints: {archive_endpoints}")
 
-        self.subtensor = bt.subtensor(
-            network=network,
-            archive_endpoints=archive_endpoints
-        )
+        # Use archive endpoint if provided, otherwise use default network
+        if archive_endpoints and len(archive_endpoints) > 0:
+            chain_endpoint = archive_endpoints[0]
+            bt.logging.info(f"Using archive endpoint: {chain_endpoint}")
+
+            # Create config - don't set network when using custom chain endpoint
+            import argparse
+            parser = argparse.ArgumentParser()
+            bt.subtensor.add_args(parser)
+            config = bt.config(parser)
+            config.subtensor.chain_endpoint = chain_endpoint
+            # Don't set network - using custom endpoint overrides it
+            self.subtensor = bt.subtensor(config=config)
+        else:
+            # Use default network
+            self.subtensor = bt.subtensor(network=network)
 
         # Storage for emissions checkpoints per hotkey
         self.emissions_ledgers: Dict[str, List[EmissionsCheckpoint]] = {}
@@ -431,10 +441,13 @@ class EmissionsLedger:
 
     def query_emissions_at_block(self, hotkey: str, block_number: int, cached_uid: Optional[int] = None) -> tuple[Optional[float], Optional[int]]:
         """
-        Query the emissions rate for a hotkey at a specific block.
+        Query the emissions rate per block for a hotkey at a specific block.
 
         This queries the historical state of the metagraph at the given block
         to determine the emissions the hotkey was receiving at that time.
+
+        Note: Bittensor's Emission storage stores RAO per tempo (360 blocks).
+        This method converts to TAO per block for easy multiplication with block counts.
 
         Args:
             hotkey: SS58 address of the hotkey
@@ -442,7 +455,7 @@ class EmissionsLedger:
             cached_uid: Previously found UID to try first (optimization)
 
         Returns:
-            Tuple of (emissions_tao, uid) or (None, None) if query fails
+            Tuple of (emissions_tao_per_block, uid) or (None, None) if query fails
         """
         try:
             # Get block hash for the specific block
@@ -478,12 +491,16 @@ class EmissionsLedger:
                     # Get emission for this specific UID
                     if isinstance(emissions_list, (list, tuple)) and uid < len(emissions_list):
                         emission_rao = float(emissions_list[uid])
-                        emission_tao = emission_rao / 1e9
-                        return emission_tao, uid
+                        emission_tao = emission_rao / 1e9  # Convert RAO to TAO
+                        # Emission storage is per tempo (360 blocks), convert to per block
+                        emission_per_block = emission_tao / 360
+                        return emission_per_block, uid
                     elif isinstance(emissions_list, dict) and uid in emissions_list:
                         emission_rao = float(emissions_list[uid])
-                        emission_tao = emission_rao / 1e9
-                        return emission_tao, uid
+                        emission_tao = emission_rao / 1e9  # Convert RAO to TAO
+                        # Emission storage is per tempo (360 blocks), convert to per block
+                        emission_per_block = emission_tao / 360
+                        return emission_per_block, uid
 
             except Exception as e:
                 bt.logging.debug(f"Emission query with netuid only failed: {e}")
@@ -572,6 +589,7 @@ class EmissionsLedger:
         Returns:
             List of EmissionsCheckpoints chronologically ordered
         """
+        start_exec_time = time.time()
         bt.logging.info(f"Building emissions ledger for hotkey: {hotkey}")
 
         # Use default start date (Sept 1, 2025) if not specified
@@ -664,7 +682,8 @@ class EmissionsLedger:
             current_chunk_start_ms = current_chunk_end_ms
             current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
 
-        bt.logging.info(f"Built {len(checkpoints)} emission checkpoints for {hotkey}")
+        elapsed_time = time.time() - start_exec_time
+        bt.logging.info(f"Built {len(checkpoints)} emission checkpoints for {hotkey} in {elapsed_time:.2f} seconds")
         bt.logging.info(f"Total emissions: {cumulative_emissions:.6f} TAO")
 
         # Store in ledger
