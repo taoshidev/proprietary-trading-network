@@ -863,6 +863,99 @@ class EmissionsLedger:
 
         print(f"{'='*80}\n")
 
+    def plot_emissions(self, hotkey: str, save_path: Optional[str] = None):
+        """
+        Plot emissions data for a hotkey using matplotlib.
+
+        Creates two subplots:
+        1. Bar chart of chunk emissions over time
+        2. Line chart of cumulative emissions over time
+
+        Args:
+            hotkey: SS58 address of the hotkey
+            save_path: Optional path to save the plot (default: display only)
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+        except ImportError:
+            bt.logging.warning("matplotlib not installed, skipping plot. Install with: pip install matplotlib")
+            return
+
+        checkpoints = self.get_emissions_ledger(hotkey)
+
+        if not checkpoints:
+            bt.logging.warning(f"No emissions data found for {hotkey}, skipping plot")
+            return
+
+        # Extract data for plotting
+        chunk_starts = [datetime.fromtimestamp(cp.chunk_start_ms / 1000, tz=timezone.utc) for cp in checkpoints]
+        chunk_emissions = [cp.chunk_emissions for cp in checkpoints]
+        cumulative_emissions = [cp.cumulative_emissions for cp in checkpoints]
+
+        # Create figure with 2 subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+        fig.suptitle(f'Emissions Analysis for {hotkey[:16]}...{hotkey[-8:]}', fontsize=14, fontweight='bold')
+
+        # Subplot 1: Chunk Emissions (Bar Chart)
+        ax1.bar(chunk_starts, chunk_emissions, width=0.4, alpha=0.7, color='steelblue', edgecolor='navy')
+        ax1.set_xlabel('Date (UTC)', fontsize=11)
+        ax1.set_ylabel('Emissions per Chunk (TAO)', fontsize=11)
+        ax1.set_title('Emissions per 12-Hour Chunk', fontsize=12, fontweight='bold')
+        ax1.grid(True, alpha=0.3, linestyle='--')
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax1.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        # Add statistics text box to first plot
+        total_emissions = cumulative_emissions[-1] if cumulative_emissions else 0
+        avg_chunk = sum(chunk_emissions) / len(chunk_emissions) if chunk_emissions else 0
+        max_chunk = max(chunk_emissions) if chunk_emissions else 0
+        nonzero_chunks = sum(1 for e in chunk_emissions if e > 0)
+
+        stats_text = f'Total: {total_emissions:.6f} TAO\n'
+        stats_text += f'Avg/Chunk: {avg_chunk:.6f} TAO\n'
+        stats_text += f'Max/Chunk: {max_chunk:.6f} TAO\n'
+        stats_text += f'Active Chunks: {nonzero_chunks}/{len(checkpoints)}'
+
+        ax1.text(0.98, 0.97, stats_text,
+                transform=ax1.transAxes,
+                fontsize=9,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+
+        # Subplot 2: Cumulative Emissions (Line Chart)
+        ax2.plot(chunk_starts, cumulative_emissions, linewidth=2, color='darkgreen', marker='o',
+                markersize=3, alpha=0.7)
+        ax2.fill_between(chunk_starts, cumulative_emissions, alpha=0.3, color='lightgreen')
+        ax2.set_xlabel('Date (UTC)', fontsize=11)
+        ax2.set_ylabel('Cumulative Emissions (TAO)', fontsize=11)
+        ax2.set_title('Cumulative Emissions Over Time', fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3, linestyle='--')
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
+        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        # Add final value annotation
+        if chunk_starts and cumulative_emissions:
+            ax2.annotate(f'{total_emissions:.6f} TAO',
+                        xy=(chunk_starts[-1], cumulative_emissions[-1]),
+                        xytext=(10, 10), textcoords='offset points',
+                        fontsize=10, fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7),
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', color='black'))
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            bt.logging.info(f"Plot saved to {save_path}")
+        else:
+            plt.show()
+
+        plt.close()
+
 
 if __name__ == "__main__":
     import argparse
@@ -874,6 +967,8 @@ if __name__ == "__main__":
     parser.add_argument("--archive-endpoint", type=str, action="append", dest="archive_endpoints",
                        help="Archive node endpoint (can be specified multiple times). Example: wss://archive.chain.opentensor.ai:443")
     parser.add_argument("--bulk", action="store_true", help="Process all hotkeys in subnet")
+    parser.add_argument("--plot", action="store_true", help="Generate matplotlib plot (single hotkey mode only)")
+    parser.add_argument("--save-plot", type=str, help="Save plot to file instead of displaying (requires --plot)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
@@ -901,6 +996,10 @@ if __name__ == "__main__":
         # Build ledger for single hotkey
         ledger.build_emissions_ledger_for_hotkey(args.hotkey, verbose=args.verbose)
         ledger.print_emissions_summary(args.hotkey)
+
+        # Plot if requested
+        if args.plot or args.save_plot:
+            ledger.plot_emissions(args.hotkey, save_path=args.save_plot)
 
     else:
         print("Error: Must specify --hotkey or --bulk")
