@@ -46,7 +46,7 @@ class EmissionsLedgerManager:
 
     def __init__(
         self,
-        network: str = "local",
+        network: str = "finney",
         netuid: int = 8,
         persistence_dir: Optional[str] = None,
         update_interval_seconds: int = DEFAULT_UPDATE_INTERVAL_SECONDS,
@@ -486,7 +486,7 @@ if __name__ == "__main__":
     import signal
 
     parser = argparse.ArgumentParser(description="Run Emissions Ledger Manager")
-    parser.add_argument("--network", type=str, default="local", help="Network name (default: local)")
+    parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
     parser.add_argument("--netuid", type=int, default=8, help="Subnet UID (default: 8)")
     parser.add_argument("--persistence-dir", type=str, help="Directory to save/load state")
     parser.add_argument("--update-interval", type=int, default=EmissionsLedgerManager.DEFAULT_UPDATE_INTERVAL_SECONDS,
