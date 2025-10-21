@@ -29,8 +29,12 @@ class EmissionsCheckpoint:
     Attributes:
         chunk_start_ms: Start timestamp of the 12-hour chunk (milliseconds)
         chunk_end_ms: End timestamp of the 12-hour chunk (milliseconds)
-        chunk_emissions: Theta earned during this specific 12-hour chunk
-        cumulative_emissions: Total theta earned from registration up to end of this chunk
+        chunk_emissions: Alpha tokens earned during this specific 12-hour chunk
+        cumulative_emissions: Total alpha tokens earned from registration up to end of this chunk
+        chunk_emissions_tao: Approximate TAO value of chunk emissions (using avg conversion rate)
+        cumulative_emissions_tao: Total approximate TAO value from registration up to end of this chunk
+        alpha_to_tao_rate_start: Alpha-to-TAO conversion rate at chunk start
+        alpha_to_tao_rate_end: Alpha-to-TAO conversion rate at chunk end
         block_start: Block number at chunk start (for verification)
         block_end: Block number at chunk end (for verification)
     """
@@ -38,6 +42,10 @@ class EmissionsCheckpoint:
     chunk_end_ms: int
     chunk_emissions: float
     cumulative_emissions: float
+    chunk_emissions_tao: float = 0.0
+    cumulative_emissions_tao: float = 0.0
+    alpha_to_tao_rate_start: Optional[float] = None
+    alpha_to_tao_rate_end: Optional[float] = None
     block_start: Optional[int] = None
     block_end: Optional[int] = None
 
@@ -63,6 +71,10 @@ class EmissionsCheckpoint:
             'chunk_end_utc': datetime.fromtimestamp(self.chunk_end_ms / 1000, tz=timezone.utc).isoformat(),
             'chunk_emissions': self.chunk_emissions,
             'cumulative_emissions': self.cumulative_emissions,
+            'chunk_emissions_tao': self.chunk_emissions_tao,
+            'cumulative_emissions_tao': self.cumulative_emissions_tao,
+            'alpha_to_tao_rate_start': self.alpha_to_tao_rate_start,
+            'alpha_to_tao_rate_end': self.alpha_to_tao_rate_end,
             'block_start': self.block_start,
             'block_end': self.block_end,
         }
@@ -517,6 +529,67 @@ class EmissionsLedger:
             bt.logging.error(f"Error querying emissions at block {block_number} for {hotkey}: {e}")
             return None, None
 
+    def query_alpha_to_tao_rate(self, block_number: int) -> Optional[float]:
+        """
+        Query the alpha-to-TAO conversion rate at a specific block.
+
+        The conversion rate is calculated from subnet pool reserves:
+        alpha_price_in_tao = TAO_reserve / Alpha_reserve
+
+        Args:
+            block_number: Block number to query
+
+        Returns:
+            Alpha-to-TAO conversion rate, or None if query fails
+        """
+        try:
+            # Get block hash for the specific block
+            block_hash = self.subtensor.substrate.get_block_hash(block_number)
+            if not block_hash:
+                bt.logging.warning(f"Could not get hash for block {block_number}")
+                return None
+
+            # Query TAO reserve
+            tao_reserve_query = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetTAO',
+                params=[self.netuid],
+                block_hash=block_hash
+            )
+
+            # Query Alpha reserve
+            alpha_reserve_query = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetAlphaIn',
+                params=[self.netuid],
+                block_hash=block_hash
+            )
+
+            if tao_reserve_query is None or alpha_reserve_query is None:
+                bt.logging.debug(f"Pool reserve data not available at block {block_number}")
+                return None
+
+            # Extract values (stored in RAO)
+            tao_reserve_rao = float(tao_reserve_query.value if hasattr(tao_reserve_query, 'value') else tao_reserve_query)
+            alpha_reserve_rao = float(alpha_reserve_query.value if hasattr(alpha_reserve_query, 'value') else alpha_reserve_query)
+
+            if alpha_reserve_rao == 0:
+                bt.logging.warning(f"Alpha reserve is zero at block {block_number}")
+                return None
+
+            # Convert from RAO to tokens (both use 1e9 divisor)
+            tao_in_pool = tao_reserve_rao / 1e9
+            alpha_in_pool = alpha_reserve_rao / 1e9
+
+            # Calculate alpha price in TAO
+            alpha_to_tao_rate = tao_in_pool / alpha_in_pool
+
+            return alpha_to_tao_rate
+
+        except Exception as e:
+            bt.logging.debug(f"Error querying alpha-to-TAO rate at block {block_number}: {e}")
+            return None
+
     def calculate_emissions_in_range(self, hotkey: str, start_block: int, end_block: int) -> float:
         """
         Calculate total emissions received by a hotkey between two blocks.
@@ -636,6 +709,7 @@ class EmissionsLedger:
         # Generate list of 12-hour chunks
         checkpoints: List[EmissionsCheckpoint] = []
         cumulative_emissions = 0.0
+        cumulative_emissions_tao = 0.0
 
         current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
 
@@ -661,7 +735,7 @@ class EmissionsLedger:
             if verbose:
                 bt.logging.info(f"Processing chunk {chunk_count}: {actual_start_ms} to {actual_end_ms}")
 
-            # Calculate emissions for this chunk
+            # Calculate alpha emissions for this chunk
             chunk_emissions = self.calculate_emissions_in_range(
                 hotkey,
                 chunk_start_block,
@@ -670,11 +744,31 @@ class EmissionsLedger:
 
             cumulative_emissions += chunk_emissions
 
+            # Query alpha-to-TAO conversion rates at chunk boundaries
+            alpha_to_tao_rate_start = self.query_alpha_to_tao_rate(chunk_start_block)
+            alpha_to_tao_rate_end = self.query_alpha_to_tao_rate(chunk_end_block)
+
+            # Calculate TAO value using average conversion rate
+            chunk_emissions_tao = 0.0
+            if alpha_to_tao_rate_start is not None and alpha_to_tao_rate_end is not None:
+                avg_rate = (alpha_to_tao_rate_start + alpha_to_tao_rate_end) / 2
+                chunk_emissions_tao = chunk_emissions * avg_rate
+            elif alpha_to_tao_rate_start is not None:
+                chunk_emissions_tao = chunk_emissions * alpha_to_tao_rate_start
+            elif alpha_to_tao_rate_end is not None:
+                chunk_emissions_tao = chunk_emissions * alpha_to_tao_rate_end
+
+            cumulative_emissions_tao += chunk_emissions_tao
+
             checkpoint = EmissionsCheckpoint(
                 chunk_start_ms=current_chunk_start_ms,
                 chunk_end_ms=current_chunk_end_ms,
                 chunk_emissions=chunk_emissions,
                 cumulative_emissions=cumulative_emissions,
+                chunk_emissions_tao=chunk_emissions_tao,
+                cumulative_emissions_tao=cumulative_emissions_tao,
+                alpha_to_tao_rate_start=alpha_to_tao_rate_start,
+                alpha_to_tao_rate_end=alpha_to_tao_rate_end,
                 block_start=chunk_start_block,
                 block_end=chunk_end_block
             )
@@ -682,7 +776,8 @@ class EmissionsLedger:
             checkpoints.append(checkpoint)
 
             if verbose:
-                bt.logging.info(f"Chunk {chunk_count}: {chunk_emissions:.6f} TAO (cumulative: {cumulative_emissions:.6f} TAO)")
+                bt.logging.info(f"Chunk {chunk_count}: {chunk_emissions:.6f} alpha ({chunk_emissions_tao:.6f} TAO) "
+                               f"(cumulative: {cumulative_emissions:.6f} alpha, {cumulative_emissions_tao:.6f} TAO)")
 
             # Move to next chunk
             current_chunk_start_ms = current_chunk_end_ms
@@ -690,7 +785,7 @@ class EmissionsLedger:
 
         elapsed_time = time.time() - start_exec_time
         bt.logging.info(f"Built {len(checkpoints)} emission checkpoints for {hotkey} in {elapsed_time:.2f} seconds")
-        bt.logging.info(f"Total emissions: {cumulative_emissions:.6f} TAO")
+        bt.logging.info(f"Total emissions: {cumulative_emissions:.6f} alpha (~{cumulative_emissions_tao:.6f} TAO)")
 
         # Store in ledger
         self.emissions_ledgers[hotkey] = checkpoints
@@ -898,59 +993,93 @@ class EmissionsLedger:
         chunk_starts = [datetime.fromtimestamp(cp.chunk_start_ms / 1000, tz=timezone.utc) for cp in checkpoints]
         chunk_emissions = [cp.chunk_emissions for cp in checkpoints]
         cumulative_emissions = [cp.cumulative_emissions for cp in checkpoints]
+        chunk_emissions_tao = [cp.chunk_emissions_tao for cp in checkpoints]
+        cumulative_emissions_tao = [cp.cumulative_emissions_tao for cp in checkpoints]
 
         # Create figure with 2 subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
         fig.suptitle(f'Emissions Analysis for {hotkey[:16]}...{hotkey[-8:]}', fontsize=14, fontweight='bold')
 
-        # Subplot 1: Chunk Emissions (Bar Chart)
-        ax1.bar(chunk_starts, chunk_emissions, width=0.4, alpha=0.7, color='steelblue', edgecolor='navy')
-        ax1.set_xlabel('Date (UTC)', fontsize=11)
-        ax1.set_ylabel('Emissions per Chunk (TAO)', fontsize=11)
-        ax1.set_title('Emissions per 12-Hour Chunk', fontsize=12, fontweight='bold')
-        ax1.grid(True, alpha=0.3, linestyle='--')
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        ax1.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+        # Subplot 1: Chunk Emissions (Bar Chart with dual y-axes)
+        # Alpha emissions on left y-axis
+        ax1_alpha = ax1
+        ax1_alpha.bar(chunk_starts, chunk_emissions, width=0.4, alpha=0.6, color='steelblue', edgecolor='navy', label='Alpha')
+        ax1_alpha.set_xlabel('Date (UTC)', fontsize=11)
+        ax1_alpha.set_ylabel('Alpha per Chunk', fontsize=11, color='steelblue')
+        ax1_alpha.tick_params(axis='y', labelcolor='steelblue')
+        ax1_alpha.set_title('Emissions per 12-Hour Chunk (Alpha & TAO)', fontsize=12, fontweight='bold')
+        ax1_alpha.grid(True, alpha=0.3, linestyle='--')
+
+        # TAO emissions on right y-axis
+        ax1_tao = ax1_alpha.twinx()
+        ax1_tao.plot(chunk_starts, chunk_emissions_tao, linewidth=2, color='orange', marker='o',
+                    markersize=4, alpha=0.8, label='TAO')
+        ax1_tao.set_ylabel('TAO per Chunk', fontsize=11, color='orange')
+        ax1_tao.tick_params(axis='y', labelcolor='orange')
+
+        # Format x-axis
+        ax1_alpha.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax1_alpha.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
+        plt.setp(ax1_alpha.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
         # Add statistics text box to first plot
         total_emissions = cumulative_emissions[-1] if cumulative_emissions else 0
+        total_emissions_tao = cumulative_emissions_tao[-1] if cumulative_emissions_tao else 0
         avg_chunk = sum(chunk_emissions) / len(chunk_emissions) if chunk_emissions else 0
-        max_chunk = max(chunk_emissions) if chunk_emissions else 0
+        avg_chunk_tao = sum(chunk_emissions_tao) / len(chunk_emissions_tao) if chunk_emissions_tao else 0
         nonzero_chunks = sum(1 for e in chunk_emissions if e > 0)
 
-        stats_text = f'Total: {total_emissions:.6f} TAO\n'
-        stats_text += f'Avg/Chunk: {avg_chunk:.6f} TAO\n'
-        stats_text += f'Max/Chunk: {max_chunk:.6f} TAO\n'
+        stats_text = f'Total: {total_emissions:.6f} alpha (~{total_emissions_tao:.6f} TAO)\n'
+        stats_text += f'Avg/Chunk: {avg_chunk:.6f} alpha (~{avg_chunk_tao:.6f} TAO)\n'
         stats_text += f'Active Chunks: {nonzero_chunks}/{len(checkpoints)}'
 
-        ax1.text(0.98, 0.97, stats_text,
-                transform=ax1.transAxes,
+        ax1_alpha.text(0.98, 0.97, stats_text,
+                transform=ax1_alpha.transAxes,
                 fontsize=9,
                 verticalalignment='top',
                 horizontalalignment='right',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-        # Subplot 2: Cumulative Emissions (Line Chart)
-        ax2.plot(chunk_starts, cumulative_emissions, linewidth=2, color='darkgreen', marker='o',
-                markersize=3, alpha=0.7)
-        ax2.fill_between(chunk_starts, cumulative_emissions, alpha=0.3, color='lightgreen')
-        ax2.set_xlabel('Date (UTC)', fontsize=11)
-        ax2.set_ylabel('Cumulative Emissions (TAO)', fontsize=11)
-        ax2.set_title('Cumulative Emissions Over Time', fontsize=12, fontweight='bold')
-        ax2.grid(True, alpha=0.3, linestyle='--')
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+        # Subplot 2: Cumulative Emissions (Line Chart with dual y-axes)
+        # Alpha emissions on left y-axis
+        ax2_alpha = ax2
+        ax2_alpha.plot(chunk_starts, cumulative_emissions, linewidth=2, color='darkgreen', marker='o',
+                      markersize=3, alpha=0.7, label='Alpha')
+        ax2_alpha.fill_between(chunk_starts, cumulative_emissions, alpha=0.2, color='lightgreen')
+        ax2_alpha.set_xlabel('Date (UTC)', fontsize=11)
+        ax2_alpha.set_ylabel('Cumulative Alpha', fontsize=11, color='darkgreen')
+        ax2_alpha.tick_params(axis='y', labelcolor='darkgreen')
+        ax2_alpha.set_title('Cumulative Emissions Over Time (Alpha & TAO)', fontsize=12, fontweight='bold')
+        ax2_alpha.grid(True, alpha=0.3, linestyle='--')
 
-        # Add final value annotation
+        # TAO emissions on right y-axis
+        ax2_tao = ax2_alpha.twinx()
+        ax2_tao.plot(chunk_starts, cumulative_emissions_tao, linewidth=2, color='darkorange', marker='s',
+                    markersize=3, alpha=0.7, label='TAO')
+        ax2_tao.fill_between(chunk_starts, cumulative_emissions_tao, alpha=0.2, color='peachpuff')
+        ax2_tao.set_ylabel('Cumulative TAO', fontsize=11, color='darkorange')
+        ax2_tao.tick_params(axis='y', labelcolor='darkorange')
+
+        # Format x-axis
+        ax2_alpha.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax2_alpha.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(checkpoints)//20)))
+        plt.setp(ax2_alpha.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        # Add final value annotations
         if chunk_starts and cumulative_emissions:
-            ax2.annotate(f'{total_emissions:.6f} TAO',
+            ax2_alpha.annotate(f'{total_emissions:.6f} alpha',
                         xy=(chunk_starts[-1], cumulative_emissions[-1]),
-                        xytext=(10, 10), textcoords='offset points',
-                        fontsize=10, fontweight='bold',
-                        bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7),
-                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', color='black'))
+                        xytext=(-60, 10), textcoords='offset points',
+                        fontsize=9, fontweight='bold', color='darkgreen',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.7),
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', color='darkgreen'))
+
+            ax2_tao.annotate(f'{total_emissions_tao:.6f} TAO',
+                        xy=(chunk_starts[-1], cumulative_emissions_tao[-1]),
+                        xytext=(10, -10), textcoords='offset points',
+                        fontsize=9, fontweight='bold', color='darkorange',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='peachpuff', alpha=0.7),
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', color='darkorange'))
 
         plt.tight_layout()
 
