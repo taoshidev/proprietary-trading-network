@@ -458,19 +458,35 @@ class EmissionsLedger:
                 return 0.0, None
 
             # Query emission for this UID at this block
-            # Emission storage is indexed by netuid and uid
-            emission_query = self.subtensor.substrate.query(
-                module='SubtensorModule',
-                storage_function='Emission',
-                params=[self.netuid, uid],
-                block_hash=block_hash
-            )
+            # Try different parameter combinations to find the right storage structure
+            try:
+                # Try 1: Emission indexed by netuid only (returns vector/map)
+                emission_query = self.subtensor.substrate.query(
+                    module='SubtensorModule',
+                    storage_function='Emission',
+                    params=[self.netuid],
+                    block_hash=block_hash
+                )
 
-            if emission_query is not None:
-                # Emission is stored in RAO (1 TAO = 10^9 RAO)
-                emission_rao = float(emission_query.value) if hasattr(emission_query, 'value') else float(emission_query)
-                emission_tao = emission_rao / 1e9
-                return emission_tao, uid
+                if emission_query is not None:
+                    # Emission is a vector indexed by UID
+                    if hasattr(emission_query, 'value'):
+                        emissions_list = emission_query.value
+                    else:
+                        emissions_list = emission_query
+
+                    # Get emission for this specific UID
+                    if isinstance(emissions_list, (list, tuple)) and uid < len(emissions_list):
+                        emission_rao = float(emissions_list[uid])
+                        emission_tao = emission_rao / 1e9
+                        return emission_tao, uid
+                    elif isinstance(emissions_list, dict) and uid in emissions_list:
+                        emission_rao = float(emissions_list[uid])
+                        emission_tao = emission_rao / 1e9
+                        return emission_tao, uid
+
+            except Exception as e:
+                bt.logging.debug(f"Emission query with netuid only failed: {e}")
 
             return 0.0, uid
 
