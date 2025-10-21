@@ -100,8 +100,8 @@ class EmissionsLedger:
     # Blocks per 12-hour chunk (approximate)
     BLOCKS_PER_CHUNK = int(CHUNK_DURATION_MS / 1000 / SECONDS_PER_BLOCK)
 
-    # Default start date for emissions tracking: September 1, 2025 00:00:00 UTC
-    DEFAULT_START_DATE_MS = int(datetime(2025, 9, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+    # Default offset in days from current time for emissions tracking
+    DEFAULT_START_TIME_OFFSET_DAYS = 10
 
     def __init__(
         self,
@@ -590,12 +590,13 @@ class EmissionsLedger:
             bt.logging.debug(f"Error querying alpha-to-TAO rate at block {block_number}: {e}")
             return None
 
-    def calculate_emissions_in_range(self, hotkey: str, start_block: int, end_block: int) -> float:
+    def calculate_emissions_in_range(self, hotkey: str, start_block: int, end_block: int) -> tuple[float, float, Optional[float], Optional[float]]:
         """
         Calculate total emissions received by a hotkey between two blocks.
 
         This method samples emissions at regular intervals and estimates total
-        emissions received during the block range.
+        emissions received during the block range. It also converts to TAO value
+        using the alpha-to-TAO conversion rate at each sampled block for accuracy.
 
         Args:
             hotkey: SS58 address of the hotkey
@@ -603,9 +604,10 @@ class EmissionsLedger:
             end_block: Ending block (inclusive)
 
         Returns:
-            Total emissions (in TAO) received during the block range
+            Tuple of (total_alpha_emissions, total_tao_emissions, rate_at_start, rate_at_end)
         """
-        total_emissions = 0.0
+        total_emissions_alpha = 0.0
+        total_emissions_tao = 0.0
 
         # Sample emissions at regular intervals to estimate total
         # We'll sample every ~1 hour of blocks for accuracy vs performance balance
@@ -621,9 +623,15 @@ class EmissionsLedger:
         cached_uid = None
 
         previous_emission_rate = None
+        previous_alpha_to_tao_rate = None
         previous_block = start_block
 
-        for block in sampled_blocks:
+        # Track rates at start and end for storage
+        rate_at_start = None
+        rate_at_end = None
+
+        for i, block in enumerate(sampled_blocks):
+            # Query alpha emission rate
             emission_rate, uid = self.query_emissions_at_block(hotkey, block, cached_uid=cached_uid)
 
             # Update cached UID if we found one
@@ -634,23 +642,43 @@ class EmissionsLedger:
                 bt.logging.warning(f"Could not query emissions at block {block}, using previous rate")
                 emission_rate = previous_emission_rate if previous_emission_rate is not None else 0.0
 
+            # Query alpha-to-TAO conversion rate at this block
+            alpha_to_tao_rate = self.query_alpha_to_tao_rate(block)
+
+            # Track first and last rates
+            if i == 0:
+                rate_at_start = alpha_to_tao_rate
+            if i == len(sampled_blocks) - 1:
+                rate_at_end = alpha_to_tao_rate
+
+            # Fallback to previous rate if query fails
+            if alpha_to_tao_rate is None:
+                alpha_to_tao_rate = previous_alpha_to_tao_rate if previous_alpha_to_tao_rate is not None else 0.0
+
             if previous_emission_rate is not None:
-                # Average the two rates and multiply by blocks elapsed
+                # Calculate alpha emissions for this segment
                 blocks_elapsed = block - previous_block
-                avg_rate = (previous_emission_rate + emission_rate) / 2
-                chunk_emissions = avg_rate * blocks_elapsed
-                total_emissions += chunk_emissions
+                avg_alpha_rate = (previous_emission_rate + emission_rate) / 2
+                segment_emissions_alpha = avg_alpha_rate * blocks_elapsed
+                total_emissions_alpha += segment_emissions_alpha
+
+                # Convert to TAO using average conversion rate for this segment
+                avg_conversion_rate = (previous_alpha_to_tao_rate + alpha_to_tao_rate) / 2
+                segment_emissions_tao = segment_emissions_alpha * avg_conversion_rate
+                total_emissions_tao += segment_emissions_tao
 
             previous_emission_rate = emission_rate
+            previous_alpha_to_tao_rate = alpha_to_tao_rate
             previous_block = block
 
-        return total_emissions
+        return total_emissions_alpha, total_emissions_tao, rate_at_start, rate_at_end
 
     def build_emissions_ledger_for_hotkey(
         self,
         hotkey: str,
         start_time_ms: Optional[int] = None,
         end_time_ms: Optional[int] = None,
+        start_time_offset_days: int = None,
         verbose: bool = False
     ) -> List[EmissionsCheckpoint]:
         """
@@ -661,8 +689,9 @@ class EmissionsLedger:
 
         Args:
             hotkey: SS58 address of the hotkey
-            start_time_ms: Optional start time (default: registration time)
+            start_time_ms: Optional start time in milliseconds (overrides start_time_offset_days)
             end_time_ms: Optional end time (default: current time)
+            start_time_offset_days: Number of days to look back from now (default: 10)
             verbose: Enable detailed logging
 
         Returns:
@@ -671,12 +700,19 @@ class EmissionsLedger:
         start_exec_time = time.time()
         bt.logging.info(f"Building emissions ledger for hotkey: {hotkey}")
 
-        # Use default start date (Sept 1, 2025) if not specified
+        # Calculate start time dynamically if not specified
         if start_time_ms is None:
-            start_time_ms = self.DEFAULT_START_DATE_MS
-            bt.logging.info(f"Using default start date: {datetime.fromtimestamp(start_time_ms/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            if start_time_offset_days is None:
+                start_time_offset_days = self.DEFAULT_START_TIME_OFFSET_DAYS
 
-            # Estimate block number from default start time
+            # Calculate start time as (now - offset days)
+            current_time = datetime.now(timezone.utc)
+            start_time = current_time - timedelta(days=start_time_offset_days)
+            start_time_ms = int(start_time.timestamp() * 1000)
+
+            bt.logging.info(f"Using dynamic start date ({start_time_offset_days} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+            # Estimate block number from calculated start time
             current_block = self.subtensor.get_current_block()
             current_time_ms = int(time.time() * 1000)
             seconds_diff = (current_time_ms - start_time_ms) / 1000
@@ -735,29 +771,15 @@ class EmissionsLedger:
             if verbose:
                 bt.logging.info(f"Processing chunk {chunk_count}: {actual_start_ms} to {actual_end_ms}")
 
-            # Calculate alpha emissions for this chunk
-            chunk_emissions = self.calculate_emissions_in_range(
+            # Calculate both alpha and TAO emissions for this chunk
+            # This queries conversion rates at each sampled block for accuracy
+            chunk_emissions, chunk_emissions_tao, alpha_to_tao_rate_start, alpha_to_tao_rate_end = self.calculate_emissions_in_range(
                 hotkey,
                 chunk_start_block,
                 chunk_end_block
             )
 
             cumulative_emissions += chunk_emissions
-
-            # Query alpha-to-TAO conversion rates at chunk boundaries
-            alpha_to_tao_rate_start = self.query_alpha_to_tao_rate(chunk_start_block)
-            alpha_to_tao_rate_end = self.query_alpha_to_tao_rate(chunk_end_block)
-
-            # Calculate TAO value using average conversion rate
-            chunk_emissions_tao = 0.0
-            if alpha_to_tao_rate_start is not None and alpha_to_tao_rate_end is not None:
-                avg_rate = (alpha_to_tao_rate_start + alpha_to_tao_rate_end) / 2
-                chunk_emissions_tao = chunk_emissions * avg_rate
-            elif alpha_to_tao_rate_start is not None:
-                chunk_emissions_tao = chunk_emissions * alpha_to_tao_rate_start
-            elif alpha_to_tao_rate_end is not None:
-                chunk_emissions_tao = chunk_emissions * alpha_to_tao_rate_end
-
             cumulative_emissions_tao += chunk_emissions_tao
 
             checkpoint = EmissionsCheckpoint(
@@ -838,6 +860,301 @@ class EmissionsLedger:
         except Exception as e:
             bt.logging.error(f"Error getting hotkeys from chain: {e}")
             return []
+
+    def build_all_emissions_ledgers_optimized(
+        self,
+        start_time_ms: Optional[int] = None,
+        end_time_ms: Optional[int] = None,
+        start_time_offset_days: int = None,
+        verbose: bool = False
+    ) -> Dict[str, List[EmissionsCheckpoint]]:
+        """
+        Build emissions ledgers for ALL hotkeys in the subnet efficiently.
+
+        This is the optimized approach that queries each block once and processes
+        all hotkeys simultaneously, sharing block hashes, emission vectors, and
+        alpha-to-TAO conversion rates across all hotkeys.
+
+        Args:
+            start_time_ms: Optional start time in milliseconds (overrides start_time_offset_days)
+            end_time_ms: Optional end time (default: current time)
+            start_time_offset_days: Number of days to look back from now (default: 10)
+            verbose: Enable detailed logging
+
+        Returns:
+            Dictionary mapping hotkeys to their emissions checkpoints
+        """
+        start_exec_time = time.time()
+        bt.logging.info("Building emissions ledgers for all hotkeys (optimized mode)")
+
+        # Calculate start time dynamically if not specified
+        if start_time_ms is None:
+            if start_time_offset_days is None:
+                start_time_offset_days = self.DEFAULT_START_TIME_OFFSET_DAYS
+
+            # Calculate start time as (now - offset days)
+            current_time = datetime.now(timezone.utc)
+            start_time = current_time - timedelta(days=start_time_offset_days)
+            start_time_ms = int(start_time.timestamp() * 1000)
+
+            bt.logging.info(f"Using dynamic start date ({start_time_offset_days} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+        # Default end time is now
+        if end_time_ms is None:
+            end_time_ms = int(time.time() * 1000)
+
+        # Get current block and estimate block range
+        current_block = self.subtensor.get_current_block()
+        current_time_ms = int(time.time() * 1000)
+
+        seconds_from_start = (current_time_ms - start_time_ms) / 1000
+        blocks_from_start = int(seconds_from_start / self.SECONDS_PER_BLOCK)
+        start_block = current_block - blocks_from_start
+
+        seconds_from_end = (current_time_ms - end_time_ms) / 1000
+        blocks_from_end = int(seconds_from_end / self.SECONDS_PER_BLOCK)
+        end_block = current_block - blocks_from_end
+
+        bt.logging.info(f"Block range: {start_block} to {end_block}")
+
+        # Get all hotkeys and build UID mapping
+        try:
+            metagraph = self.subtensor.metagraph(netuid=self.netuid)
+            uid_to_hotkey = {uid: hotkey for uid, hotkey in enumerate(metagraph.hotkeys)}
+            bt.logging.info(f"Processing {len(uid_to_hotkey)} hotkeys from metagraph")
+        except Exception as e:
+            bt.logging.error(f"Could not get metagraph: {e}")
+            return {}
+
+        # Initialize data structures for all hotkeys
+        hotkey_checkpoints: Dict[str, List[EmissionsCheckpoint]] = {hotkey: [] for hotkey in uid_to_hotkey.values()}
+        hotkey_cumulative_alpha: Dict[str, float] = {hotkey: 0.0 for hotkey in uid_to_hotkey.values()}
+        hotkey_cumulative_tao: Dict[str, float] = {hotkey: 0.0 for hotkey in uid_to_hotkey.values()}
+
+        # Generate list of 12-hour chunks
+        current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
+
+        # If start time is not at chunk boundary, adjust to next chunk
+        if current_chunk_start_ms < start_time_ms:
+            current_chunk_start_ms = current_chunk_end_ms
+            current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
+
+        chunk_count = 0
+        hotkeys_processed_cumulative = set()  # Track all unique hotkeys seen so far
+
+        while current_chunk_start_ms < end_time_ms:
+            chunk_count += 1
+            chunk_start_time = time.time()
+
+            # Determine actual time range for this chunk
+            actual_start_ms = max(current_chunk_start_ms, start_time_ms)
+            actual_end_ms = min(current_chunk_end_ms, end_time_ms)
+
+            # Calculate corresponding blocks
+            seconds_from_chunk_start = (actual_start_ms - start_time_ms) / 1000
+            seconds_from_chunk_end = (actual_end_ms - start_time_ms) / 1000
+            chunk_start_block = start_block + int(seconds_from_chunk_start / self.SECONDS_PER_BLOCK)
+            chunk_end_block = start_block + int(seconds_from_chunk_end / self.SECONDS_PER_BLOCK)
+
+            blocks_in_chunk = chunk_end_block - chunk_start_block + 1
+
+            # Calculate emissions for ALL hotkeys in this chunk (optimized)
+            chunk_results = self._calculate_emissions_for_all_hotkeys(
+                uid_to_hotkey,
+                chunk_start_block,
+                chunk_end_block,
+                verbose=verbose
+            )
+
+            # Track hotkeys with activity in this chunk
+            hotkeys_active_in_chunk = set()
+
+            # Update each hotkey's checkpoints
+            for hotkey in uid_to_hotkey.values():
+                alpha_emissions, tao_emissions, rate_start, rate_end = chunk_results.get(
+                    hotkey, (0.0, 0.0, None, None)
+                )
+
+                hotkey_cumulative_alpha[hotkey] += alpha_emissions
+                hotkey_cumulative_tao[hotkey] += tao_emissions
+
+                # Track if this hotkey had any emissions in this chunk
+                if alpha_emissions > 0:
+                    hotkeys_active_in_chunk.add(hotkey)
+                    hotkeys_processed_cumulative.add(hotkey)
+
+                checkpoint = EmissionsCheckpoint(
+                    chunk_start_ms=current_chunk_start_ms,
+                    chunk_end_ms=current_chunk_end_ms,
+                    chunk_emissions=alpha_emissions,
+                    cumulative_emissions=hotkey_cumulative_alpha[hotkey],
+                    chunk_emissions_tao=tao_emissions,
+                    cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
+                    alpha_to_tao_rate_start=rate_start,
+                    alpha_to_tao_rate_end=rate_end,
+                    block_start=chunk_start_block,
+                    block_end=chunk_end_block
+                )
+
+                hotkey_checkpoints[hotkey].append(checkpoint)
+
+            # Calculate chunk processing time
+            chunk_elapsed = time.time() - chunk_start_time
+
+            # Log progress for every chunk
+            bt.logging.info(
+                f"Chunk {chunk_count}: "
+                f"{blocks_in_chunk} blocks, "
+                f"{chunk_elapsed:.2f}s, "
+                f"{len(hotkeys_active_in_chunk)} active hotkeys, "
+                f"{len(hotkeys_processed_cumulative)} cumulative unique"
+            )
+
+            # Move to next chunk
+            current_chunk_start_ms = current_chunk_end_ms
+            current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
+
+        # Store all ledgers
+        self.emissions_ledgers = hotkey_checkpoints
+
+        elapsed_time = time.time() - start_exec_time
+        bt.logging.info(f"Built {chunk_count} chunks for {len(uid_to_hotkey)} hotkeys in {elapsed_time:.2f} seconds")
+
+        # Log summary for each hotkey
+        for hotkey, checkpoints in hotkey_checkpoints.items():
+            if checkpoints:
+                total_alpha = checkpoints[-1].cumulative_emissions
+                total_tao = checkpoints[-1].cumulative_emissions_tao
+                bt.logging.info(f"  {hotkey[:16]}...{hotkey[-8:]}: {total_alpha:.6f} alpha (~{total_tao:.6f} TAO)")
+
+        return self.emissions_ledgers
+
+    def _calculate_emissions_for_all_hotkeys(
+        self,
+        uid_to_hotkey: Dict[int, str],
+        start_block: int,
+        end_block: int,
+        verbose: bool = False
+    ) -> Dict[str, tuple[float, float, Optional[float], Optional[float]]]:
+        """
+        Calculate emissions for ALL hotkeys between two blocks (OPTIMIZED).
+
+        This method queries each block once and extracts data for all UIDs,
+        sharing block hashes and alpha-to-TAO rates across all hotkeys.
+
+        Args:
+            uid_to_hotkey: Mapping of UID to hotkey
+            start_block: Starting block (inclusive)
+            end_block: Ending block (inclusive)
+            verbose: Enable detailed logging
+
+        Returns:
+            Dictionary mapping hotkey to (alpha_emissions, tao_emissions, rate_start, rate_end)
+        """
+        # Sample blocks at regular intervals
+        sample_interval = int(3600 / self.SECONDS_PER_BLOCK)  # ~300 blocks per hour
+        sampled_blocks = list(range(start_block, end_block + 1, sample_interval))
+        if sampled_blocks[-1] != end_block:
+            sampled_blocks.append(end_block)
+
+        # Initialize tracking for each hotkey
+        hotkey_total_alpha = {hotkey: 0.0 for hotkey in uid_to_hotkey.values()}
+        hotkey_total_tao = {hotkey: 0.0 for hotkey in uid_to_hotkey.values()}
+        hotkey_prev_rate = {hotkey: None for hotkey in uid_to_hotkey.values()}
+        hotkey_prev_tao_rate = {hotkey: None for hotkey in uid_to_hotkey.values()}
+
+        rate_at_start = None
+        rate_at_end = None
+        previous_block = start_block
+        previous_emissions_by_uid = {}
+        previous_alpha_to_tao_rate = None
+
+        for i, block in enumerate(sampled_blocks):
+            # Query block hash ONCE
+            try:
+                block_hash = self.subtensor.substrate.get_block_hash(block)
+                if not block_hash:
+                    bt.logging.warning(f"Could not get hash for block {block}")
+                    continue
+            except Exception as e:
+                bt.logging.warning(f"Error getting block hash for {block}: {e}")
+                continue
+
+            # Query ALL emissions at once (entire vector)
+            try:
+                emission_query = self.subtensor.substrate.query(
+                    module='SubtensorModule',
+                    storage_function='Emission',
+                    params=[self.netuid],
+                    block_hash=block_hash
+                )
+
+                if emission_query is not None:
+                    emissions_list = emission_query.value if hasattr(emission_query, 'value') else emission_query
+                else:
+                    emissions_list = []
+            except Exception as e:
+                bt.logging.debug(f"Error querying emissions at block {block}: {e}")
+                emissions_list = []
+
+            # Query alpha-to-TAO rate ONCE (shared by all hotkeys)
+            alpha_to_tao_rate = self.query_alpha_to_tao_rate(block)
+
+            # Track first and last rates
+            if i == 0:
+                rate_at_start = alpha_to_tao_rate
+            if i == len(sampled_blocks) - 1:
+                rate_at_end = alpha_to_tao_rate
+
+            # Fallback to previous rate if query fails
+            if alpha_to_tao_rate is None:
+                alpha_to_tao_rate = previous_alpha_to_tao_rate if previous_alpha_to_tao_rate is not None else 0.0
+
+            # Process each UID's emissions
+            current_emissions_by_uid = {}
+            for uid, hotkey in uid_to_hotkey.items():
+                # Extract emission for this UID from the vector
+                if isinstance(emissions_list, (list, tuple)) and uid < len(emissions_list):
+                    emission_rao = float(emissions_list[uid])
+                    emission_alpha = emission_rao / 1e9  # Convert RAO to alpha
+                    emission_per_block = emission_alpha / 360  # Convert per-tempo to per-block
+                elif isinstance(emissions_list, dict) and uid in emissions_list:
+                    emission_rao = float(emissions_list[uid])
+                    emission_alpha = emission_rao / 1e9
+                    emission_per_block = emission_alpha / 360
+                else:
+                    emission_per_block = 0.0
+
+                current_emissions_by_uid[uid] = emission_per_block
+
+                # Calculate segment emissions if we have previous data
+                if uid in previous_emissions_by_uid:
+                    blocks_elapsed = block - previous_block
+                    avg_alpha_rate = (previous_emissions_by_uid[uid] + emission_per_block) / 2
+                    segment_emissions_alpha = avg_alpha_rate * blocks_elapsed
+                    hotkey_total_alpha[hotkey] += segment_emissions_alpha
+
+                    # Convert to TAO using average conversion rate for this segment
+                    avg_conversion_rate = (previous_alpha_to_tao_rate + alpha_to_tao_rate) / 2
+                    segment_emissions_tao = segment_emissions_alpha * avg_conversion_rate
+                    hotkey_total_tao[hotkey] += segment_emissions_tao
+
+            # Update state for next iteration
+            previous_emissions_by_uid = current_emissions_by_uid
+            previous_alpha_to_tao_rate = alpha_to_tao_rate
+            previous_block = block
+
+        # Build result dictionary
+        results = {}
+        for hotkey in uid_to_hotkey.values():
+            results[hotkey] = (
+                hotkey_total_alpha[hotkey],
+                hotkey_total_tao[hotkey],
+                rate_at_start,
+                rate_at_end
+            )
+
+        return results
 
     def build_emissions_ledgers_bulk(
         self,
@@ -1094,16 +1411,17 @@ class EmissionsLedger:
 
 if __name__ == "__main__":
     import argparse
+    import os
 
     parser = argparse.ArgumentParser(description="Build emissions ledger for Bittensor hotkeys")
-    parser.add_argument("--hotkey", type=str, help="Hotkey to query (SS58 address)", default='5DUi8ZCaNabsR6bnHfs471y52cUN1h9DcugjRbEBo341aKhY')
+    parser.add_argument("--hotkey", type=str, help="Hotkey to display/focus on (optional, displays one plot)", default=None)
     parser.add_argument("--netuid", type=int, default=8, help="Subnet UID (default: 8)")
     parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
     parser.add_argument("--archive-endpoint", type=str, action="append", dest="archive_endpoints",
                        help="Archive node endpoint (can be specified multiple times). Example: wss://archive.chain.opentensor.ai:443")
-    parser.add_argument("--bulk", action="store_true", help="Process all hotkeys in subnet")
-    parser.add_argument("--plot", action="store_true", help="Generate matplotlib plot (single hotkey mode only)")
-    parser.add_argument("--save-plot", type=str, help="Save plot to file instead of displaying (requires --plot)")
+    parser.add_argument("--start-time-offset-days", type=int, default=10,
+                       help="Number of days to look back from now for emissions tracking (default: 10)")
+    parser.add_argument("--show-plot", action="store_true", help="Display plot for specified hotkey (requires --hotkey)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
@@ -1119,23 +1437,50 @@ if __name__ == "__main__":
         archive_endpoints=args.archive_endpoints
     )
 
-    if args.bulk:
-        # Build ledgers for all hotkeys
-        ledger.build_emissions_ledgers_bulk(verbose=args.verbose)
+    # ALWAYS build ALL ledgers using optimized method
+    bt.logging.info("Building emissions ledgers for ALL hotkeys in subnet (optimized mode)")
+    ledger.build_all_emissions_ledgers_optimized(
+        start_time_offset_days=args.start_time_offset_days,
+        verbose=args.verbose
+    )
 
-        # Print summaries for all
+    if len(ledger.emissions_ledgers) == 0:
+        bt.logging.error("No emissions ledgers were built")
+        exit(1)
+
+    # Create emissions_ledger_plots directory
+    # Get project root (2 levels up from vali_objects/vali_dataclasses/)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    plots_dir = os.path.join(project_root, "emissions_ledger_plots")
+
+    os.makedirs(plots_dir, exist_ok=True)
+    bt.logging.info(f"Saving plots to: {plots_dir}")
+
+    # Save ALL plots to emissions_ledger_plots/{hotkey}.png
+    for hotkey in ledger.emissions_ledgers.keys():
+        plot_path = os.path.join(plots_dir, f"{hotkey}.png")
+        try:
+            ledger.plot_emissions(hotkey, save_path=plot_path)
+            bt.logging.info(f"Saved plot for {hotkey[:16]}...{hotkey[-8:]}")
+        except Exception as e:
+            bt.logging.error(f"Error saving plot for {hotkey}: {e}")
+
+    bt.logging.info(f"All plots saved to {plots_dir}")
+
+    # Print summary for specified hotkey or all hotkeys
+    if args.hotkey:
+        if args.hotkey in ledger.emissions_ledgers:
+            ledger.print_emissions_summary(args.hotkey)
+
+            # Optionally display the plot for this hotkey
+            if args.show_plot:
+                bt.logging.info(f"Displaying plot for {args.hotkey}")
+                ledger.plot_emissions(args.hotkey, save_path=None)
+        else:
+            bt.logging.error(f"Hotkey {args.hotkey} not found in built ledgers")
+    else:
+        # Print summaries for all hotkeys
+        bt.logging.info("Printing summaries for all hotkeys")
         for hotkey in ledger.emissions_ledgers.keys():
             ledger.print_emissions_summary(hotkey)
-
-    elif args.hotkey:
-        # Build ledger for single hotkey
-        ledger.build_emissions_ledger_for_hotkey(args.hotkey, verbose=args.verbose)
-        ledger.print_emissions_summary(args.hotkey)
-
-        # Plot if requested
-        if args.plot or args.save_plot:
-            ledger.plot_emissions(args.hotkey, save_path=args.save_plot)
-
-    else:
-        print("Error: Must specify --hotkey or --bulk")
-        parser.print_help()
