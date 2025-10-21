@@ -115,16 +115,22 @@ class EmissionsLedger:
         # Use archive endpoint if provided, otherwise use default network
         if archive_endpoints and len(archive_endpoints) > 0:
             chain_endpoint = archive_endpoints[0]
-            bt.logging.info(f"Using archive endpoint: {chain_endpoint}")
+            bt.logging.info(f"Using archive endpoint as primary: {chain_endpoint}")
 
-            # Create config - don't set network when using custom chain endpoint
+            # Create proper bittensor config with archive endpoint
             import argparse
             parser = argparse.ArgumentParser()
             bt.subtensor.add_args(parser)
-            config = bt.config(parser)
+            config = bt.config(parser, args=[])
+
+            # Override the chain endpoint
             config.subtensor.chain_endpoint = chain_endpoint
-            # Don't set network - using custom endpoint overrides it
+
+            # Clear network so it uses our custom endpoint
+            config.subtensor.network = None
+
             self.subtensor = bt.subtensor(config=config)
+            bt.logging.info(f"Connected to: {self.subtensor.chain_endpoint}")
         else:
             # Use default network
             self.subtensor = bt.subtensor(network=network)
