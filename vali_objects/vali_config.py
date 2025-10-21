@@ -277,7 +277,7 @@ class ValiConfig:
     PROBATION_MAXIMUM_DAYS = 30
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
 
-    PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
+    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINCOMP miners per asset class
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
