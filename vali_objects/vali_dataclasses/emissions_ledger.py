@@ -808,14 +808,10 @@ class EmissionsLedgerManager:
             self._rate_limit()
 
             # Query block hash ONCE
-            try:
-                block_hash = self.subtensor.substrate.get_block_hash(block)
-                if not block_hash:
-                    bt.logging.warning(f"Could not get hash for block {block}")
-                    continue
-            except Exception as e:
-                bt.logging.warning(f"Error getting block hash for {block}: {e}")
-                continue
+            block_hash = self.subtensor.substrate.get_block_hash(block)
+            if not block_hash:
+                bt.logging.warning(f"Could not get hash for block {block}")
+                raise Exception(f"Block hash query failed for block {block}")
 
             # Query UID-to-hotkey mapping AT THIS BLOCK (rate limited inside method)
             current_uid_to_hotkey = self._get_uid_to_hotkey_at_block(block_hash)
@@ -913,20 +909,6 @@ class EmissionsLedgerManager:
             EmissionsLedger object, or None if not found
         """
         return self.emissions_ledgers.get(hotkey)
-
-    def get_emissions_ledger(self, hotkey: str) -> Optional[EmissionsLedger]:
-        """
-        Get the emissions ledger for a specific hotkey.
-
-        This is an alias for get_ledger() for backwards compatibility.
-
-        Args:
-            hotkey: SS58 address of the hotkey
-
-        Returns:
-            EmissionsLedger object, or None if not found
-        """
-        return self.get_ledger(hotkey)
 
     def get_cumulative_emissions(self, hotkey: str) -> float:
         """

@@ -22,7 +22,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
-from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
+from vali_objects.vali_dataclasses.penelty_ledger import DebtLedger
 
 
 # ============================================================================
