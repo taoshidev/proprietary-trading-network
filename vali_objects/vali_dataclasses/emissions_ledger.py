@@ -141,6 +141,33 @@ class EmissionsLedger:
 
         return chunk_start_ms, chunk_end_ms
 
+    def _check_subnet_exists(self) -> bool:
+        """
+        Check if the subnet exists on the chain.
+
+        Returns:
+            True if subnet exists, False otherwise
+        """
+        try:
+            # Query SubnetworkN to see if subnet is registered
+            result = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetworkN',
+                params=[self.netuid]
+            )
+
+            if result is None:
+                bt.logging.warning(f"Netuid {self.netuid} does not exist on chain")
+                return False
+
+            n = int(result.value if hasattr(result, 'value') else result)
+            bt.logging.info(f"Netuid {self.netuid} exists with {n} max UIDs")
+            return n > 0
+
+        except Exception as e:
+            bt.logging.error(f"Error checking if subnet exists: {e}")
+            return False
+
     def _get_uid_for_hotkey_from_chain(self, hotkey: str) -> Optional[int]:
         """
         Query substrate storage directly to find UID for a hotkey.
@@ -160,11 +187,14 @@ class EmissionsLedger:
                 params=[self.netuid]
             )
 
+            bt.logging.debug(f"SubnetworkN query result: {max_uids_result} (type: {type(max_uids_result)})")
+
             if max_uids_result is None:
                 bt.logging.warning(f"Could not query SubnetworkN for netuid {self.netuid}")
                 return None
 
             max_uids = int(max_uids_result.value if hasattr(max_uids_result, 'value') else max_uids_result)
+            bt.logging.debug(f"Parsed max_uids: {max_uids}")
 
             bt.logging.info(f"Searching for hotkey {hotkey} in {max_uids} UIDs for netuid {self.netuid}")
 
@@ -259,6 +289,12 @@ class EmissionsLedger:
 
         except Exception as e:
             bt.logging.warning(f"Metagraph API unavailable ({e}), using direct chain queries")
+
+            # Check if subnet exists
+            if not self._check_subnet_exists():
+                bt.logging.error(f"Netuid {self.netuid} does not exist or has no UIDs. "
+                               f"Make sure your local subtensor has netuid {self.netuid} configured.")
+                return None
 
             # Fallback to direct substrate storage queries
             uid = self._get_uid_for_hotkey_from_chain(hotkey)
