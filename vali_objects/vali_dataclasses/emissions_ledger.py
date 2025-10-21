@@ -875,6 +875,13 @@ class EmissionsLedger:
             hotkey: SS58 address of the hotkey
             save_path: Optional path to save the plot (default: display only)
         """
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+        except ImportError:
+            bt.logging.warning("matplotlib not installed, skipping plot. Install with: pip install matplotlib")
+            return
+
         checkpoints = self.get_emissions_ledger(hotkey)
 
         if not checkpoints:
