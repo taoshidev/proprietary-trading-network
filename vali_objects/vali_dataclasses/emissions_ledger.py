@@ -166,9 +166,10 @@ class EmissionsLedger:
 
             max_uids = int(max_uids_result.value if hasattr(max_uids_result, 'value') else max_uids_result)
 
-            bt.logging.debug(f"Searching for hotkey {hotkey} in {max_uids} UIDs")
+            bt.logging.info(f"Searching for hotkey {hotkey} in {max_uids} UIDs for netuid {self.netuid}")
 
             # Iterate through all UIDs to find matching hotkey
+            found_hotkeys = []
             for uid in range(max_uids):
                 try:
                     keys_result = self.subtensor.substrate.query(
@@ -179,6 +180,10 @@ class EmissionsLedger:
 
                     if keys_result is not None:
                         stored_hotkey = keys_result.value if hasattr(keys_result, 'value') else str(keys_result)
+                        found_hotkeys.append((uid, stored_hotkey))
+
+                        bt.logging.debug(f"UID {uid}: {stored_hotkey}")
+
                         if stored_hotkey == hotkey:
                             bt.logging.info(f"Found UID {uid} for hotkey {hotkey}")
                             return uid
@@ -186,7 +191,12 @@ class EmissionsLedger:
                     bt.logging.debug(f"Error querying UID {uid}: {e}")
                     continue
 
+            # Log what we found for debugging
             bt.logging.warning(f"Hotkey {hotkey} not found in subnet {self.netuid}")
+            bt.logging.info(f"Found {len(found_hotkeys)} total hotkeys in subnet")
+            if found_hotkeys:
+                bt.logging.info(f"First few hotkeys: {found_hotkeys[:3]}")
+                bt.logging.info(f"Last few hotkeys: {found_hotkeys[-3:]}")
             return None
 
         except Exception as e:
