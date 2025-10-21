@@ -88,7 +88,10 @@ class EmissionsLedger:
     # Blocks per 12-hour chunk (approximate)
     BLOCKS_PER_CHUNK = int(CHUNK_DURATION_MS / 1000 / SECONDS_PER_BLOCK)
 
-    def __init__(self, network: str = "local", netuid: int = 8):
+    # Default start date for emissions tracking: September 1, 2025 00:00:00 UTC
+    DEFAULT_START_DATE_MS = int(datetime(2025, 9, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
+    def __init__(self, network: str = "finney", netuid: int = 8):
         """
         Initialize EmissionsLedger with blockchain connection.
 
@@ -465,19 +468,19 @@ class EmissionsLedger:
         """
         bt.logging.info(f"Building emissions ledger for hotkey: {hotkey}")
 
-        # Get registration block if start time not specified
+        # Use default start date (Sept 1, 2025) if not specified
         if start_time_ms is None:
-            registration_block = self.get_registration_block(hotkey)
-            if registration_block is None:
-                bt.logging.error(f"Could not determine registration block for {hotkey}")
-                return []
+            start_time_ms = self.DEFAULT_START_DATE_MS
+            bt.logging.info(f"Using default start date: {datetime.fromtimestamp(start_time_ms/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
-            start_time_ms = self.get_block_timestamp(registration_block)
-            if start_time_ms is None:
-                bt.logging.error(f"Could not determine registration timestamp for {hotkey}")
-                return []
+            # Estimate block number from default start time
+            current_block = self.subtensor.get_current_block()
+            current_time_ms = int(time.time() * 1000)
+            seconds_diff = (current_time_ms - start_time_ms) / 1000
+            blocks_diff = int(seconds_diff / self.SECONDS_PER_BLOCK)
+            start_block = current_block - blocks_diff
 
-            start_block = registration_block
+            bt.logging.info(f"Estimated start block: {start_block}")
         else:
             # Estimate block number from timestamp
             current_block = self.subtensor.get_current_block()
@@ -742,7 +745,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build emissions ledger for Bittensor hotkeys")
     parser.add_argument("--hotkey", type=str, help="Hotkey to query (SS58 address)", default='5DUi8ZCaNabsR6bnHfs471y52cUN1h9DcugjRbEBo341aKhY')
     parser.add_argument("--netuid", type=int, default=8, help="Subnet UID (default: 8)")
-    parser.add_argument("--network", type=str, default="local", help="Network name (default: local)")
+    parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
     parser.add_argument("--bulk", action="store_true", help="Process all hotkeys in subnet")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
