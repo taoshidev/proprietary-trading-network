@@ -141,9 +141,91 @@ class EmissionsLedger:
 
         return chunk_start_ms, chunk_end_ms
 
+    def _get_uid_for_hotkey_from_chain(self, hotkey: str) -> Optional[int]:
+        """
+        Query substrate storage directly to find UID for a hotkey.
+        This is a fallback when metagraph API is not available.
+
+        Args:
+            hotkey: SS58 address of the hotkey
+
+        Returns:
+            UID if found, None otherwise
+        """
+        try:
+            # Query SubnetworkN storage to get max UIDs
+            max_uids_result = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetworkN',
+                params=[self.netuid]
+            )
+
+            if max_uids_result is None:
+                bt.logging.warning(f"Could not query SubnetworkN for netuid {self.netuid}")
+                return None
+
+            max_uids = int(max_uids_result.value if hasattr(max_uids_result, 'value') else max_uids_result)
+
+            bt.logging.debug(f"Searching for hotkey {hotkey} in {max_uids} UIDs")
+
+            # Iterate through all UIDs to find matching hotkey
+            for uid in range(max_uids):
+                try:
+                    keys_result = self.subtensor.substrate.query(
+                        module='SubtensorModule',
+                        storage_function='Keys',
+                        params=[self.netuid, uid]
+                    )
+
+                    if keys_result is not None:
+                        stored_hotkey = keys_result.value if hasattr(keys_result, 'value') else str(keys_result)
+                        if stored_hotkey == hotkey:
+                            bt.logging.info(f"Found UID {uid} for hotkey {hotkey}")
+                            return uid
+                except Exception as e:
+                    bt.logging.debug(f"Error querying UID {uid}: {e}")
+                    continue
+
+            bt.logging.warning(f"Hotkey {hotkey} not found in subnet {self.netuid}")
+            return None
+
+        except Exception as e:
+            bt.logging.error(f"Error searching for hotkey UID: {e}")
+            return None
+
+    def _get_registration_block_from_chain(self, uid: int) -> Optional[int]:
+        """
+        Query registration block directly from substrate storage.
+
+        Args:
+            uid: The UID to query
+
+        Returns:
+            Block number at registration, or None if not found
+        """
+        try:
+            block_result = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='BlockAtRegistration',
+                params=[self.netuid, uid]
+            )
+
+            if block_result is not None:
+                block = int(block_result.value if hasattr(block_result, 'value') else block_result)
+                return block
+
+            return None
+
+        except Exception as e:
+            bt.logging.error(f"Error querying registration block for UID {uid}: {e}")
+            return None
+
     def get_registration_block(self, hotkey: str) -> Optional[int]:
         """
         Get the block number when a hotkey was registered on the subnet.
+
+        First tries to use metagraph API, then falls back to direct substrate queries
+        if the API is not available (e.g., on archive nodes).
 
         Args:
             hotkey: SS58 address of the hotkey
@@ -152,6 +234,7 @@ class EmissionsLedger:
             Block number at registration, or None if not registered
         """
         try:
+            # Try metagraph API first (faster)
             metagraph = self.subtensor.metagraph(netuid=self.netuid)
 
             if hotkey not in metagraph.hotkeys:
@@ -165,8 +248,21 @@ class EmissionsLedger:
             return int(registration_block)
 
         except Exception as e:
-            bt.logging.error(f"Error getting registration block for {hotkey}: {e}")
-            return None
+            bt.logging.warning(f"Metagraph API unavailable ({e}), using direct chain queries")
+
+            # Fallback to direct substrate storage queries
+            uid = self._get_uid_for_hotkey_from_chain(hotkey)
+            if uid is None:
+                bt.logging.error(f"Could not find UID for hotkey {hotkey}")
+                return None
+
+            registration_block = self._get_registration_block_from_chain(uid)
+            if registration_block is not None:
+                bt.logging.info(f"Hotkey {hotkey} (UID {uid}) registered at block {registration_block}")
+                return registration_block
+            else:
+                bt.logging.error(f"Could not determine registration block for {hotkey}")
+                return None
 
     def get_block_timestamp(self, block_number: int) -> Optional[int]:
         """
@@ -421,6 +517,53 @@ class EmissionsLedger:
 
         return checkpoints
 
+    def _get_all_hotkeys_from_chain(self) -> List[str]:
+        """
+        Query all hotkeys from subnet using direct substrate storage queries.
+        This is a fallback when metagraph API is not available.
+
+        Returns:
+            List of hotkey SS58 addresses
+        """
+        try:
+            # Query SubnetworkN storage to get max UIDs
+            max_uids_result = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetworkN',
+                params=[self.netuid]
+            )
+
+            if max_uids_result is None:
+                bt.logging.error(f"Could not query SubnetworkN for netuid {self.netuid}")
+                return []
+
+            max_uids = int(max_uids_result.value if hasattr(max_uids_result, 'value') else max_uids_result)
+            bt.logging.info(f"Querying {max_uids} UIDs from chain")
+
+            hotkeys = []
+            for uid in range(max_uids):
+                try:
+                    keys_result = self.subtensor.substrate.query(
+                        module='SubtensorModule',
+                        storage_function='Keys',
+                        params=[self.netuid, uid]
+                    )
+
+                    if keys_result is not None:
+                        hotkey = keys_result.value if hasattr(keys_result, 'value') else str(keys_result)
+                        if hotkey:
+                            hotkeys.append(hotkey)
+                except Exception as e:
+                    bt.logging.debug(f"Error querying UID {uid}: {e}")
+                    continue
+
+            bt.logging.info(f"Found {len(hotkeys)} hotkeys from chain queries")
+            return hotkeys
+
+        except Exception as e:
+            bt.logging.error(f"Error getting hotkeys from chain: {e}")
+            return []
+
     def build_emissions_ledgers_bulk(
         self,
         hotkeys: Optional[List[str]] = None,
@@ -443,9 +586,19 @@ class EmissionsLedger:
 
         # Get all hotkeys from subnet if not specified
         if hotkeys is None:
-            metagraph = self.subtensor.metagraph(netuid=self.netuid)
-            hotkeys = list(metagraph.hotkeys)
-            bt.logging.info(f"Processing all {len(hotkeys)} hotkeys in subnet {self.netuid}")
+            try:
+                # Try metagraph API first
+                metagraph = self.subtensor.metagraph(netuid=self.netuid)
+                hotkeys = list(metagraph.hotkeys)
+                bt.logging.info(f"Processing all {len(hotkeys)} hotkeys in subnet {self.netuid}")
+            except Exception as e:
+                bt.logging.warning(f"Metagraph API unavailable ({e}), using direct chain queries")
+                # Fallback to direct chain queries
+                hotkeys = self._get_all_hotkeys_from_chain()
+                if not hotkeys:
+                    bt.logging.error("Could not retrieve hotkeys from chain")
+                    return {}
+                bt.logging.info(f"Processing all {len(hotkeys)} hotkeys in subnet {self.netuid}")
         else:
             bt.logging.info(f"Processing {len(hotkeys)} specified hotkeys")
 
