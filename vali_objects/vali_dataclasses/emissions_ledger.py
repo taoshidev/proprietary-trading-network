@@ -25,7 +25,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 import bittensor as bt
 import time
-
+# Import scalecodec for SS58 encoding
+import scalecodec
 
 @dataclass
 class EmissionsCheckpoint:
@@ -335,7 +336,8 @@ class EmissionsLedgerManager:
         self,
         network: str = "finney",
         netuid: int = 8,
-        archive_endpoints: Optional[List[str]] = None
+        archive_endpoints: Optional[List[str]] = None,
+        rate_limit_per_second: float = 1.0
     ):
         """
         Initialize EmissionsLedger with blockchain connection.
@@ -345,9 +347,12 @@ class EmissionsLedgerManager:
             netuid: Subnet UID to query (default: 8 for mainnet PTN)
             archive_endpoints: List of archive node endpoints for historical queries.
                 Example: ["wss://archive.chain.opentensor.ai:443"]
+            rate_limit_per_second: Maximum queries per second (default: 1.0 for official endpoints)
         """
         self.network = network
         self.netuid = netuid
+        self.rate_limit_per_second = rate_limit_per_second
+        self.last_query_time = 0.0
 
         # Initialize subtensor connection
         bt.logging.info(f"Connecting to network: {network}, netuid: {netuid}")
@@ -378,7 +383,28 @@ class EmissionsLedgerManager:
         # Storage for emissions ledgers (one per hotkey)
         self.emissions_ledgers: Dict[str, EmissionsLedger] = {}
 
+        if rate_limit_per_second < 10:
+            bt.logging.warning(f"Rate limit set to {rate_limit_per_second} req/sec - queries will be slow")
         bt.logging.info("EmissionsLedgerManager initialized")
+
+    def _rate_limit(self):
+        """
+        Enforce rate limiting by sleeping if necessary.
+
+        Ensures we don't exceed rate_limit_per_second requests per second.
+        """
+        if self.rate_limit_per_second <= 0:
+            return  # No rate limiting
+
+        current_time = time.time()
+        time_since_last_query = current_time - self.last_query_time
+        min_interval = 1.0 / self.rate_limit_per_second
+
+        if time_since_last_query < min_interval:
+            sleep_time = min_interval - time_since_last_query
+            time.sleep(sleep_time)
+
+        self.last_query_time = time.time()
 
     @staticmethod
     def get_chunk_boundaries(timestamp_ms: int) -> tuple[int, int]:
@@ -427,6 +453,9 @@ class EmissionsLedgerManager:
         Returns:
             Alpha-to-TAO conversion rate, or None if query fails or if querying pre-dTAO blocks
         """
+        # Rate limit before block hash query
+        self._rate_limit()
+
         # Get block hash for the specific block
         block_hash = self.subtensor.substrate.get_block_hash(block_number)
         if not block_hash:
@@ -434,6 +463,9 @@ class EmissionsLedgerManager:
             return None
 
         try:
+            # Rate limit before SubnetTAO query
+            self._rate_limit()
+
             # Query TAO reserve
             tao_reserve_query = self.subtensor.substrate.query(
                 module='SubtensorModule',
@@ -441,6 +473,9 @@ class EmissionsLedgerManager:
                 params=[self.netuid],
                 block_hash=block_hash
             )
+
+            # Rate limit before SubnetAlphaIn query
+            self._rate_limit()
 
             # Query Alpha reserve
             alpha_reserve_query = self.subtensor.substrate.query(
@@ -500,6 +535,9 @@ class EmissionsLedgerManager:
         """
         start_exec_time = time.time()
         bt.logging.info("Building emissions ledgers for all hotkeys (optimized mode)")
+
+        # Rate limit before initial query
+        self._rate_limit()
 
         # Verify max UIDs is still 256 (sanity check - has never changed in Bittensor history)
         current_max_uids_result = self.subtensor.substrate.query(
@@ -685,6 +723,9 @@ class EmissionsLedgerManager:
         Returns:
             Dictionary mapping UID to hotkey at that block
         """
+        # Rate limit before query_map
+        self._rate_limit()
+
         # Query all Keys entries for this netuid at once (much more efficient than 256 individual queries)
         keys_map = self.subtensor.substrate.query_map(
             module='SubtensorModule',
@@ -696,15 +737,29 @@ class EmissionsLedgerManager:
         # Convert result to dict[uid -> hotkey]
         uid_to_hotkey = {}
         for key, value in keys_map:
-            # key is a tuple/list like [netuid, uid]
-            # Extract the UID (second element)
-            if isinstance(key, (list, tuple)) and len(key) >= 2:
-                uid = int(key[1].value if hasattr(key[1], 'value') else key[1])
-                hotkey = value.value if hasattr(value, 'value') else str(value)
+            # Key is the UID directly (integer)
+            uid = int(key)
+
+            # Value is a ScaleObj containing the hotkey as bytes
+            # Convert to SS58 address string
+            if hasattr(value, 'value'):
+                # value.value is a list of tuples with byte values
+                # Example: [(24, 91, 223, ...)] - extract bytes
+                if isinstance(value.value, list) and len(value.value) > 0:
+                    hotkey_bytes = bytes(value.value[0]) if isinstance(value.value[0], (list, tuple)) else bytes(value.value)
+                else:
+                    hotkey_bytes = bytes(value.value)
+
+                # Convert bytes to SS58 address
+                hotkey = scalecodec.ss58_encode(hotkey_bytes.hex(), ss58_format=42)
+
                 if hotkey:
                     uid_to_hotkey[uid] = hotkey
             else:
-                bt.logging.debug(f"Unexpected key format in Keys query: {key}")
+                # Fallback: try to use value as-is
+                hotkey = str(value)
+                if hotkey:
+                    uid_to_hotkey[uid] = hotkey
 
         return uid_to_hotkey
 
@@ -749,6 +804,9 @@ class EmissionsLedgerManager:
         previous_alpha_to_tao_rate = None
 
         for i, block in enumerate(sampled_blocks):
+            # Rate limit before block hash query
+            self._rate_limit()
+
             # Query block hash ONCE
             try:
                 block_hash = self.subtensor.substrate.get_block_hash(block)
@@ -759,13 +817,16 @@ class EmissionsLedgerManager:
                 bt.logging.warning(f"Error getting block hash for {block}: {e}")
                 continue
 
-            # Query UID-to-hotkey mapping AT THIS BLOCK
+            # Query UID-to-hotkey mapping AT THIS BLOCK (rate limited inside method)
             current_uid_to_hotkey = self._get_uid_to_hotkey_at_block(block_hash)
 
             # Track new hotkeys
             for hotkey in current_uid_to_hotkey.values():
                 if hotkey not in all_hotkeys_seen:
                     all_hotkeys_seen.add(hotkey)
+
+            # Rate limit before Emission query
+            self._rate_limit()
 
             # Query ALL emissions at once (entire vector)
             emission_query = self.subtensor.substrate.query(
