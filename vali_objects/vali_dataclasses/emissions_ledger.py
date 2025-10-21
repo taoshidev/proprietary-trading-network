@@ -366,7 +366,70 @@ class EmissionsLedger:
             bt.logging.error(f"Error getting timestamp for block {block_number}: {e}")
             return None
 
-    def query_emissions_at_block(self, hotkey: str, block_number: int) -> Optional[float]:
+    def _get_uid_for_hotkey_at_block(self, hotkey: str, block_hash: str, cached_uid: Optional[int] = None) -> Optional[int]:
+        """
+        Find the UID for a hotkey at a specific historical block.
+
+        Args:
+            hotkey: SS58 address of the hotkey
+            block_hash: Block hash to query at
+            cached_uid: Previously found UID to try first (optimization)
+
+        Returns:
+            UID if found, None otherwise
+        """
+        try:
+            # First try the cached UID if provided (most miners keep the same UID)
+            if cached_uid is not None:
+                keys_result = self.subtensor.substrate.query(
+                    module='SubtensorModule',
+                    storage_function='Keys',
+                    params=[self.netuid, cached_uid],
+                    block_hash=block_hash
+                )
+
+                if keys_result is not None:
+                    stored_hotkey = keys_result.value if hasattr(keys_result, 'value') else str(keys_result)
+                    if stored_hotkey == hotkey:
+                        return cached_uid
+
+            # If cached UID didn't work, search all UIDs
+            max_uids_result = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetworkN',
+                params=[self.netuid],
+                block_hash=block_hash
+            )
+
+            if max_uids_result is None:
+                return None
+
+            max_uids = int(max_uids_result.value if hasattr(max_uids_result, 'value') else max_uids_result)
+
+            # Search for hotkey
+            for uid in range(max_uids):
+                if uid == cached_uid:
+                    continue  # Already tried this one
+
+                keys_result = self.subtensor.substrate.query(
+                    module='SubtensorModule',
+                    storage_function='Keys',
+                    params=[self.netuid, uid],
+                    block_hash=block_hash
+                )
+
+                if keys_result is not None:
+                    stored_hotkey = keys_result.value if hasattr(keys_result, 'value') else str(keys_result)
+                    if stored_hotkey == hotkey:
+                        return uid
+
+            return None
+
+        except Exception as e:
+            bt.logging.debug(f"Error finding UID at historical block: {e}")
+            return None
+
+    def query_emissions_at_block(self, hotkey: str, block_number: int, cached_uid: Optional[int] = None) -> tuple[Optional[float], Optional[int]]:
         """
         Query the emissions rate for a hotkey at a specific block.
 
@@ -376,23 +439,30 @@ class EmissionsLedger:
         Args:
             hotkey: SS58 address of the hotkey
             block_number: Block number to query
+            cached_uid: Previously found UID to try first (optimization)
 
         Returns:
-            Emissions per block (in TAO), or None if query fails
+            Tuple of (emissions_tao, uid) or (None, None) if query fails
         """
         try:
             # Get block hash for the specific block
             block_hash = self.subtensor.substrate.get_block_hash(block_number)
             if not block_hash:
                 bt.logging.warning(f"Could not get hash for block {block_number}")
-                return None
+                return None, None
 
-            # Query emission for this hotkey at this block
-            # The SubtensorModule stores emission data in the Emission storage
+            # First, find the UID for this hotkey at this block
+            uid = self._get_uid_for_hotkey_at_block(hotkey, block_hash, cached_uid=cached_uid)
+            if uid is None:
+                bt.logging.debug(f"Hotkey {hotkey} not found in subnet at block {block_number}")
+                return 0.0, None
+
+            # Query emission for this UID at this block
+            # Emission storage is indexed by netuid and uid
             emission_query = self.subtensor.substrate.query(
                 module='SubtensorModule',
                 storage_function='Emission',
-                params=[self.netuid, hotkey],
+                params=[self.netuid, uid],
                 block_hash=block_hash
             )
 
@@ -400,13 +470,13 @@ class EmissionsLedger:
                 # Emission is stored in RAO (1 TAO = 10^9 RAO)
                 emission_rao = float(emission_query.value) if hasattr(emission_query, 'value') else float(emission_query)
                 emission_tao = emission_rao / 1e9
-                return emission_tao
+                return emission_tao, uid
 
-            return 0.0
+            return 0.0, uid
 
         except Exception as e:
             bt.logging.error(f"Error querying emissions at block {block_number} for {hotkey}: {e}")
-            return None
+            return None, None
 
     def calculate_emissions_in_range(self, hotkey: str, start_block: int, end_block: int) -> float:
         """
@@ -435,11 +505,18 @@ class EmissionsLedger:
 
         bt.logging.info(f"Sampling {len(sampled_blocks)} blocks between {start_block} and {end_block}")
 
+        # Cache UID to avoid repeated searches
+        cached_uid = None
+
         previous_emission_rate = None
         previous_block = start_block
 
         for block in sampled_blocks:
-            emission_rate = self.query_emissions_at_block(hotkey, block)
+            emission_rate, uid = self.query_emissions_at_block(hotkey, block, cached_uid=cached_uid)
+
+            # Update cached UID if we found one
+            if uid is not None:
+                cached_uid = uid
 
             if emission_rate is None:
                 bt.logging.warning(f"Could not query emissions at block {block}, using previous rate")
