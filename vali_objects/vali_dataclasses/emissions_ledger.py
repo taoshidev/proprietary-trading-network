@@ -88,7 +88,7 @@ class EmissionsLedger:
     # Blocks per 12-hour chunk (approximate)
     BLOCKS_PER_CHUNK = int(CHUNK_DURATION_MS / 1000 / SECONDS_PER_BLOCK)
 
-    def __init__(self, network: str = "finney", netuid: int = 8):
+    def __init__(self, network: str = "local", netuid: int = 8):
         """
         Initialize EmissionsLedger with blockchain connection.
 
@@ -543,7 +543,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build emissions ledger for Bittensor hotkeys")
     parser.add_argument("--hotkey", type=str, help="Hotkey to query (SS58 address)", default='5DUi8ZCaNabsR6bnHfs471y52cUN1h9DcugjRbEBo341aKhY')
     parser.add_argument("--netuid", type=int, default=8, help="Subnet UID (default: 8)")
-    parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
+    parser.add_argument("--network", type=str, default="local", help="Network name (default: local)")
     parser.add_argument("--bulk", action="store_true", help="Process all hotkeys in subnet")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
