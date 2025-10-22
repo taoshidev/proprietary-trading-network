@@ -75,7 +75,7 @@ class PenaltyCheckpoint:
         return result
 
 
-class DebtLedger:
+class PenaltyLedger:
     """
     Manages penalty ledgers aligned with performance checkpoints.
     Reads positions and perf ledgers to build penalty checkpoints.
