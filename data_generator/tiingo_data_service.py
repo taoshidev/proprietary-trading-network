@@ -110,7 +110,6 @@ class TiingoDataService(BaseDataService):
         super().__init__(provider_name=TIINGO_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.config = {'api_key': self._api_key, 'session': True}
         self.TIINGO_CLIENT = None  # Instantiate the TiingoClient after process starts

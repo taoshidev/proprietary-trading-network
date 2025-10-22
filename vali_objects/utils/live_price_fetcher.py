@@ -272,11 +272,11 @@ class LivePriceFetcher:
             assert order, 'Must provide order for validation during backtesting'
 
         price_source = None
-        if not self.polygon_data_service.is_market_open(trade_pair):
+        if not self.polygon_data_service.is_market_open(trade_pair, time_ms=timestamp_ms):
             if self.is_backtesting and order and order.src == 0:
                 raise Exception(f"Backtesting validation failure: Attempting to price fill during closed market. TP {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}")
             else:
-                price_source = self.polygon_data_service.get_event_before_market_close(trade_pair, end_time_ms=timestamp_ms)
+                price_source = self.polygon_data_service.get_event_before_market_close(trade_pair, timestamp_ms)
                 print(f'Used previous close to fill price for {trade_pair.trade_pair_id} at {TimeUtil.millis_to_formatted_date_str(timestamp_ms)}')
 
         if price_source is None:
