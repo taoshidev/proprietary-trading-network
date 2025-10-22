@@ -546,80 +546,76 @@ class EmissionsLedgerManager:
 
     def _extract_block_timestamp(self, block_data: dict, block_number: int) -> int:
         """
-        Extract timestamp from block data.
+        Extract timestamp from Bittensor/Substrate block data.
 
         Args:
-            block_data: Block data from substrate.get_block()
-            block_number: Block number (for error messages)
+            block_data (dict): Result of substrate.get_block()
+            block_number (int): Block number (for logging/errors)
 
         Returns:
-            Block timestamp in milliseconds
+            int: Block timestamp in milliseconds.
 
         Raises:
-            ValueError: If timestamp cannot be extracted
+            ValueError: If timestamp cannot be extracted.
         """
-        if block_data is None:
-            raise ValueError(f"Block data is None for block {block_number}")
+        if not block_data:
+            raise ValueError(f"Block data is None or empty for block {block_number}")
 
-        if 'header' not in block_data:
-            raise ValueError(f"Block data missing header for block {block_number}")
+        extrinsics = block_data.get("extrinsics", [])
+        if not extrinsics:
+            raise ValueError(f"No extrinsics found in block {block_number}")
 
-        # Extract timestamp from extrinsics (Timestamp.set call)
-        block_timestamp_ms = None
-        if 'extrinsics' in block_data:
-            for idx, extrinsic in enumerate(block_data['extrinsics']):
-                # Try multiple extraction approaches
+        # Try all possible shapes for extrinsic call payloads
+        for idx, extrinsic in enumerate(extrinsics):
+            # Normalize access to dict form
+            ext = (
+                extrinsic.value
+                if hasattr(extrinsic, "value") and isinstance(extrinsic.value, dict)
+                else extrinsic
+            )
+            if not isinstance(ext, dict):
+                continue
 
-                # Approach 1: extrinsic.value['call'].value structure
-                if hasattr(extrinsic, 'value') and isinstance(extrinsic.value, dict):
-                    call = extrinsic.value.get('call')
-                    if call and hasattr(call, 'value') and isinstance(call.value, dict):
-                        if call.value.get('call_module') == 'Timestamp' and call.value.get('call_function') == 'set':
-                            call_args = call.value.get('call_args', [])
-                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
-                                block_timestamp_ms = int(call_args[0]['value'])
-                                break
+            # Look for "call" or "method" node
+            call_node = ext.get("call") or ext.get("method")
+            if not call_node:
+                continue
 
-                # Approach 2: Direct extrinsic['call']['call_args'] structure
-                if isinstance(extrinsic, dict):
-                    call = extrinsic.get('call', {})
-                    if isinstance(call, dict):
-                        if call.get('call_module') == 'Timestamp' and call.get('call_function') == 'set':
-                            call_args = call.get('call_args', [])
-                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
-                                block_timestamp_ms = int(call_args[0]['value'])
-                                break
-                            # Try direct 'now' parameter
-                            if call_args and isinstance(call_args, dict) and 'now' in call_args:
-                                block_timestamp_ms = int(call_args['now'])
-                                break
+            call = (
+                call_node.value
+                if hasattr(call_node, "value") and isinstance(call_node.value, dict)
+                else call_node
+            )
+            if not isinstance(call, dict):
+                continue
 
-                # Approach 3: Look for 'method' instead of 'call'
-                if hasattr(extrinsic, 'value') and isinstance(extrinsic.value, dict):
-                    method = extrinsic.value.get('method')
-                    if method and hasattr(method, 'value') and isinstance(method.value, dict):
-                        if method.value.get('call_module') == 'Timestamp' and method.value.get('call_function') == 'set':
-                            call_args = method.value.get('call_args', [])
-                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
-                                block_timestamp_ms = int(call_args[0]['value'])
-                                break
+            if call.get("call_module") != "Timestamp" or call.get("call_function") != "set":
+                continue
 
-        if block_timestamp_ms is None:
-            # Debug: Print structure of first extrinsic to help diagnose the issue
-            if 'extrinsics' in block_data and len(block_data['extrinsics']) > 0:
-                first_ext = block_data['extrinsics'][0]
-                bt.logging.error(
-                    f"Failed to extract timestamp from block {block_number}. "
-                    f"First extrinsic type: {type(first_ext)}, "
-                    f"has 'value': {hasattr(first_ext, 'value')}, "
-                    f"is dict: {isinstance(first_ext, dict)}, "
-                    f"keys: {list(first_ext.keys()) if isinstance(first_ext, dict) else 'N/A'}"
-                )
-                if hasattr(first_ext, 'value') and isinstance(first_ext.value, dict):
-                    bt.logging.error(f"Extrinsic value keys: {list(first_ext.value.keys())}")
-            raise ValueError(f"Failed to extract timestamp from block {block_number}")
+            # Parse possible argument shapes
+            call_args = call.get("call_args", [])
+            timestamp_ms = None
 
-        return block_timestamp_ms
+            # Common case: [{'name': 'now', 'type': 'Compact<u64>', 'value': 1690000000000}]
+            if isinstance(call_args, list) and call_args and isinstance(call_args[0], dict):
+                arg0 = call_args[0]
+                if "value" in arg0:
+                    timestamp_ms = int(arg0["value"])
+
+            # Fallback: {'now': 1690000000000}
+            elif isinstance(call_args, dict) and "now" in call_args:
+                timestamp_ms = int(call_args["now"])
+
+            if timestamp_ms is not None:
+                return timestamp_ms
+
+        # If no match found — log structural info
+        first_ext = extrinsics[0] if extrinsics else None
+        bt.logging.error(
+            f"[extract_block_timestamp] Could not parse timestamp for block {block_number}. "
+            f"First extrinsic: {type(first_ext)}, keys: {list(first_ext.keys()) if isinstance(first_ext, dict) else 'N/A'}"
+        )
+        raise ValueError(f"Failed to extract timestamp from block {block_number}")
 
     def query_alpha_to_tao_rate(self, block_number: int, block_hash: Optional[str] = None) -> float:
         """

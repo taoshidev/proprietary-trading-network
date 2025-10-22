@@ -920,8 +920,8 @@ if __name__ == "__main__":
 
     secrets = ValiUtils.get_secrets()
 
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
-    ans = polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000)
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    ans = polygon_data_provider.get_close_rest(TradePair.TAOUSD, 1742577204000)
     print('@@', ans)
     time.sleep(10000)
     assert 0, ans
