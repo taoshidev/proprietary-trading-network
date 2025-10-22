@@ -390,8 +390,8 @@ def process_miner_with_main_logic(
             bt.logging.debug(f"✅ Calculated {len(daily_returns)} returns for {current_date_str}")
         else:
             bt.logging.warning(f"⚠️  No returns calculated for {current_date_str}")
-        
-        current_ms += MS_IN_24_HOURS
+
+        current_ms -= MS_IN_24_HOURS
     
     # Handle collect_only mode (for auto-backfill optimization)
     if collect_only:
