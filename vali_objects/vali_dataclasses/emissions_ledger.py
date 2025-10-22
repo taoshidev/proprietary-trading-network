@@ -21,8 +21,10 @@ Standalone Usage:
 """
 import gzip
 import json
+import os
 import shutil
 import signal
+import threading
 from collections import defaultdict
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -35,6 +37,7 @@ import scalecodec
 from time_util.time_util import TimeUtil
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import ValiConfig
+from ptn_api.slack_notifier import SlackNotifier
 
 
 @dataclass
@@ -116,7 +119,30 @@ class EmissionsLedger:
         self.checkpoints: List[EmissionsCheckpoint] = checkpoints or []
 
     def add_checkpoint(self, checkpoint: EmissionsCheckpoint):
-        """Add a checkpoint to the ledger."""
+        """
+        Add a checkpoint to the ledger.
+
+        Validates that the new checkpoint is boundary-aligned with the previous checkpoint
+        (no gaps, no overlaps).
+
+        Args:
+            checkpoint: The checkpoint to add
+
+        Raises:
+            AssertionError: If the checkpoint boundaries are not aligned with the previous checkpoint
+        """
+        # If there are existing checkpoints, ensure perfect boundary alignment
+        if self.checkpoints:
+            prev_checkpoint = self.checkpoints[-1]
+            assert checkpoint.chunk_start_ms == prev_checkpoint.chunk_end_ms, (
+                f"Checkpoint boundary misalignment for {self.hotkey}: "
+                f"new checkpoint starts at {checkpoint.chunk_start_ms} "
+                f"({datetime.fromtimestamp(checkpoint.chunk_start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}), "
+                f"but previous checkpoint ended at {prev_checkpoint.chunk_end_ms} "
+                f"({datetime.fromtimestamp(prev_checkpoint.chunk_end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}). "
+                f"Expected perfect alignment (no gaps, no overlaps)."
+            )
+
         self.checkpoints.append(checkpoint)
 
     def get_cumulative_emissions(self) -> float:
@@ -345,7 +371,7 @@ class EmissionsLedgerManager:
     BLOCKS_PER_CHUNK = int(CHUNK_DURATION_MS / 1000 / SECONDS_PER_BLOCK)
 
     # Default offset in days from current time for emissions tracking
-    DEFAULT_START_TIME_OFFSET_DAYS = 10
+    DEFAULT_START_TIME_OFFSET_DAYS = 60
 
     def __init__(
         self,
@@ -353,6 +379,8 @@ class EmissionsLedgerManager:
         netuid: int = 8,
         rate_limit_per_second: float = 1.0,
         running_unit_tests: bool = False,
+        slack_webhook_url: Optional[str] = None,
+        start_daemon: bool = False,
     ):
         """
         Initialize EmissionsLedger with blockchain connection.
@@ -362,6 +390,8 @@ class EmissionsLedgerManager:
             netuid: Subnet UID to query (default: 8 for mainnet PTN)
             archive_endpoint: archive node endpoint for historical queries.
             rate_limit_per_second: Maximum queries per second (default: 1.0 for official endpoints)
+            slack_webhook_url: Optional Slack webhook URL for failure notifications
+            start_daemon: If True, automatically start daemon thread running run_forever (default: False)
         """
         self.archive_endpoint = archive_endpoint
         self.netuid = netuid
@@ -372,6 +402,9 @@ class EmissionsLedgerManager:
         self.emissions_ledgers: Dict[str, EmissionsLedger] = {}
         # Daemon control
         self.running = False
+        self.daemon_thread: Optional[threading.Thread] = None
+        # Slack notifications
+        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
 
         # Initialize subtensor connection
         bt.logging.info(f"Connecting to endpoint: {archive_endpoint}, netuid: {netuid}")
@@ -391,13 +424,14 @@ class EmissionsLedgerManager:
         self.subtensor = bt.subtensor(config=config)
         bt.logging.info(f"Connected to: {self.subtensor.chain_endpoint}")
 
-        # Storage for emissions ledgers (one per hotkey)
-        self.emissions_ledgers: Dict[str, EmissionsLedger] = {}
-
         if rate_limit_per_second < 10:
             bt.logging.warning(f"Rate limit set to {rate_limit_per_second} req/sec - queries will be slow")
         self.load_from_disk()
         bt.logging.info("EmissionsLedgerManager initialized")
+
+        # Start daemon thread if requested
+        if start_daemon:
+            self._start_daemon_thread()
 
     def _rate_limit(self):
         """
@@ -417,6 +451,43 @@ class EmissionsLedgerManager:
             time.sleep(sleep_time)
 
         self.last_query_time = time.time()
+
+    def _start_daemon_thread(
+        self,
+        check_interval_seconds: Optional[int] = None,
+        lag_time_ms: Optional[int] = None
+    ):
+        """
+        Start a daemon thread running run_forever.
+
+        The thread is marked as a daemon so it will automatically terminate
+        when the main program exits.
+
+        Args:
+            check_interval_seconds: How often to check for new chunks (default: 3600s = 1 hour)
+            lag_time_ms: How far behind current time to stay (default: 12 hours)
+        """
+        if self.daemon_thread is not None and self.daemon_thread.is_alive():
+            bt.logging.warning("Daemon thread already running")
+            return
+
+        bt.logging.info("Starting emissions ledger daemon thread")
+
+        # Create daemon thread
+        self.daemon_thread = threading.Thread(
+            target=self.run_forever,
+            kwargs={
+                'check_interval_seconds': check_interval_seconds,
+                'lag_time_ms': lag_time_ms
+            },
+            daemon=True,
+            name="EmissionsLedgerDaemon"
+        )
+
+        # Start the thread
+        self.daemon_thread.start()
+
+        bt.logging.info(f"Daemon thread started (Thread ID: {self.daemon_thread.ident})")
 
     @staticmethod
     def get_chunk_boundaries(timestamp_ms: int) -> tuple[int, int]:
@@ -526,22 +597,20 @@ class EmissionsLedgerManager:
         self,
         start_time_ms: Optional[int] = None,
         end_time_ms: Optional[int] = None,
-        start_time_offset_days: int = None
-    ) -> Dict[str, EmissionsLedger]:
+    ):
         """
         Build emissions ledgers for ALL hotkeys in the subnet efficiently.
+
+        Works IN-PLACE on self.emissions_ledgers, either creating new ledgers or
+        appending checkpoints to existing ones with correct cumulative values.
 
         This is the optimized approach that queries each block once and processes
         all hotkeys simultaneously, sharing block hashes, emission vectors, and
         alpha-to-TAO conversion rates across all hotkeys.
 
         Args:
-            start_time_ms: Optional start time in milliseconds (overrides start_time_offset_days)
+            start_time_ms: Optional start time in milliseconds (default: DEFAULT_START_TIME_OFFSET_DAYS ago)
             end_time_ms: Optional end time (default: current time)
-            start_time_offset_days: Number of days to look back from now (default: 10)
-
-        Returns:
-            Dictionary mapping hotkeys to their EmissionsLedger objects
         """
         start_exec_time = time.time()
         bt.logging.info("Building emissions ledgers for all hotkeys (optimized mode)")
@@ -560,15 +629,12 @@ class EmissionsLedgerManager:
 
         # Calculate start time dynamically if not specified
         if start_time_ms is None:
-            if start_time_offset_days is None:
-                start_time_offset_days = self.DEFAULT_START_TIME_OFFSET_DAYS
-
-            # Calculate start time as (now - offset days)
+            # Use default lookback period
             current_time = datetime.now(timezone.utc)
-            start_time = current_time - timedelta(days=start_time_offset_days)
+            start_time = current_time - timedelta(days=self.DEFAULT_START_TIME_OFFSET_DAYS)
             start_time_ms = int(start_time.timestamp() * 1000)
 
-            bt.logging.info(f"Using dynamic start date ({start_time_offset_days} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            bt.logging.info(f"Using default start date ({self.DEFAULT_START_TIME_OFFSET_DAYS} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
         # Default end time is now
         if end_time_ms is None:
@@ -593,10 +659,37 @@ class EmissionsLedgerManager:
 
         bt.logging.info(f"Block range: {start_block} to {end_block} ({start_date} to {end_date})")
 
-        # Initialize EmissionsLedger objects for all hotkeys
-        hotkey_ledgers: Dict[str, EmissionsLedger] = {}
+        # SAFETY CHECK 1: Ensure end_time_ms is at a chunk boundary (prevent partial chunks)
+        end_chunk_start, end_chunk_end = self.get_chunk_boundaries(end_time_ms)
+        if end_time_ms != end_chunk_start and end_time_ms != end_chunk_end:
+            # end_time_ms is in the middle of a chunk - round down to previous chunk boundary
+            end_time_ms = end_chunk_start
+            end_date = datetime.fromtimestamp(end_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+            bt.logging.warning(
+                f"end_time_ms was not at chunk boundary, rounded down to {end_date} "
+                f"to prevent partial chunks"
+            )
+
+        # SAFETY CHECK 2: Ensure end_time is at least CHUNK_DURATION_MS behind current time (data finality)
+        min_lag_ms = self.CHUNK_DURATION_MS  # 12 hours minimum
+        time_behind_current = current_time_ms - end_time_ms
+        if time_behind_current < min_lag_ms:
+            raise ValueError(
+                f"end_time_ms must be at least {min_lag_ms / 1000 / 3600:.1f} hours behind current time "
+                f"to ensure data finality. Current lag: {time_behind_current / 1000 / 3600:.1f} hours. "
+                f"Current time: {datetime.fromtimestamp(current_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}, "
+                f"End time: {end_date}"
+            )
+
+        # Initialize cumulative tracking - continue from existing ledgers if they exist
         hotkey_cumulative_alpha: Dict[str, float] = defaultdict(float)
         hotkey_cumulative_tao: Dict[str, float] = defaultdict(float)
+
+        # Get starting cumulative values from existing ledgers (for delta updates)
+        for hotkey, ledger in self.emissions_ledgers.items():
+            if ledger.checkpoints:
+                hotkey_cumulative_alpha[hotkey] = ledger.checkpoints[-1].cumulative_emissions
+                hotkey_cumulative_tao[hotkey] = ledger.checkpoints[-1].cumulative_emissions_tao
 
         # Generate list of 12-hour chunks
         current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
@@ -637,43 +730,49 @@ class EmissionsLedgerManager:
             # Track hotkeys with activity in this chunk
             hotkeys_active_in_chunk = set()
 
-            # Update each hotkey's ledger
-            # Iterate over ALL hotkeys in chunk_results (includes newly discovered historical hotkeys)
-            for hotkey, (alpha_emissions, tao_emissions, rate_start, rate_end) in chunk_results.items():
-                # If this is a newly discovered hotkey (not in current metagraph), create ledger for it
-                if hotkey not in hotkey_ledgers:
-                    #bt.logging.info(f"Discovered historical hotkey not in current metagraph: {hotkey[:16]}...{hotkey[-8:]}")
-                    hotkey_ledgers[hotkey] = EmissionsLedger(hotkey)
-                    hotkey_cumulative_alpha[hotkey] = 0.0
-                    hotkey_cumulative_tao[hotkey] = 0.0
+            # Get shared rate values for zero-emission checkpoints (from any hotkey with emissions)
+            shared_rate_start = None
+            shared_rate_end = None
+            if chunk_results:
+                # Use rate from first hotkey with emissions
+                first_result = next(iter(chunk_results.values()))
+                shared_rate_start = first_result[2]  # rate_start
+                shared_rate_end = first_result[3]    # rate_end
 
-                hotkey_cumulative_alpha[hotkey] += alpha_emissions
-                hotkey_cumulative_tao[hotkey] += tao_emissions
-
-                # Track if this hotkey had any emissions in this chunk
-                if alpha_emissions > 0:
-                    hotkeys_active_in_chunk.add(hotkey)
-                    hotkeys_processed_cumulative.add(hotkey)
-
-                checkpoint = EmissionsCheckpoint(
-                    chunk_start_ms=current_chunk_start_ms,
-                    chunk_end_ms=current_chunk_end_ms,
-                    chunk_emissions=alpha_emissions,
-                    cumulative_emissions=hotkey_cumulative_alpha[hotkey],
-                    chunk_emissions_tao=tao_emissions,
-                    cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
-                    alpha_to_tao_rate_start=rate_start,
-                    alpha_to_tao_rate_end=rate_end,
-                    block_start=chunk_start_block,
-                    block_end=chunk_end_block
-                )
-
-                hotkey_ledgers[hotkey].add_checkpoint(checkpoint)
-
-            # Also add zero-emission checkpoints for currently registered hotkeys that had no emissions this chunk
+            # Single loop: create checkpoints for ALL hotkeys in all_hotkeys_seen
+            # (includes both hotkeys with emissions and hotkeys without emissions)
             for hotkey in all_hotkeys_seen:
-                if hotkey not in chunk_results:
-                    # Hotkey exists now but had no emissions in this chunk
+                # Check if this hotkey had emissions in this chunk
+                if hotkey in chunk_results:
+                    # Hotkey has emissions - use data from chunk_results
+                    alpha_emissions, tao_emissions, rate_start, rate_end = chunk_results[hotkey]
+
+                    # Create ledger if this is a newly discovered hotkey
+                    if hotkey not in self.emissions_ledgers:
+                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
+
+                    hotkey_cumulative_alpha[hotkey] += alpha_emissions
+                    hotkey_cumulative_tao[hotkey] += tao_emissions
+
+                    # Track if this hotkey had any emissions in this chunk
+                    if alpha_emissions > 0:
+                        hotkeys_active_in_chunk.add(hotkey)
+                        hotkeys_processed_cumulative.add(hotkey)
+
+                    checkpoint = EmissionsCheckpoint(
+                        chunk_start_ms=current_chunk_start_ms,
+                        chunk_end_ms=current_chunk_end_ms,
+                        chunk_emissions=alpha_emissions,
+                        cumulative_emissions=hotkey_cumulative_alpha[hotkey],
+                        chunk_emissions_tao=tao_emissions,
+                        cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
+                        alpha_to_tao_rate_start=rate_start,
+                        alpha_to_tao_rate_end=rate_end,
+                        block_start=chunk_start_block,
+                        block_end=chunk_end_block
+                    )
+                else:
+                    # Hotkey exists but had no emissions in this chunk - create zero-emission checkpoint
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
                         chunk_end_ms=current_chunk_end_ms,
@@ -681,12 +780,14 @@ class EmissionsLedgerManager:
                         cumulative_emissions=hotkey_cumulative_alpha[hotkey],
                         chunk_emissions_tao=0.0,
                         cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
-                        alpha_to_tao_rate_start=chunk_results.get(list(chunk_results.keys())[0], (0, 0, None, None))[2] if chunk_results else None,
-                        alpha_to_tao_rate_end=chunk_results.get(list(chunk_results.keys())[0], (0, 0, None, None))[3] if chunk_results else None,
+                        alpha_to_tao_rate_start=shared_rate_start,
+                        alpha_to_tao_rate_end=shared_rate_end,
                         block_start=chunk_start_block,
                         block_end=chunk_end_block
                     )
-                    hotkey_ledgers[hotkey].add_checkpoint(checkpoint)
+
+                # Append checkpoint to ledger (in-place)
+                self.emissions_ledgers[hotkey].add_checkpoint(checkpoint)
 
             # Calculate chunk processing time
             chunk_elapsed = time.time() - chunk_start_time
@@ -705,24 +806,23 @@ class EmissionsLedgerManager:
                 f"{len(hotkeys_processed_cumulative)} cumulative unique"
             )
 
+            # Save ledger state after each successful chunk (incremental persistence for crash recovery)
+            self.save_to_disk(create_backup=False)
+
             # Move to next chunk
             current_chunk_start_ms = current_chunk_end_ms
             current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
 
-        # Store all ledgers
-        self.emissions_ledgers = hotkey_ledgers
-
+        # Log completion (worked in-place on self.emissions_ledgers)
         elapsed_time = time.time() - start_exec_time
-        bt.logging.info(f"Built {chunk_count} chunks for {len(hotkey_ledgers)} hotkeys in {elapsed_time:.2f} seconds")
+        bt.logging.info(f"Built {chunk_count} chunks for {len(self.emissions_ledgers)} hotkeys in {elapsed_time:.2f} seconds")
 
         # Log summary for each hotkey
-        for hotkey, ledger in hotkey_ledgers.items():
+        for hotkey, ledger in self.emissions_ledgers.items():
             if ledger.checkpoints:
                 total_alpha = ledger.get_cumulative_emissions()
                 total_tao = ledger.get_cumulative_emissions_tao()
                 bt.logging.info(f"  {hotkey[:16]}...{hotkey[-8:]}: {total_alpha:.6f} alpha (~{total_tao:.6f} TAO)")
-
-        return self.emissions_ledgers
 
     def _get_uid_to_hotkey_at_block(self, block_hash: str) -> Dict[int, str]:
         """
@@ -908,65 +1008,6 @@ class EmissionsLedgerManager:
 
         return results
 
-
-    def get_ledger(self, hotkey: str) -> Optional[EmissionsLedger]:
-        """
-        Get the emissions ledger for a specific hotkey.
-
-        Args:
-            hotkey: SS58 address of the hotkey
-
-        Returns:
-            EmissionsLedger object, or None if not found
-        """
-        return self.emissions_ledgers.get(hotkey)
-
-    def get_cumulative_emissions(self, hotkey: str) -> float:
-        """
-        Get the total cumulative alpha emissions for a hotkey.
-
-        Args:
-            hotkey: SS58 address of the hotkey
-
-        Returns:
-            Total alpha emissions
-        """
-        ledger = self.get_ledger(hotkey)
-        if not ledger:
-            return 0.0
-        return ledger.get_cumulative_emissions()
-
-    def print_emissions_summary(self, hotkey: str):
-        """
-        Print a formatted summary of emissions for a hotkey.
-
-        Delegates to the EmissionsLedger object's print_summary() method.
-
-        Args:
-            hotkey: SS58 address of the hotkey
-        """
-        ledger = self.get_ledger(hotkey)
-        if ledger:
-            ledger.print_summary()
-        else:
-            print(f"\nNo emissions data found for {hotkey}")
-
-    def plot_emissions(self, hotkey: str, save_path: Optional[str] = None):
-        """
-        Plot emissions data for a hotkey using matplotlib.
-
-        Delegates to the EmissionsLedger object's plot_emissions() method.
-
-        Args:
-            hotkey: SS58 address of the hotkey
-            save_path: Optional path to save the plot (default: display only)
-        """
-        ledger = self.get_ledger(hotkey)
-        if ledger:
-            ledger.plot_emissions(save_path)
-        else:
-            bt.logging.warning(f"No emissions data found for {hotkey}, skipping plot")
-
     # ============================================================================
     # PERSISTENCE METHODS
     # ============================================================================
@@ -981,12 +1022,41 @@ class EmissionsLedgerManager:
         """
         Save emissions ledgers to disk with atomic write.
 
+        Validates that all ledgers have the same final checkpoint time before saving
+        to ensure ledgers are kept in sync.
+
         Args:
             create_backup: Whether to create timestamped backup before overwrite
+
+        Raises:
+            ValueError: If ledgers have mismatched final checkpoint times
         """
         if not self.emissions_ledgers:
             bt.logging.warning("No ledgers to save")
             return
+
+        # Validate that all ledgers have the same final checkpoint time
+        final_checkpoint_times = set()
+        for hotkey, ledger in self.emissions_ledgers.items():
+            if ledger.checkpoints:
+                final_checkpoint_times.add(ledger.checkpoints[-1].chunk_end_ms)
+
+        if len(final_checkpoint_times) > 1:
+            # Ledgers are out of sync - this is a critical error
+            error_details = []
+            for hotkey, ledger in self.emissions_ledgers.items():
+                if ledger.checkpoints:
+                    last_time = ledger.checkpoints[-1].chunk_end_ms
+                    last_time_str = datetime.fromtimestamp(last_time / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                    error_details.append(f"  {hotkey[:16]}...{hotkey[-8:]}: {last_time_str} ({last_time})")
+
+            raise ValueError(
+                f"Cannot save ledgers: final checkpoint times are not synchronized!\n"
+                f"Found {len(final_checkpoint_times)} different final times:\n" +
+                "\n".join(error_details[:10]) +  # Show first 10
+                (f"\n  ... and {len(error_details) - 10} more" if len(error_details) > 10 else "") +
+                "\n\nAll ledgers must be updated to the same time before saving."
+            )
 
         ledger_path = self._get_ledger_path()
 
@@ -1137,11 +1207,9 @@ class EmissionsLedgerManager:
         """
         Build ONLY new chunks since last checkpoint (delta update).
 
-        This is the key method for incremental updates. It:
-        1. Gets last computed chunk from existing ledgers
-        2. Only builds new chunks from last_computed_chunk_end_ms to (now - lag_time_ms)
-        3. Appends new checkpoints to existing ledgers
-        4. Saves updated ledgers back to disk
+        This method:
+        1. Computes the time range for new chunks
+        2. Calls build_all_emissions_ledgers_optimized (which works in-place and saves incrementally)
 
         Args:
             lag_time_ms: Stay this far behind current time (default: 12 hours)
@@ -1157,6 +1225,7 @@ class EmissionsLedgerManager:
         # Get checkpoint info from existing ledgers
         checkpoint_info = self.get_checkpoint_info()
         last_computed_chunk_end_ms = checkpoint_info["last_computed_chunk_end_ms"]
+        chunks_before = checkpoint_info["total_checkpoints"]
 
         # Calculate new time range
         current_time_ms = int(time.time() * 1000)
@@ -1176,7 +1245,7 @@ class EmissionsLedgerManager:
             )
             return 0
 
-        # Build ONLY new chunks
+        # Build ONLY new chunks (works in-place on self.emissions_ledgers and saves incrementally)
         start_time_ms = last_computed_chunk_end_ms
 
         bt.logging.info(
@@ -1185,39 +1254,24 @@ class EmissionsLedgerManager:
             f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}"
         )
 
-        new_ledgers = self.build_all_emissions_ledgers_optimized(
+        self.build_all_emissions_ledgers_optimized(
             start_time_ms=start_time_ms,
             end_time_ms=end_time_ms
         )
 
-        # Count chunks added
-        chunks_added = 0
-
-        # Merge new checkpoints into existing ledgers
-        for hotkey, new_ledger in new_ledgers.items():
-            if hotkey in self.emissions_ledgers:
-                # Append new checkpoints to existing ledger
-                existing_ledger = self.emissions_ledgers[hotkey]
-                for checkpoint in new_ledger.checkpoints:
-                    existing_ledger.add_checkpoint(checkpoint)
-                    chunks_added += 1
-            else:
-                # New hotkey - add entire ledger
-                self.emissions_ledgers[hotkey] = new_ledger
-                chunks_added += len(new_ledger.checkpoints)
-
-        # Save to disk
-        self.save_to_disk(create_backup=True)
+        # Calculate chunks added
+        chunks_after = self.get_checkpoint_info()["total_checkpoints"]
+        chunks_added = chunks_after - chunks_before
 
         elapsed = time.time() - start_time
         bt.logging.info(
             f"Delta update completed in {elapsed:.2f}s - "
-            f"added {chunks_added} chunks across {len(new_ledgers)} hotkeys"
+            f"added {chunks_added} chunks"
         )
 
         return chunks_added
 
-    def _build_full(self, end_time_ms: int, lookback_days: int = 10) -> int:
+    def _build_full(self, end_time_ms: int, lookback_days: int = DEFAULT_START_TIME_OFFSET_DAYS) -> int:
         """
         Perform full build (used for initial run).
 
@@ -1230,15 +1284,19 @@ class EmissionsLedgerManager:
         """
         bt.logging.info(f"Building full emissions ledgers ({lookback_days} day lookback)")
 
-        # Build using the builder
-        self.build_all_emissions_ledgers_optimized(
-            start_time_offset_days=lookback_days,
-            end_time_ms=end_time_ms,
-            verbose=False
-        )
+        # Clear existing ledgers for full rebuild
+        self.emissions_ledgers.clear()
 
-        # Save to disk
-        self.save_to_disk(create_backup=False)  # No backup on first run
+        # Calculate start_time_ms from lookback_days
+        current_time = datetime.now(timezone.utc)
+        start_time = current_time - timedelta(days=lookback_days)
+        start_time_ms = int(start_time.timestamp() * 1000)
+
+        # Build from scratch (works in-place on self.emissions_ledgers and saves incrementally)
+        self.build_all_emissions_ledgers_optimized(
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms
+        )
 
         total_chunks = sum(len(ledger.checkpoints) for ledger in self.emissions_ledgers.values())
         bt.logging.info(f"Full build complete - {total_chunks} total chunks")
@@ -1263,6 +1321,22 @@ class EmissionsLedgerManager:
         ledger = self.get_ledger(hotkey)
         return ledger.get_cumulative_emissions_tao() if ledger else 0.0
 
+    def print_emissions_summary(self, hotkey: str):
+        """Print formatted summary of emissions for a hotkey."""
+        ledger = self.get_ledger(hotkey)
+        if ledger:
+            ledger.print_summary()
+        else:
+            print(f"\nNo emissions data found for {hotkey}")
+
+    def plot_emissions(self, hotkey: str, save_path: Optional[str] = None):
+        """Plot emissions data for a hotkey using matplotlib."""
+        ledger = self.get_ledger(hotkey)
+        if ledger:
+            ledger.plot_emissions(save_path)
+        else:
+            bt.logging.warning(f"No emissions data found for {hotkey}, skipping plot")
+
     # ============================================================================
     # DAEMON MODE
     # ============================================================================
@@ -1278,6 +1352,12 @@ class EmissionsLedgerManager:
         Checks for new chunks at regular intervals and performs delta updates.
         Handles graceful shutdown on SIGINT/SIGTERM.
 
+        Features:
+        - Exponential backoff on failures (1h -> 2h -> 4h -> 8h -> 16h -> 32h -> max 48h)
+        - Slack notifications for failures
+        - Automatic retry after backoff
+        - Graceful shutdown
+
         Args:
             check_interval_seconds: How often to check for new chunks (default: 3600s = 1 hour)
             lag_time_ms: How far behind current time to stay (default: 12 hours)
@@ -1289,6 +1369,12 @@ class EmissionsLedgerManager:
             lag_time_ms = self.DEFAULT_LAG_TIME_MS
 
         self.running = True
+
+        # Exponential backoff parameters
+        consecutive_failures = 0
+        initial_backoff_seconds = 3600  # Start with 1 hour
+        max_backoff_seconds = 172800  # Max 48 hours
+        backoff_multiplier = 2
 
         # Register signal handlers for graceful shutdown
         def signal_handler(signum, frame):
@@ -1306,32 +1392,13 @@ class EmissionsLedgerManager:
         bt.logging.info(f"Rate Limit: {self.rate_limit_per_second} req/sec")
         bt.logging.info(f"Check Interval: {check_interval_seconds}s ({check_interval_seconds / 3600:.1f} hours)")
         bt.logging.info(f"Lag Time: {lag_time_ms / 1000 / 3600:.1f} hours behind current time")
+        bt.logging.info(f"Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
         bt.logging.info("=" * 80)
 
-        # Perform initial delta update
-        try:
-            bt.logging.info("Performing initial delta update...")
-            chunks_added = self.build_delta_update(lag_time_ms=lag_time_ms)
-            bt.logging.info(f"Initial update complete - added {chunks_added} chunks")
-        except Exception as e:
-            bt.logging.error(f"Initial update failed: {e}")
-
-        # Main loop
+        # Main loop (do-while pattern - executes immediately on first iteration)
         while self.running:
             try:
-                next_check_time = time.time() + check_interval_seconds
-                next_check_str = datetime.fromtimestamp(next_check_time, tz=timezone.utc).strftime(
-                    '%Y-%m-%d %H:%M:%S UTC')
-                bt.logging.info(f"Next check at: {next_check_str}")
-
-                # Sleep in small intervals to allow graceful shutdown
-                while self.running and time.time() < next_check_time:
-                    time.sleep(10)
-
-                if not self.running:
-                    break
-
-                # Perform delta update
+                # Perform delta update (happens immediately on first iteration)
                 bt.logging.info("Checking for new chunks...")
                 chunks_added = self.build_delta_update(lag_time_ms=lag_time_ms)
 
@@ -1340,10 +1407,76 @@ class EmissionsLedgerManager:
                 else:
                     bt.logging.info("No new chunks available")
 
+                # Success - reset failure counter
+                if consecutive_failures > 0:
+                    bt.logging.info(f"Recovered after {consecutive_failures} failure(s)")
+
+                    # Send recovery alert
+                    recovery_message = (
+                        f":white_check_mark: *Emissions Ledger - Recovered*\n"
+                        f"*NetUID:* {self.netuid}\n"
+                        f"*Failed Attempts:* {consecutive_failures}\n"
+                        f"*Chunks Added:* {chunks_added}\n"
+                        f"Service is back to normal"
+                    )
+                    self.slack_notifier.send_alert(recovery_message, alert_key="emissions_ledger_recovery", force=True)
+
+                consecutive_failures = 0
+
             except Exception as e:
-                bt.logging.error(f"Error in daemon loop: {e}")
-                # Continue running even if one update fails
-                time.sleep(60)
+                consecutive_failures += 1
+
+                # Calculate backoff for logging
+                backoff_seconds = min(
+                    initial_backoff_seconds * (backoff_multiplier ** (consecutive_failures - 1)),
+                    max_backoff_seconds
+                )
+
+                bt.logging.error(
+                    f"Error in daemon loop (failure #{consecutive_failures}): {e}",
+                    exc_info=True
+                )
+
+                # Send Slack alert (rate-limited to avoid spam)
+                error_message = (
+                    f":rotating_light: *Emissions Ledger - Update Failed*\n"
+                    f"*NetUID:* {self.netuid}\n"
+                    f"*Archive Endpoint:* {self.archive_endpoint}\n"
+                    f"*Consecutive Failures:* {consecutive_failures}\n"
+                    f"*Error:* {str(e)[:200]}\n"
+                    f"*Next Retry:* {backoff_seconds}s backoff\n"
+                    f"*Action:* Will retry automatically. Check logs if failures persist."
+                )
+                self.slack_notifier.send_alert(
+                    error_message,
+                    alert_key="emissions_ledger_failure"
+                )
+
+            # Calculate sleep time and sleep (moved to end of loop)
+            if self.running:
+                if consecutive_failures > 0:
+                    # Exponential backoff
+                    backoff_seconds = min(
+                        initial_backoff_seconds * (backoff_multiplier ** (consecutive_failures - 1)),
+                        max_backoff_seconds
+                    )
+                    next_check_time = time.time() + backoff_seconds
+                    next_check_str = datetime.fromtimestamp(next_check_time, tz=timezone.utc).strftime(
+                        '%Y-%m-%d %H:%M:%S UTC')
+                    bt.logging.warning(
+                        f"Retrying after {consecutive_failures} failure(s). "
+                        f"Backoff: {backoff_seconds}s. Next attempt at: {next_check_str}"
+                    )
+                else:
+                    # Normal interval
+                    next_check_time = time.time() + check_interval_seconds
+                    next_check_str = datetime.fromtimestamp(next_check_time, tz=timezone.utc).strftime(
+                        '%Y-%m-%d %H:%M:%S UTC')
+                    bt.logging.info(f"Next check at: {next_check_str}")
+
+                # Sleep in small intervals to allow graceful shutdown
+                while self.running and time.time() < next_check_time:
+                    time.sleep(10)
 
         bt.logging.info("Emissions Ledger Manager daemon stopped")
 
@@ -1358,8 +1491,8 @@ if __name__ == "__main__":
     parser.add_argument("--network", type=str, default="finney", help="Network name (default: finney)")
     parser.add_argument("--archive-endpoint", type=str, action="append", dest="archive_endpoints",
                        help="Archive node endpoint (can be specified multiple times). Example: wss://archive.chain.opentensor.ai:443")
-    parser.add_argument("--start-time-offset-days", type=int, default=10,
-                       help="Number of days to look back from now for emissions tracking (default: 10)")
+    parser.add_argument("--start-time-offset-days", type=int, default=EmissionsLedgerManager.DEFAULT_START_TIME_OFFSET_DAYS,
+                       help="Number of days to look back from now for emissions tracking")
     parser.add_argument("--show-plot", action="store_true", help="Display plot for specified hotkey (requires --hotkey)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
@@ -1370,17 +1503,17 @@ if __name__ == "__main__":
         bt.logging.enable_debug()
 
     # Initialize ledger manager
-    emissions_ledger_manager = EmissionsLedgerManager(
-        network=args.network,
-        netuid=args.netuid,
-        archive_endpoints=args.archive_endpoints
-    )
+    emissions_ledger_manager = EmissionsLedgerManager(start_daemon=False)
+
+    # Calculate start_time_ms from start_time_offset_days argument
+    current_time = datetime.now(timezone.utc)
+    start_time = current_time - timedelta(days=args.start_time_offset_days)
+    start_time_ms = int(start_time.timestamp() * 1000)
 
     # ALWAYS build ALL ledgers using optimized method
     bt.logging.info("Building emissions ledgers for ALL hotkeys in subnet (optimized mode)")
     emissions_ledger_manager.build_all_emissions_ledgers_optimized(
-        start_time_offset_days=args.start_time_offset_days,
-        verbose=args.verbose
+        start_time_ms=start_time_ms
     )
 
     if len(emissions_ledger_manager.emissions_ledgers) == 0:
