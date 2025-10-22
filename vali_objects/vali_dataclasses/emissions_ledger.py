@@ -35,8 +35,10 @@ import argparse
 import scalecodec
 
 from time_util.time_util import TimeUtil
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import ValiConfig, TradePair
 from ptn_api.slack_notifier import SlackNotifier
 
 
@@ -52,6 +54,8 @@ class EmissionsCheckpoint:
         cumulative_emissions: Total alpha tokens earned from registration up to end of this chunk
         chunk_emissions_tao: Approximate TAO value of chunk emissions (using avg conversion rate)
         cumulative_emissions_tao: Total approximate TAO value from registration up to end of this chunk
+        chunk_emissions_usd: USD value of chunk emissions (calculated block-by-block using TAO/USD rates)
+        cumulative_emissions_usd: Total USD value from registration up to end of this chunk
         alpha_to_tao_rate_start: Alpha-to-TAO conversion rate at chunk start
         alpha_to_tao_rate_end: Alpha-to-TAO conversion rate at chunk end
         block_start: Block number at chunk start (for verification)
@@ -63,6 +67,8 @@ class EmissionsCheckpoint:
     cumulative_emissions: float
     chunk_emissions_tao: float = 0.0
     cumulative_emissions_tao: float = 0.0
+    chunk_emissions_usd: float = 0.0
+    cumulative_emissions_usd: float = 0.0
     alpha_to_tao_rate_start: Optional[float] = None
     alpha_to_tao_rate_end: Optional[float] = None
     block_start: Optional[int] = None
@@ -92,6 +98,8 @@ class EmissionsCheckpoint:
             'cumulative_emissions': self.cumulative_emissions,
             'chunk_emissions_tao': self.chunk_emissions_tao,
             'cumulative_emissions_tao': self.cumulative_emissions_tao,
+            'chunk_emissions_usd': self.chunk_emissions_usd,
+            'cumulative_emissions_usd': self.cumulative_emissions_usd,
             'alpha_to_tao_rate_start': self.alpha_to_tao_rate_start,
             'alpha_to_tao_rate_end': self.alpha_to_tao_rate_end,
             'block_start': self.block_start,
@@ -167,6 +175,17 @@ class EmissionsLedger:
             return 0.0
         return self.checkpoints[-1].cumulative_emissions_tao
 
+    def get_cumulative_emissions_usd(self) -> float:
+        """
+        Get total cumulative USD emissions for this hotkey.
+
+        Returns:
+            Total USD emissions (float)
+        """
+        if not self.checkpoints:
+            return 0.0
+        return self.checkpoints[-1].cumulative_emissions_usd
+
     def to_dict(self) -> dict:
         """
         Convert ledger to dictionary for serialization.
@@ -179,6 +198,7 @@ class EmissionsLedger:
             'total_checkpoints': len(self.checkpoints),
             'cumulative_emissions': self.get_cumulative_emissions(),
             'cumulative_emissions_tao': self.get_cumulative_emissions_tao(),
+            'cumulative_emissions_usd': self.get_cumulative_emissions_usd(),
             'checkpoints': [cp.to_dict() for cp in self.checkpoints]
         }
 
@@ -386,6 +406,7 @@ class EmissionsLedgerManager:
         Initialize EmissionsLedger with blockchain connection.
 
         Args:
+            live_price_fetcher: LivePriceFetcher instance for querying TAO/USD prices (required)
             network: Bittensor network name ("finney", "test", "local")
             netuid: Subnet UID to query (default: 8 for mainnet PTN)
             archive_endpoint: archive node endpoint for historical queries.
@@ -393,6 +414,7 @@ class EmissionsLedgerManager:
             slack_webhook_url: Optional Slack webhook URL for failure notifications
             start_daemon: If True, automatically start daemon thread running run_forever (default: False)
         """
+        self.live_price_fetcher = None
         self.archive_endpoint = archive_endpoint
         self.netuid = netuid
         self.rate_limit_per_second = rate_limit_per_second
@@ -522,67 +544,102 @@ class EmissionsLedgerManager:
 
         return chunk_start_ms, chunk_end_ms
 
+    def _extract_block_timestamp(self, block_data: dict, block_number: int) -> int:
+        """
+        Extract timestamp from block data.
 
-    def query_alpha_to_tao_rate(self, block_number: int) -> Optional[float]:
+        Args:
+            block_data: Block data from substrate.get_block()
+            block_number: Block number (for error messages)
+
+        Returns:
+            Block timestamp in milliseconds
+
+        Raises:
+            ValueError: If timestamp cannot be extracted
+        """
+        if block_data is None:
+            raise ValueError(f"Block data is None for block {block_number}")
+
+        if 'header' not in block_data:
+            raise ValueError(f"Block data missing header for block {block_number}")
+
+        # Extract timestamp from extrinsics (Timestamp.set call)
+        block_timestamp_ms = None
+        if 'extrinsics' in block_data:
+            for extrinsic in block_data['extrinsics']:
+                if hasattr(extrinsic, 'value') and isinstance(extrinsic.value, dict):
+                    call = extrinsic.value.get('call')
+                    if call and hasattr(call, 'value') and isinstance(call.value, dict):
+                        if call.value.get('call_module') == 'Timestamp' and call.value.get('call_function') == 'set':
+                            call_args = call.value.get('call_args', [])
+                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
+                                block_timestamp_ms = int(call_args[0]['value'])
+                                break
+
+        if block_timestamp_ms is None:
+            raise ValueError(f"Failed to extract timestamp from block {block_number}")
+
+        return block_timestamp_ms
+
+    def query_alpha_to_tao_rate(self, block_number: int, block_hash: Optional[str] = None) -> float:
         """
         Query the alpha-to-TAO conversion rate at a specific block.
+        Raises exception if conversion rate unavailable (fast fail).
 
         The conversion rate is calculated from subnet pool reserves:
         alpha_price_in_tao = TAO_reserve / Alpha_reserve
 
         Args:
             block_number: Block number to query
+            block_hash: Optional pre-fetched block hash (avoids redundant query)
 
         Returns:
-            Alpha-to-TAO conversion rate, or None if query fails or if querying pre-dTAO blocks
+            Alpha-to-TAO conversion rate
+
+        Raises:
+            ValueError: If block hash, pool data, or conversion rate unavailable
         """
-        # Rate limit before block hash query
+        # Get block hash if not provided
+        if block_hash is None:
+            # Rate limit before block hash query
+            self._rate_limit()
+            block_hash = self.subtensor.substrate.get_block_hash(block_number)
+
+        if not block_hash:
+            raise ValueError(f"Could not get hash for block {block_number}")
+
+        # Rate limit before SubnetTAO query
         self._rate_limit()
 
-        # Get block hash for the specific block
-        block_hash = self.subtensor.substrate.get_block_hash(block_number)
-        if not block_hash:
-            bt.logging.warning(f"Could not get hash for block {block_number}")
-            return None
+        # Query TAO reserve
+        tao_reserve_query = self.subtensor.substrate.query(
+            module='SubtensorModule',
+            storage_function='SubnetTAO',
+            params=[self.netuid],
+            block_hash=block_hash
+        )
 
-        try:
-            # Rate limit before SubnetTAO query
-            self._rate_limit()
+        # Rate limit before SubnetAlphaIn query
+        self._rate_limit()
 
-            # Query TAO reserve
-            tao_reserve_query = self.subtensor.substrate.query(
-                module='SubtensorModule',
-                storage_function='SubnetTAO',
-                params=[self.netuid],
-                block_hash=block_hash
-            )
-
-            # Rate limit before SubnetAlphaIn query
-            self._rate_limit()
-
-            # Query Alpha reserve
-            alpha_reserve_query = self.subtensor.substrate.query(
-                module='SubtensorModule',
-                storage_function='SubnetAlphaIn',
-                params=[self.netuid],
-                block_hash=block_hash
-            )
-        except Exception as e:
-            # Only catch "storage function not found" errors (pre-dTAO blocks)
-            # Let all other exceptions propagate (fail fast)
-            raise
+        # Query Alpha reserve
+        alpha_reserve_query = self.subtensor.substrate.query(
+            module='SubtensorModule',
+            storage_function='SubnetAlphaIn',
+            params=[self.netuid],
+            block_hash=block_hash
+        )
 
         if tao_reserve_query is None or alpha_reserve_query is None:
-            bt.logging.debug(f"Pool reserve data not available at block {block_number}")
-            return None
+            raise ValueError(f"Pool reserve data not available at block {block_number}")
 
         # Extract values (stored in RAO)
         tao_reserve_rao = float(tao_reserve_query.value if hasattr(tao_reserve_query, 'value') else tao_reserve_query)
         alpha_reserve_rao = float(alpha_reserve_query.value if hasattr(alpha_reserve_query, 'value') else alpha_reserve_query)
 
         if alpha_reserve_rao == 0:
-            bt.logging.warning(f"Alpha reserve is zero at block {block_number}")
-            return None
+            raise ValueError(f"Alpha reserve is zero at block {block_number}")
 
         # Convert from RAO to tokens (both use 1e9 divisor)
         tao_in_pool = tao_reserve_rao / 1e9
@@ -592,6 +649,41 @@ class EmissionsLedgerManager:
         alpha_to_tao_rate = tao_in_pool / alpha_in_pool
 
         return alpha_to_tao_rate
+
+    def query_tao_to_usd_rate(self, block_number: int, block_timestamp_ms: int) -> float:
+        """
+        Query TAO/USD rate at a specific block using its timestamp.
+        Raises exception if price unavailable (fast fail).
+
+        Args:
+            block_number: Block number (for error messages)
+            block_timestamp_ms: Block timestamp in milliseconds (pre-extracted)
+
+        Returns:
+            TAO/USD price at the block
+
+        Raises:
+            ValueError: If price data unavailable
+        """
+        # Query price using actual block timestamp
+        price_source = self.live_price_fetcher.get_close_at_date(
+            TradePair.TAOUSD,
+            block_timestamp_ms
+        )
+
+        # Fast fail if price unavailable
+        if price_source is None or price_source.close is None:
+            raise ValueError(
+                f"Failed to fetch TAO/USD price for block {block_number} "
+                f"(timestamp: {TimeUtil.millis_to_formatted_date_str(block_timestamp_ms)})"
+            )
+
+        return price_source.close
+
+    def instantiate_non_pickleable_components(self):
+        if not self.live_price_fetcher:
+            secrets = ValiUtils.get_secrets(running_unit_tests=False)
+            self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
     def build_all_emissions_ledgers_optimized(
         self,
@@ -612,6 +704,8 @@ class EmissionsLedgerManager:
             start_time_ms: Optional start time in milliseconds (default: DEFAULT_START_TIME_OFFSET_DAYS ago)
             end_time_ms: Optional end time (default: current time)
         """
+
+        self.instantiate_non_pickleable_components()
         start_exec_time = time.time()
         bt.logging.info("Building emissions ledgers for all hotkeys (optimized mode)")
 
@@ -684,12 +778,14 @@ class EmissionsLedgerManager:
         # Initialize cumulative tracking - continue from existing ledgers if they exist
         hotkey_cumulative_alpha: Dict[str, float] = defaultdict(float)
         hotkey_cumulative_tao: Dict[str, float] = defaultdict(float)
+        hotkey_cumulative_usd: Dict[str, float] = defaultdict(float)
 
         # Get starting cumulative values from existing ledgers (for delta updates)
         for hotkey, ledger in self.emissions_ledgers.items():
             if ledger.checkpoints:
                 hotkey_cumulative_alpha[hotkey] = ledger.checkpoints[-1].cumulative_emissions
                 hotkey_cumulative_tao[hotkey] = ledger.checkpoints[-1].cumulative_emissions_tao
+                hotkey_cumulative_usd[hotkey] = ledger.checkpoints[-1].cumulative_emissions_usd
 
         # Generate list of 12-hour chunks
         current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
@@ -736,8 +832,8 @@ class EmissionsLedgerManager:
             if chunk_results:
                 # Use rate from first hotkey with emissions
                 first_result = next(iter(chunk_results.values()))
-                shared_rate_start = first_result[2]  # rate_start
-                shared_rate_end = first_result[3]    # rate_end
+                shared_rate_start = first_result[3]  # rate_start (index 3 in 5-tuple)
+                shared_rate_end = first_result[4]    # rate_end (index 4 in 5-tuple)
 
             # Single loop: create checkpoints for ALL hotkeys in all_hotkeys_seen
             # (includes both hotkeys with emissions and hotkeys without emissions)
@@ -745,7 +841,7 @@ class EmissionsLedgerManager:
                 # Check if this hotkey had emissions in this chunk
                 if hotkey in chunk_results:
                     # Hotkey has emissions - use data from chunk_results
-                    alpha_emissions, tao_emissions, rate_start, rate_end = chunk_results[hotkey]
+                    alpha_emissions, tao_emissions, usd_emissions, rate_start, rate_end = chunk_results[hotkey]
 
                     # Create ledger if this is a newly discovered hotkey
                     if hotkey not in self.emissions_ledgers:
@@ -753,6 +849,7 @@ class EmissionsLedgerManager:
 
                     hotkey_cumulative_alpha[hotkey] += alpha_emissions
                     hotkey_cumulative_tao[hotkey] += tao_emissions
+                    hotkey_cumulative_usd[hotkey] += usd_emissions
 
                     # Track if this hotkey had any emissions in this chunk
                     if alpha_emissions > 0:
@@ -766,6 +863,8 @@ class EmissionsLedgerManager:
                         cumulative_emissions=hotkey_cumulative_alpha[hotkey],
                         chunk_emissions_tao=tao_emissions,
                         cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
+                        chunk_emissions_usd=usd_emissions,
+                        cumulative_emissions_usd=hotkey_cumulative_usd[hotkey],
                         alpha_to_tao_rate_start=rate_start,
                         alpha_to_tao_rate_end=rate_end,
                         block_start=chunk_start_block,
@@ -780,6 +879,8 @@ class EmissionsLedgerManager:
                         cumulative_emissions=hotkey_cumulative_alpha[hotkey],
                         chunk_emissions_tao=0.0,
                         cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
+                        chunk_emissions_usd=0.0,
+                        cumulative_emissions_usd=hotkey_cumulative_usd[hotkey],
                         alpha_to_tao_rate_start=shared_rate_start,
                         alpha_to_tao_rate_end=shared_rate_end,
                         block_start=chunk_start_block,
@@ -880,7 +981,7 @@ class EmissionsLedgerManager:
         start_block: int,
         end_block: int,
         all_hotkeys_seen: Optional[set] = None,
-    ) -> Dict[str, tuple[float, float, Optional[float], Optional[float]]]:
+    ) -> Dict[str, tuple[float, float, float, Optional[float], Optional[float]]]:
         """
         Calculate emissions for ALL hotkeys between two blocks (OPTIMIZED).
 
@@ -896,7 +997,7 @@ class EmissionsLedgerManager:
             verbose: Enable detailed logging
 
         Returns:
-            Dictionary mapping hotkey to (alpha_emissions, tao_emissions, rate_start, rate_end)
+            Dictionary mapping hotkey to (alpha_emissions, tao_emissions, usd_emissions, rate_start, rate_end)
         """
         # Sample blocks at regular intervals
         sample_interval = int(3600 / self.SECONDS_PER_BLOCK)  # ~300 blocks per hour
@@ -907,22 +1008,34 @@ class EmissionsLedgerManager:
         # Initialize tracking for emissions
         hotkey_total_alpha = defaultdict(float)
         hotkey_total_tao = defaultdict(float)
+        hotkey_total_usd = defaultdict(float)
 
         rate_at_start = None
         rate_at_end = None
         previous_block = start_block
         previous_emissions_by_hotkey = {}
         previous_alpha_to_tao_rate = None
+        previous_tao_to_usd_rate = None
 
         for i, block in enumerate(sampled_blocks):
             # Rate limit before block hash query
             self._rate_limit()
 
-            # Query block hash ONCE
+            # Query block hash ONCE for this block
             block_hash = self.subtensor.substrate.get_block_hash(block)
             if not block_hash:
-                bt.logging.warning(f"Could not get hash for block {block}")
-                raise Exception(f"Block hash query failed for block {block}")
+                raise ValueError(f"Block hash query failed for block {block}")
+
+            # Rate limit before block data query
+            self._rate_limit()
+
+            # Query block data ONCE for this block (needed for timestamp extraction)
+            block_data = self.subtensor.substrate.get_block(block_hash=block_hash)
+            if not block_data:
+                raise ValueError(f"Block data query failed for block {block}")
+
+            # Extract timestamp from block data
+            block_timestamp_ms = self._extract_block_timestamp(block_data, block)
 
             # Query UID-to-hotkey mapping AT THIS BLOCK (rate limited inside method)
             current_uid_to_hotkey = self._get_uid_to_hotkey_at_block(block_hash)
@@ -948,19 +1061,17 @@ class EmissionsLedgerManager:
             else:
                 emissions_list = []
 
+            # Query alpha-to-TAO rate ONCE (shared by all hotkeys) - pass block_hash to avoid redundant query
+            alpha_to_tao_rate = self.query_alpha_to_tao_rate(block, block_hash=block_hash)
 
-            # Query alpha-to-TAO rate ONCE (shared by all hotkeys)
-            alpha_to_tao_rate = self.query_alpha_to_tao_rate(block)
+            # Query TAO-to-USD rate ONCE (shared by all hotkeys) - pass timestamp to avoid redundant query
+            tao_to_usd_rate = self.query_tao_to_usd_rate(block, block_timestamp_ms=block_timestamp_ms)
 
             # Track first and last rates
             if i == 0:
                 rate_at_start = alpha_to_tao_rate
             if i == len(sampled_blocks) - 1:
                 rate_at_end = alpha_to_tao_rate
-
-            # Fallback to previous rate if query fails
-            if alpha_to_tao_rate is None:
-                alpha_to_tao_rate = previous_alpha_to_tao_rate if previous_alpha_to_tao_rate is not None else 0.0
 
             # Process emissions for each UID -> hotkey (at this block)
             current_emissions_by_hotkey = defaultdict(float)
@@ -987,13 +1098,19 @@ class EmissionsLedgerManager:
                     hotkey_total_alpha[hotkey] += segment_emissions_alpha
 
                     # Convert to TAO using average conversion rate for this segment
-                    avg_conversion_rate = (previous_alpha_to_tao_rate + alpha_to_tao_rate) / 2
-                    segment_emissions_tao = segment_emissions_alpha * avg_conversion_rate
+                    avg_alpha_to_tao_rate = (previous_alpha_to_tao_rate + alpha_to_tao_rate) / 2
+                    segment_emissions_tao = segment_emissions_alpha * avg_alpha_to_tao_rate
                     hotkey_total_tao[hotkey] += segment_emissions_tao
+
+                    # Convert to USD using average TAO/USD rate for this segment
+                    avg_tao_to_usd_rate = (previous_tao_to_usd_rate + tao_to_usd_rate) / 2
+                    segment_emissions_usd = segment_emissions_tao * avg_tao_to_usd_rate
+                    hotkey_total_usd[hotkey] += segment_emissions_usd
 
             # Update state for next iteration
             previous_emissions_by_hotkey = current_emissions_by_hotkey
             previous_alpha_to_tao_rate = alpha_to_tao_rate
+            previous_tao_to_usd_rate = tao_to_usd_rate
             previous_block = block
 
         # Build result dictionary for ALL hotkeys seen
@@ -1002,6 +1119,7 @@ class EmissionsLedgerManager:
             results[hotkey] = (
                 hotkey_total_alpha.get(hotkey, 0.0),
                 hotkey_total_tao.get(hotkey, 0.0),
+                hotkey_total_usd.get(hotkey, 0.0),
                 rate_at_start,
                 rate_at_end
             )
@@ -1116,6 +1234,8 @@ class EmissionsLedgerManager:
                     cumulative_emissions=cp["cumulative_emissions"],
                     chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
                     cumulative_emissions_tao=cp.get("cumulative_emissions_tao", 0.0),
+                    chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
+                    cumulative_emissions_usd=cp.get("cumulative_emissions_usd", 0.0),
                     alpha_to_tao_rate_start=cp.get("alpha_to_tao_rate_start"),
                     alpha_to_tao_rate_end=cp.get("alpha_to_tao_rate_end"),
                     block_start=cp.get("block_start"),
@@ -1320,6 +1440,11 @@ class EmissionsLedgerManager:
         """Get cumulative TAO emissions for a hotkey."""
         ledger = self.get_ledger(hotkey)
         return ledger.get_cumulative_emissions_tao() if ledger else 0.0
+
+    def get_cumulative_emissions_usd(self, hotkey: str) -> float:
+        """Get cumulative USD emissions for a hotkey."""
+        ledger = self.get_ledger(hotkey)
+        return ledger.get_cumulative_emissions_usd() if ledger else 0.0
 
     def print_emissions_summary(self, hotkey: str):
         """Print formatted summary of emissions for a hotkey."""
