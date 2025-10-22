@@ -48,14 +48,14 @@ class PenaltyCheckpoint:
         risk_profile_penalty: float = 1.0,
         min_collateral_penalty: float = 1.0,
         risk_adjusted_performance_penalty: float = 1.0,
-        cumulative_penalty: float = 1.0
+        total_penalty: float = 1.0
     ):
         self.last_processed_ms = int(last_processed_ms)
         self.drawdown_penalty = float(drawdown_penalty)
         self.risk_profile_penalty = float(risk_profile_penalty)
         self.min_collateral_penalty = float(min_collateral_penalty)
         self.risk_adjusted_performance_penalty = float(risk_adjusted_performance_penalty)
-        self.cumulative_penalty = float(cumulative_penalty)
+        self.total_penalty = float(total_penalty)
 
     def __eq__(self, other):
         if not isinstance(other, PenaltyCheckpoint):
@@ -200,7 +200,7 @@ class PenaltyLedger:
 
                 # Calculate each penalty
                 penalties = {}
-                cumulative_penalty = 1.0
+                total_penalty = 1.0
 
                 for penalty_name, penalty_config in self.PENALTIES_CONFIG.items():
                     penalty_value = 1.0
@@ -245,7 +245,7 @@ class PenaltyLedger:
                         penalty_value = 1.0
 
                     penalties[penalty_name] = penalty_value
-                    cumulative_penalty *= penalty_value
+                    total_penalty *= penalty_value
 
                 # Create penalty checkpoint
                 penalty_checkpoint = PenaltyCheckpoint(
@@ -254,7 +254,7 @@ class PenaltyLedger:
                     risk_profile_penalty=penalties.get('risk_profile', 1.0),
                     min_collateral_penalty=penalties.get('min_collateral', 1.0),
                     risk_adjusted_performance_penalty=penalties.get('risk_adjusted_performance', 1.0),
-                    cumulative_penalty=cumulative_penalty
+                    total_penalty=total_penalty
                 )
 
                 miner_penalty_checkpoints.append(penalty_checkpoint)
