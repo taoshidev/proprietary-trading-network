@@ -1635,10 +1635,16 @@ if __name__ == "__main__":
     start_time = current_time - timedelta(days=args.start_time_offset_days)
     start_time_ms = int(start_time.timestamp() * 1000)
 
+    # Calculate end_time_ms with required lag (12 hours behind current time for data finality)
+    current_time_ms = int(time.time() * 1000)
+    end_time_ms = current_time_ms - EmissionsLedgerManager.DEFAULT_LAG_TIME_MS
+
     # ALWAYS build ALL ledgers using optimized method
     bt.logging.info("Building emissions ledgers for ALL hotkeys in subnet (optimized mode)")
+    bt.logging.info(f"Using {EmissionsLedgerManager.DEFAULT_LAG_TIME_MS / 1000 / 3600:.1f} hour lag time for data finality")
     emissions_ledger_manager.build_all_emissions_ledgers_optimized(
-        start_time_ms=start_time_ms
+        start_time_ms=start_time_ms,
+        end_time_ms=end_time_ms
     )
 
     if len(emissions_ledger_manager.emissions_ledgers) == 0:
