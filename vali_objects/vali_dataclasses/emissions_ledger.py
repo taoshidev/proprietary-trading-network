@@ -789,6 +789,19 @@ class EmissionsLedgerManager:
 
             bt.logging.info(f"Using default start date ({self.DEFAULT_START_TIME_OFFSET_DAYS} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
+        # Validate that start_time_ms doesn't conflict with existing data
+        checkpoint_info = self.get_checkpoint_info()
+        last_computed_chunk_end_ms = checkpoint_info["last_computed_chunk_end_ms"]
+
+        if last_computed_chunk_end_ms > 0:
+            assert start_time_ms >= last_computed_chunk_end_ms, (
+                f"start_time_ms must be >= last computed checkpoint end time. "
+                f"Existing data ends at: {TimeUtil.millis_to_formatted_date_str(last_computed_chunk_end_ms)} "
+                f"({last_computed_chunk_end_ms}), but requested start_time_ms is: "
+                f"{TimeUtil.millis_to_formatted_date_str(start_time_ms)} ({start_time_ms}). "
+                f"Caller must provide valid start time that continues from existing data."
+            )
+
         # Default end time is now
         if end_time_ms is None:
             end_time_ms = int(time.time() * 1000)
@@ -1714,14 +1727,24 @@ if __name__ == "__main__":
     # Initialize ledger manager
     emissions_ledger_manager = EmissionsLedgerManager(start_daemon=False)
 
-    # Calculate start_time_ms from start_time_offset_days argument
-    current_time = datetime.now(timezone.utc)
-    start_time = current_time - timedelta(days=args.start_time_offset_days)
-    start_time_ms = int(start_time.timestamp() * 1000)
-
     # Calculate end_time_ms with required lag (12 hours behind current time for data finality)
     current_time_ms = int(time.time() * 1000)
     end_time_ms = current_time_ms - EmissionsLedgerManager.DEFAULT_LAG_TIME_MS
+
+    # Determine start_time_ms based on existing data or default lookback
+    checkpoint_info = emissions_ledger_manager.get_checkpoint_info()
+    last_computed_chunk_end_ms = checkpoint_info["last_computed_chunk_end_ms"]
+
+    if last_computed_chunk_end_ms > 0:
+        # Resume from existing data
+        start_time_ms = last_computed_chunk_end_ms
+        bt.logging.info(f"Resuming from existing data at {TimeUtil.millis_to_formatted_date_str(last_computed_chunk_end_ms)}")
+    else:
+        # No existing data - use lookback period
+        current_time = datetime.now(timezone.utc)
+        start_time = current_time - timedelta(days=args.start_time_offset_days)
+        start_time_ms = int(start_time.timestamp() * 1000)
+        bt.logging.info(f"No existing data - starting from {args.start_time_offset_days} days ago")
 
     # ALWAYS build ALL ledgers using optimized method
     bt.logging.info("Building emissions ledgers for ALL hotkeys in subnet (optimized mode)")
