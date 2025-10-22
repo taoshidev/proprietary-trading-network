@@ -313,9 +313,9 @@ class LivePriceFetcher:
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    live_price_fetcher = LivePriceFetcher(secrets, disable_ws=False)
-    ans = live_price_fetcher.get_close_at_date(TradePair.USDJPY, 1733304060475)
-    print(ans)
+    live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
+    ans = live_price_fetcher.get_close_at_date(TradePair.TAOUSD, 1733304060475)
+    print('@@@@', ans, '@@@@@')
     time.sleep(100000)
 
     trade_pairs = [TradePair.BTCUSD, TradePair.ETHUSD, ]
