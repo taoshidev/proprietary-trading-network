@@ -567,7 +567,10 @@ class EmissionsLedgerManager:
         # Extract timestamp from extrinsics (Timestamp.set call)
         block_timestamp_ms = None
         if 'extrinsics' in block_data:
-            for extrinsic in block_data['extrinsics']:
+            for idx, extrinsic in enumerate(block_data['extrinsics']):
+                # Try multiple extraction approaches
+
+                # Approach 1: extrinsic.value['call'].value structure
                 if hasattr(extrinsic, 'value') and isinstance(extrinsic.value, dict):
                     call = extrinsic.value.get('call')
                     if call and hasattr(call, 'value') and isinstance(call.value, dict):
@@ -577,7 +580,43 @@ class EmissionsLedgerManager:
                                 block_timestamp_ms = int(call_args[0]['value'])
                                 break
 
+                # Approach 2: Direct extrinsic['call']['call_args'] structure
+                if isinstance(extrinsic, dict):
+                    call = extrinsic.get('call', {})
+                    if isinstance(call, dict):
+                        if call.get('call_module') == 'Timestamp' and call.get('call_function') == 'set':
+                            call_args = call.get('call_args', [])
+                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
+                                block_timestamp_ms = int(call_args[0]['value'])
+                                break
+                            # Try direct 'now' parameter
+                            if call_args and isinstance(call_args, dict) and 'now' in call_args:
+                                block_timestamp_ms = int(call_args['now'])
+                                break
+
+                # Approach 3: Look for 'method' instead of 'call'
+                if hasattr(extrinsic, 'value') and isinstance(extrinsic.value, dict):
+                    method = extrinsic.value.get('method')
+                    if method and hasattr(method, 'value') and isinstance(method.value, dict):
+                        if method.value.get('call_module') == 'Timestamp' and method.value.get('call_function') == 'set':
+                            call_args = method.value.get('call_args', [])
+                            if call_args and isinstance(call_args[0], dict) and 'value' in call_args[0]:
+                                block_timestamp_ms = int(call_args[0]['value'])
+                                break
+
         if block_timestamp_ms is None:
+            # Debug: Print structure of first extrinsic to help diagnose the issue
+            if 'extrinsics' in block_data and len(block_data['extrinsics']) > 0:
+                first_ext = block_data['extrinsics'][0]
+                bt.logging.error(
+                    f"Failed to extract timestamp from block {block_number}. "
+                    f"First extrinsic type: {type(first_ext)}, "
+                    f"has 'value': {hasattr(first_ext, 'value')}, "
+                    f"is dict: {isinstance(first_ext, dict)}, "
+                    f"keys: {list(first_ext.keys()) if isinstance(first_ext, dict) else 'N/A'}"
+                )
+                if hasattr(first_ext, 'value') and isinstance(first_ext.value, dict):
+                    bt.logging.error(f"Extrinsic value keys: {list(first_ext.value.keys())}")
             raise ValueError(f"Failed to extract timestamp from block {block_number}")
 
         return block_timestamp_ms
