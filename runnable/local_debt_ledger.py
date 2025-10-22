@@ -22,7 +22,7 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
-from vali_objects.vali_dataclasses.penelty_ledger import DebtLedger
+from vali_objects.vali_dataclasses.penalty_ledger import DebtLedger
 
 
 # ============================================================================
@@ -170,7 +170,7 @@ if __name__ == "__main__":
             drawdown_penalties = [cp.drawdown_penalty for cp in penalty_checkpoints]
             risk_profile_penalties = [cp.risk_profile_penalty for cp in penalty_checkpoints]
             min_collateral_penalties = [cp.min_collateral_penalty for cp in penalty_checkpoints]
-            cumulative_penalties = [cp.cumulative_penalty for cp in penalty_checkpoints]
+            cumulative_penalties = [cp.total_penalty for cp in penalty_checkpoints]
 
             # Get time range for title
             start_date = timestamps[0].strftime('%Y-%m-%d')

@@ -8,8 +8,12 @@ Emissions are tracked in 12-hour chunks aligned with UTC day:
 - Chunk 1: 00:00 UTC - 12:00 UTC
 - Chunk 2: 12:00 UTC - 00:00 UTC (next day)
 
-Each checkpoint stores both the emissions for that specific 12-hour chunk and
-the cumulative emissions up to that point.
+Each checkpoint stores:
+- Chunk emissions (alpha/TAO/USD) for that specific 12-hour period
+- Average alpha-to-TAO and TAO-to-USD conversion rates for the chunk
+- Number of blocks sampled in the chunk
+
+Cumulative values are calculated dynamically by summing across checkpoints.
 
 Architecture:
 - EmissionsCheckpoint: Data for a single 12-hour chunk
@@ -24,7 +28,7 @@ import json
 import os
 import shutil
 import signal
-import threading
+import multiprocessing
 from collections import defaultdict
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -51,26 +55,22 @@ class EmissionsCheckpoint:
         chunk_start_ms: Start timestamp of the 12-hour chunk (milliseconds)
         chunk_end_ms: End timestamp of the 12-hour chunk (milliseconds)
         chunk_emissions: Alpha tokens earned during this specific 12-hour chunk
-        cumulative_emissions: Total alpha tokens earned from registration up to end of this chunk
-        chunk_emissions_tao: Approximate TAO value of chunk emissions (using avg conversion rate)
-        cumulative_emissions_tao: Total approximate TAO value from registration up to end of this chunk
-        chunk_emissions_usd: USD value of chunk emissions (calculated block-by-block using TAO/USD rates)
-        cumulative_emissions_usd: Total USD value from registration up to end of this chunk
-        alpha_to_tao_rate_start: Alpha-to-TAO conversion rate at chunk start
-        alpha_to_tao_rate_end: Alpha-to-TAO conversion rate at chunk end
-        block_start: Block number at chunk start (for verification)
-        block_end: Block number at chunk end (for verification)
+        chunk_emissions_tao: TAO value of chunk emissions (using avg conversion rate)
+        chunk_emissions_usd: USD value of chunk emissions (using avg TAO/USD rate)
+        avg_alpha_to_tao_rate: Average alpha-to-TAO conversion rate across the chunk
+        avg_tao_to_usd_rate: Average TAO/USD price across the chunk
+        num_blocks: Number of blocks sampled in this chunk
+        block_start: Block number at chunk start (for reference)
+        block_end: Block number at chunk end (for reference)
     """
     chunk_start_ms: int
     chunk_end_ms: int
     chunk_emissions: float
-    cumulative_emissions: float
     chunk_emissions_tao: float = 0.0
-    cumulative_emissions_tao: float = 0.0
     chunk_emissions_usd: float = 0.0
-    cumulative_emissions_usd: float = 0.0
-    alpha_to_tao_rate_start: Optional[float] = None
-    alpha_to_tao_rate_end: Optional[float] = None
+    avg_alpha_to_tao_rate: Optional[float] = None
+    avg_tao_to_usd_rate: Optional[float] = None
+    num_blocks: int = 0
     block_start: Optional[int] = None
     block_end: Optional[int] = None
 
@@ -81,7 +81,6 @@ class EmissionsCheckpoint:
             self.chunk_start_ms == other.chunk_start_ms
             and self.chunk_end_ms == other.chunk_end_ms
             and abs(self.chunk_emissions - other.chunk_emissions) < 1e-9
-            and abs(self.cumulative_emissions - other.cumulative_emissions) < 1e-9
         )
 
     def __str__(self):
@@ -95,13 +94,11 @@ class EmissionsCheckpoint:
             'chunk_start_utc': datetime.fromtimestamp(self.chunk_start_ms / 1000, tz=timezone.utc).isoformat(),
             'chunk_end_utc': datetime.fromtimestamp(self.chunk_end_ms / 1000, tz=timezone.utc).isoformat(),
             'chunk_emissions': self.chunk_emissions,
-            'cumulative_emissions': self.cumulative_emissions,
             'chunk_emissions_tao': self.chunk_emissions_tao,
-            'cumulative_emissions_tao': self.cumulative_emissions_tao,
             'chunk_emissions_usd': self.chunk_emissions_usd,
-            'cumulative_emissions_usd': self.cumulative_emissions_usd,
-            'alpha_to_tao_rate_start': self.alpha_to_tao_rate_start,
-            'alpha_to_tao_rate_end': self.alpha_to_tao_rate_end,
+            'avg_alpha_to_tao_rate': self.avg_alpha_to_tao_rate,
+            'avg_tao_to_usd_rate': self.avg_tao_to_usd_rate,
+            'num_blocks': self.num_blocks,
             'block_start': self.block_start,
             'block_end': self.block_end,
         }
@@ -157,34 +154,34 @@ class EmissionsLedger:
         """
         Get total cumulative alpha emissions for this hotkey.
 
+        Calculates by summing chunk_emissions across all checkpoints.
+
         Returns:
             Total alpha emissions (float)
         """
-        if not self.checkpoints:
-            return 0.0
-        return self.checkpoints[-1].cumulative_emissions
+        return sum(cp.chunk_emissions for cp in self.checkpoints)
 
     def get_cumulative_emissions_tao(self) -> float:
         """
         Get total cumulative TAO emissions for this hotkey.
 
+        Calculates by summing chunk_emissions_tao across all checkpoints.
+
         Returns:
             Total TAO emissions (float)
         """
-        if not self.checkpoints:
-            return 0.0
-        return self.checkpoints[-1].cumulative_emissions_tao
+        return sum(cp.chunk_emissions_tao for cp in self.checkpoints)
 
     def get_cumulative_emissions_usd(self) -> float:
         """
         Get total cumulative USD emissions for this hotkey.
 
+        Calculates by summing chunk_emissions_usd across all checkpoints.
+
         Returns:
             Total USD emissions (float)
         """
-        if not self.checkpoints:
-            return 0.0
-        return self.checkpoints[-1].cumulative_emissions_usd
+        return sum(cp.chunk_emissions_usd for cp in self.checkpoints)
 
     def to_dict(self) -> dict:
         """
@@ -217,13 +214,15 @@ class EmissionsLedger:
         print(f"{'Chunk Start (UTC)':<25} {'Chunk End (UTC)':<25} {'Chunk Alpha':>15} {'Cumulative Alpha':>15}")
         print(f"{'-'*80}")
 
-        for checkpoint in self.checkpoints[:5]:
+        cumulative_alpha = 0.0
+        for i, checkpoint in enumerate(self.checkpoints[:5]):
+            cumulative_alpha += checkpoint.chunk_emissions
             start_dt = datetime.fromtimestamp(checkpoint.chunk_start_ms / 1000, tz=timezone.utc)
             end_dt = datetime.fromtimestamp(checkpoint.chunk_end_ms / 1000, tz=timezone.utc)
             print(f"{start_dt.strftime('%Y-%m-%d %H:%M:%S'):<25} "
                   f"{end_dt.strftime('%Y-%m-%d %H:%M:%S'):<25} "
                   f"{checkpoint.chunk_emissions:>15.6f} "
-                  f"{checkpoint.cumulative_emissions:>15.6f}")
+                  f"{cumulative_alpha:>15.6f}")
 
         if len(self.checkpoints) > 10:
             print(f"{'...':<25} {'...':<25} {'...':>15} {'...':>15}")
@@ -231,13 +230,16 @@ class EmissionsLedger:
             print(f"{'Chunk Start (UTC)':<25} {'Chunk End (UTC)':<25} {'Chunk Alpha':>15} {'Cumulative Alpha':>15}")
             print(f"{'-'*80}")
 
+            # Calculate cumulative up to the start of last 5 checkpoints
+            cumulative_alpha = sum(cp.chunk_emissions for cp in self.checkpoints[:-5])
             for checkpoint in self.checkpoints[-5:]:
+                cumulative_alpha += checkpoint.chunk_emissions
                 start_dt = datetime.fromtimestamp(checkpoint.chunk_start_ms / 1000, tz=timezone.utc)
                 end_dt = datetime.fromtimestamp(checkpoint.chunk_end_ms / 1000, tz=timezone.utc)
                 print(f"{start_dt.strftime('%Y-%m-%d %H:%M:%S'):<25} "
                       f"{end_dt.strftime('%Y-%m-%d %H:%M:%S'):<25} "
                       f"{checkpoint.chunk_emissions:>15.6f} "
-                      f"{checkpoint.cumulative_emissions:>15.6f}")
+                      f"{cumulative_alpha:>15.6f}")
 
         print(f"{'='*80}\n")
 
@@ -266,9 +268,18 @@ class EmissionsLedger:
         # Extract data for plotting
         chunk_starts = [datetime.fromtimestamp(cp.chunk_start_ms / 1000, tz=timezone.utc) for cp in self.checkpoints]
         chunk_emissions = [cp.chunk_emissions for cp in self.checkpoints]
-        cumulative_emissions = [cp.cumulative_emissions for cp in self.checkpoints]
         chunk_emissions_tao = [cp.chunk_emissions_tao for cp in self.checkpoints]
-        cumulative_emissions_tao = [cp.cumulative_emissions_tao for cp in self.checkpoints]
+
+        # Calculate cumulative values dynamically
+        cumulative_emissions = []
+        cumulative_emissions_tao = []
+        cumulative_alpha = 0.0
+        cumulative_tao = 0.0
+        for cp in self.checkpoints:
+            cumulative_alpha += cp.chunk_emissions
+            cumulative_tao += cp.chunk_emissions_tao
+            cumulative_emissions.append(cumulative_alpha)
+            cumulative_emissions_tao.append(cumulative_tao)
 
         # Create figure with 2 subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
@@ -406,15 +417,14 @@ class EmissionsLedgerManager:
         Initialize EmissionsLedger with blockchain connection.
 
         Args:
-            live_price_fetcher: LivePriceFetcher instance for querying TAO/USD prices (required)
-            network: Bittensor network name ("finney", "test", "local")
-            netuid: Subnet UID to query (default: 8 for mainnet PTN)
             archive_endpoint: archive node endpoint for historical queries.
+            netuid: Subnet UID to query (default: 8 for mainnet PTN)
             rate_limit_per_second: Maximum queries per second (default: 1.0 for official endpoints)
+            running_unit_tests: Whether this is being run in unit tests
             slack_webhook_url: Optional Slack webhook URL for failure notifications
-            start_daemon: If True, automatically start daemon thread running run_forever (default: False)
+            start_daemon: If True, automatically start daemon process running run_forever (default: False)
         """
-        self.live_price_fetcher = None
+        # Pickleable attributes
         self.archive_endpoint = archive_endpoint
         self.netuid = netuid
         self.rate_limit_per_second = rate_limit_per_second
@@ -424,36 +434,22 @@ class EmissionsLedgerManager:
         self.emissions_ledgers: Dict[str, EmissionsLedger] = {}
         # Daemon control
         self.running = False
-        self.daemon_thread: Optional[threading.Thread] = None
+        self.daemon_process: Optional[multiprocessing.Process] = None
         # Slack notifications
         self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
 
-        # Initialize subtensor connection
-        bt.logging.info(f"Connecting to endpoint: {archive_endpoint}, netuid: {netuid}")
-
-        # Use archive endpoint if provided, otherwise use default network
-
-        parser = argparse.ArgumentParser()
-        bt.subtensor.add_args(parser)
-        config = bt.config(parser, args=[])
-
-        # Override the chain endpoint
-        config.subtensor.chain_endpoint = archive_endpoint
-
-        # Clear network so it uses our custom endpoint
-        config.subtensor.network = None
-
-        self.subtensor = bt.subtensor(config=config)
-        bt.logging.info(f"Connected to: {self.subtensor.chain_endpoint}")
+        # Non-pickleable components (lazy-initialized when needed)
+        self.subtensor = None
+        self.live_price_fetcher = None
 
         if rate_limit_per_second < 10:
             bt.logging.warning(f"Rate limit set to {rate_limit_per_second} req/sec - queries will be slow")
         self.load_from_disk()
-        bt.logging.info("EmissionsLedgerManager initialized")
+        bt.logging.info("EmissionsLedgerManager initialized (non-pickleable components will be lazy-initialized)")
 
-        # Start daemon thread if requested
+        # Start daemon process if requested
         if start_daemon:
-            self._start_daemon_thread()
+            self._start_daemon_process()
 
     def _rate_limit(self):
         """
@@ -474,29 +470,29 @@ class EmissionsLedgerManager:
 
         self.last_query_time = time.time()
 
-    def _start_daemon_thread(
+    def _start_daemon_process(
         self,
         check_interval_seconds: Optional[int] = None,
         lag_time_ms: Optional[int] = None
     ):
         """
-        Start a daemon thread running run_forever.
+        Start a daemon process running run_forever.
 
-        The thread is marked as a daemon so it will automatically terminate
+        The process is marked as a daemon so it will automatically terminate
         when the main program exits.
 
         Args:
             check_interval_seconds: How often to check for new chunks (default: 3600s = 1 hour)
             lag_time_ms: How far behind current time to stay (default: 12 hours)
         """
-        if self.daemon_thread is not None and self.daemon_thread.is_alive():
-            bt.logging.warning("Daemon thread already running")
+        if self.daemon_process is not None and self.daemon_process.is_alive():
+            bt.logging.warning("Daemon process already running")
             return
 
-        bt.logging.info("Starting emissions ledger daemon thread")
+        bt.logging.info("Starting emissions ledger daemon process")
 
-        # Create daemon thread
-        self.daemon_thread = threading.Thread(
+        # Create daemon process
+        self.daemon_process = multiprocessing.Process(
             target=self.run_forever,
             kwargs={
                 'check_interval_seconds': check_interval_seconds,
@@ -506,10 +502,10 @@ class EmissionsLedgerManager:
             name="EmissionsLedgerDaemon"
         )
 
-        # Start the thread
-        self.daemon_thread.start()
+        # Start the process
+        self.daemon_process.start()
 
-        bt.logging.info(f"Daemon thread started (Thread ID: {self.daemon_thread.ident})")
+        bt.logging.info(f"Daemon process started (Process ID: {self.daemon_process.pid})")
 
     @staticmethod
     def get_chunk_boundaries(timestamp_ms: int) -> tuple[int, int]:
@@ -635,6 +631,9 @@ class EmissionsLedgerManager:
         Raises:
             ValueError: If block hash, pool data, or conversion rate unavailable
         """
+        # Ensure subtensor is initialized
+        self.instantiate_non_pickleable_components()
+
         # Get block hash if not provided
         if block_hash is None:
             # Rate limit before block hash query
@@ -716,8 +715,33 @@ class EmissionsLedgerManager:
         return price_source.close
 
     def instantiate_non_pickleable_components(self):
-        if not self.live_price_fetcher:
-            secrets = ValiUtils.get_secrets(running_unit_tests=False)
+        """
+        Lazy-initialize non-pickleable components (subtensor, live_price_fetcher).
+
+        This is called automatically when needed, allowing the manager to be pickled
+        for multiprocessing without serialization errors.
+        """
+        # Initialize subtensor if not already initialized
+        if self.subtensor is None:
+            bt.logging.info(f"Initializing subtensor connection to {self.archive_endpoint}, netuid: {self.netuid}")
+
+            parser = argparse.ArgumentParser()
+            bt.subtensor.add_args(parser)
+            config = bt.config(parser, args=[])
+
+            # Override the chain endpoint
+            config.subtensor.chain_endpoint = self.archive_endpoint
+
+            # Clear network so it uses our custom endpoint
+            config.subtensor.network = None
+
+            self.subtensor = bt.subtensor(config=config)
+            bt.logging.info(f"Connected to: {self.subtensor.chain_endpoint}")
+
+        # Initialize live price fetcher if not already initialized
+        if self.live_price_fetcher is None:
+            bt.logging.info("Initializing live price fetcher")
+            secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
             self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
     def build_all_emissions_ledgers_optimized(
@@ -810,17 +834,7 @@ class EmissionsLedgerManager:
                 f"End time: {end_date}"
             )
 
-        # Initialize cumulative tracking - continue from existing ledgers if they exist
-        hotkey_cumulative_alpha: Dict[str, float] = defaultdict(float)
-        hotkey_cumulative_tao: Dict[str, float] = defaultdict(float)
-        hotkey_cumulative_usd: Dict[str, float] = defaultdict(float)
-
-        # Get starting cumulative values from existing ledgers (for delta updates)
-        for hotkey, ledger in self.emissions_ledgers.items():
-            if ledger.checkpoints:
-                hotkey_cumulative_alpha[hotkey] = ledger.checkpoints[-1].cumulative_emissions
-                hotkey_cumulative_tao[hotkey] = ledger.checkpoints[-1].cumulative_emissions_tao
-                hotkey_cumulative_usd[hotkey] = ledger.checkpoints[-1].cumulative_emissions_usd
+        # No cumulative tracking needed - each checkpoint stores only chunk data
 
         # Generate list of 12-hour chunks
         current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
@@ -861,14 +875,16 @@ class EmissionsLedgerManager:
             # Track hotkeys with activity in this chunk
             hotkeys_active_in_chunk = set()
 
-            # Get shared rate values for zero-emission checkpoints (from any hotkey with emissions)
-            shared_rate_start = None
-            shared_rate_end = None
+            # Get shared rate values and num_blocks for zero-emission checkpoints (from any hotkey with emissions)
+            shared_avg_alpha_to_tao_rate = None
+            shared_avg_tao_to_usd_rate = None
+            shared_num_blocks = 0
             if chunk_results:
-                # Use rate from first hotkey with emissions
+                # Use rates from first hotkey with emissions (rates are same for all hotkeys)
                 first_result = next(iter(chunk_results.values()))
-                shared_rate_start = first_result[3]  # rate_start (index 3 in 5-tuple)
-                shared_rate_end = first_result[4]    # rate_end (index 4 in 5-tuple)
+                shared_avg_alpha_to_tao_rate = first_result[3]  # avg_alpha_to_tao_rate (index 3 in 6-tuple)
+                shared_avg_tao_to_usd_rate = first_result[4]     # avg_tao_to_usd_rate (index 4 in 6-tuple)
+                shared_num_blocks = first_result[5]              # num_blocks (index 5 in 6-tuple)
 
             # Single loop: create checkpoints for ALL hotkeys in all_hotkeys_seen
             # (includes both hotkeys with emissions and hotkeys without emissions)
@@ -876,15 +892,11 @@ class EmissionsLedgerManager:
                 # Check if this hotkey had emissions in this chunk
                 if hotkey in chunk_results:
                     # Hotkey has emissions - use data from chunk_results
-                    alpha_emissions, tao_emissions, usd_emissions, rate_start, rate_end = chunk_results[hotkey]
+                    alpha_emissions, tao_emissions, usd_emissions, avg_alpha_to_tao_rate, avg_tao_to_usd_rate, num_blocks = chunk_results[hotkey]
 
                     # Create ledger if this is a newly discovered hotkey
                     if hotkey not in self.emissions_ledgers:
                         self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
-
-                    hotkey_cumulative_alpha[hotkey] += alpha_emissions
-                    hotkey_cumulative_tao[hotkey] += tao_emissions
-                    hotkey_cumulative_usd[hotkey] += usd_emissions
 
                     # Track if this hotkey had any emissions in this chunk
                     if alpha_emissions > 0:
@@ -895,13 +907,11 @@ class EmissionsLedgerManager:
                         chunk_start_ms=current_chunk_start_ms,
                         chunk_end_ms=current_chunk_end_ms,
                         chunk_emissions=alpha_emissions,
-                        cumulative_emissions=hotkey_cumulative_alpha[hotkey],
                         chunk_emissions_tao=tao_emissions,
-                        cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
                         chunk_emissions_usd=usd_emissions,
-                        cumulative_emissions_usd=hotkey_cumulative_usd[hotkey],
-                        alpha_to_tao_rate_start=rate_start,
-                        alpha_to_tao_rate_end=rate_end,
+                        avg_alpha_to_tao_rate=avg_alpha_to_tao_rate,
+                        avg_tao_to_usd_rate=avg_tao_to_usd_rate,
+                        num_blocks=num_blocks,
                         block_start=chunk_start_block,
                         block_end=chunk_end_block
                     )
@@ -911,13 +921,11 @@ class EmissionsLedgerManager:
                         chunk_start_ms=current_chunk_start_ms,
                         chunk_end_ms=current_chunk_end_ms,
                         chunk_emissions=0.0,
-                        cumulative_emissions=hotkey_cumulative_alpha[hotkey],
                         chunk_emissions_tao=0.0,
-                        cumulative_emissions_tao=hotkey_cumulative_tao[hotkey],
                         chunk_emissions_usd=0.0,
-                        cumulative_emissions_usd=hotkey_cumulative_usd[hotkey],
-                        alpha_to_tao_rate_start=shared_rate_start,
-                        alpha_to_tao_rate_end=shared_rate_end,
+                        avg_alpha_to_tao_rate=shared_avg_alpha_to_tao_rate,
+                        avg_tao_to_usd_rate=shared_avg_tao_to_usd_rate,
+                        num_blocks=shared_num_blocks,
                         block_start=chunk_start_block,
                         block_end=chunk_end_block
                     )
@@ -970,6 +978,9 @@ class EmissionsLedgerManager:
         Returns:
             Dictionary mapping UID to hotkey at that block
         """
+        # Ensure subtensor is initialized
+        self.instantiate_non_pickleable_components()
+
         # Rate limit before query_map
         self._rate_limit()
 
@@ -1016,7 +1027,7 @@ class EmissionsLedgerManager:
         start_block: int,
         end_block: int,
         all_hotkeys_seen: Optional[set] = None,
-    ) -> Dict[str, tuple[float, float, float, Optional[float], Optional[float]]]:
+    ) -> Dict[str, tuple[float, float, float, Optional[float], Optional[float], int]]:
         """
         Calculate emissions for ALL hotkeys between two blocks (OPTIMIZED).
 
@@ -1029,10 +1040,11 @@ class EmissionsLedgerManager:
         Args:
             start_block: Starting block (inclusive)
             end_block: Ending block (inclusive)
-            verbose: Enable detailed logging
+            all_hotkeys_seen: Set to track all hotkeys encountered
 
         Returns:
-            Dictionary mapping hotkey to (alpha_emissions, tao_emissions, usd_emissions, rate_start, rate_end)
+            Dictionary mapping hotkey to (alpha_emissions, tao_emissions, usd_emissions,
+                                         avg_alpha_to_tao_rate, avg_tao_to_usd_rate, num_blocks)
         """
         # Sample blocks at regular intervals
         sample_interval = int(3600 / self.SECONDS_PER_BLOCK)  # ~300 blocks per hour
@@ -1045,8 +1057,11 @@ class EmissionsLedgerManager:
         hotkey_total_tao = defaultdict(float)
         hotkey_total_usd = defaultdict(float)
 
-        rate_at_start = None
-        rate_at_end = None
+        # Track sums for averaging (instead of start/end rates)
+        sum_alpha_to_tao_rate = 0.0
+        sum_tao_to_usd_rate = 0.0
+        num_blocks_sampled = 0
+
         previous_block = start_block
         previous_emissions_by_hotkey = {}
         previous_alpha_to_tao_rate = None
@@ -1102,11 +1117,10 @@ class EmissionsLedgerManager:
             # Query TAO-to-USD rate ONCE (shared by all hotkeys) - pass timestamp to avoid redundant query
             tao_to_usd_rate = self.query_tao_to_usd_rate(block, block_timestamp_ms=block_timestamp_ms)
 
-            # Track first and last rates
-            if i == 0:
-                rate_at_start = alpha_to_tao_rate
-            if i == len(sampled_blocks) - 1:
-                rate_at_end = alpha_to_tao_rate
+            # Accumulate rates for averaging
+            sum_alpha_to_tao_rate += alpha_to_tao_rate
+            sum_tao_to_usd_rate += tao_to_usd_rate
+            num_blocks_sampled += 1
 
             # Process emissions for each UID -> hotkey (at this block)
             current_emissions_by_hotkey = defaultdict(float)
@@ -1148,6 +1162,10 @@ class EmissionsLedgerManager:
             previous_tao_to_usd_rate = tao_to_usd_rate
             previous_block = block
 
+        # Calculate average rates
+        avg_alpha_to_tao_rate = sum_alpha_to_tao_rate / num_blocks_sampled if num_blocks_sampled > 0 else None
+        avg_tao_to_usd_rate = sum_tao_to_usd_rate / num_blocks_sampled if num_blocks_sampled > 0 else None
+
         # Build result dictionary for ALL hotkeys seen
         results = {}
         for hotkey in all_hotkeys_seen:
@@ -1155,8 +1173,9 @@ class EmissionsLedgerManager:
                 hotkey_total_alpha.get(hotkey, 0.0),
                 hotkey_total_tao.get(hotkey, 0.0),
                 hotkey_total_usd.get(hotkey, 0.0),
-                rate_at_start,
-                rate_at_end
+                avg_alpha_to_tao_rate,
+                avg_tao_to_usd_rate,
+                num_blocks_sampled
             )
 
         return results
@@ -1261,23 +1280,53 @@ class EmissionsLedgerManager:
 
         # Reconstruct ledgers
         for hotkey, ledger_dict in data.get("ledgers", {}).items():
-            checkpoints = [
-                EmissionsCheckpoint(
-                    chunk_start_ms=cp["chunk_start_ms"],
-                    chunk_end_ms=cp["chunk_end_ms"],
-                    chunk_emissions=cp["chunk_emissions"],
-                    cumulative_emissions=cp["cumulative_emissions"],
-                    chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
-                    cumulative_emissions_tao=cp.get("cumulative_emissions_tao", 0.0),
-                    chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
-                    cumulative_emissions_usd=cp.get("cumulative_emissions_usd", 0.0),
-                    alpha_to_tao_rate_start=cp.get("alpha_to_tao_rate_start"),
-                    alpha_to_tao_rate_end=cp.get("alpha_to_tao_rate_end"),
-                    block_start=cp.get("block_start"),
-                    block_end=cp.get("block_end")
-                )
-                for cp in ledger_dict.get("checkpoints", [])
-            ]
+            checkpoints = []
+            for cp in ledger_dict.get("checkpoints", []):
+                # Handle both old format (with cumulative fields) and new format (without cumulative fields)
+                # New format has avg_alpha_to_tao_rate, avg_tao_to_usd_rate, num_blocks
+                # Old format has alpha_to_tao_rate_start, alpha_to_tao_rate_end, cumulative_emissions
+
+                if "avg_alpha_to_tao_rate" in cp:
+                    # New format - use directly
+                    checkpoint = EmissionsCheckpoint(
+                        chunk_start_ms=cp["chunk_start_ms"],
+                        chunk_end_ms=cp["chunk_end_ms"],
+                        chunk_emissions=cp["chunk_emissions"],
+                        chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
+                        chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
+                        avg_alpha_to_tao_rate=cp.get("avg_alpha_to_tao_rate"),
+                        avg_tao_to_usd_rate=cp.get("avg_tao_to_usd_rate"),
+                        num_blocks=cp.get("num_blocks", 0),
+                        block_start=cp.get("block_start"),
+                        block_end=cp.get("block_end")
+                    )
+                else:
+                    # Old format - convert start/end rates to average
+                    rate_start = cp.get("alpha_to_tao_rate_start")
+                    rate_end = cp.get("alpha_to_tao_rate_end")
+                    avg_rate = None
+                    if rate_start is not None and rate_end is not None:
+                        avg_rate = (rate_start + rate_end) / 2.0
+                    elif rate_start is not None:
+                        avg_rate = rate_start
+                    elif rate_end is not None:
+                        avg_rate = rate_end
+
+                    checkpoint = EmissionsCheckpoint(
+                        chunk_start_ms=cp["chunk_start_ms"],
+                        chunk_end_ms=cp["chunk_end_ms"],
+                        chunk_emissions=cp["chunk_emissions"],
+                        chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
+                        chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
+                        avg_alpha_to_tao_rate=avg_rate,
+                        avg_tao_to_usd_rate=None,  # Old format didn't have this
+                        num_blocks=0,  # Old format didn't track this
+                        block_start=cp.get("block_start"),
+                        block_end=cp.get("block_end")
+                    )
+
+                checkpoints.append(checkpoint)
+
             self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey=hotkey, checkpoints=checkpoints)
 
         bt.logging.info(
