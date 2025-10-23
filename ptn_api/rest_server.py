@@ -296,7 +296,7 @@ class PTNRestServer(APIKeyMixin):
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
                  port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
                  miner_statistics_manager=None, request_core_manager=None,
-                 asset_selection_manager=None):
+                 asset_selection_manager=None, debt_ledger_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -320,6 +320,7 @@ class PTNRestServer(APIKeyMixin):
         self.request_core_manager = request_core_manager
         self.nonce_manager = NonceManager()
         self.asset_selection_manager = asset_selection_manager
+        self.debt_ledger_manager = debt_ledger_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -539,6 +540,22 @@ class PTNRestServer(APIKeyMixin):
                 return jsonify({'error': 'No miner hotkeys found'}), 404
             else:
                 return jsonify(miner_hotkeys)
+
+        @self.app.route("/emissions-ledger/<minerid>", methods=["GET"])
+        def get_emissions_ledger(minerid):
+            api_key = self._get_api_key_safe()
+
+            # Check if the API key is valid
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+
+            emissions_ledger_manager = self.debt_ledger_manager.emissions_ledger_manager
+            data = emissions_ledger_manager.get_ledger(minerid)
+
+            if data is None:
+                return jsonify({'error': 'Emissions ledger data not found'}), 404
+            else:
+                return self._jsonify_with_custom_encoder(data)
 
         @self.app.route("/validator-checkpoint", methods=["GET"])
         def get_validator_checkpoint():

@@ -11,7 +11,9 @@ from ptn_api.slack_notifier import SlackNotifier
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 
-def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None, contract_manager=None, miner_statistics_manager=None, request_core_manager=None, asset_selection_manager=None):
+def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interval=15, position_manager=None,
+                      contract_manager=None, miner_statistics_manager=None, request_core_manager=None,
+                      asset_selection_manager=None, debt_ledger_manager=None):
     """Starts the REST API server in a separate process."""
     try:
 
@@ -31,7 +33,8 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
             contract_manager=contract_manager,
             miner_statistics_manager=miner_statistics_manager,
             request_core_manager=request_core_manager,
-            asset_selection_manager=asset_selection_manager
+            asset_selection_manager=asset_selection_manager,
+            debt_ledger_manager=debt_ledger_manager
         )
         rest_server.run()
     except Exception as e:
@@ -75,7 +78,7 @@ class APIManager:
                  ws_host="localhost", ws_port=8765,
                  position_manager=None, contract_manager=None,
                  miner_statistics_manager=None, request_core_manager=None,
-                 asset_selection_manager=None, slack_webhook_url=None):
+                 asset_selection_manager=None, slack_webhook_url=None, debt_ledger_manager=None):
         """Initialize API management with shared queue and server configurations.
 
         Args:
@@ -105,6 +108,7 @@ class APIManager:
         self.miner_statistics_manager = miner_statistics_manager
         self.request_core_manager = request_core_manager
         self.asset_selection_manager = asset_selection_manager
+        self.debt_ledger_manager = debt_ledger_manager
 
         # Initialize Slack notifier
         self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
@@ -188,7 +192,9 @@ class APIManager:
         # Start REST server process with host/port configuration
         rest_process = Process(
             target=start_rest_server,
-            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager, self.contract_manager, self.miner_statistics_manager, self.request_core_manager, self.asset_selection_manager),
+            args=(self.shared_queue, self.rest_host, self.rest_port, self.refresh_interval, self.position_manager,
+                  self.contract_manager, self.miner_statistics_manager, self.request_core_manager,
+                  self.asset_selection_manager, self.debt_ledger_manager),
             name="RestServer"
         )
         rest_process.start()

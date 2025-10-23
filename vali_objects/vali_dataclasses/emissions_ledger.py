@@ -412,6 +412,7 @@ class EmissionsLedgerManager:
         running_unit_tests: bool = False,
         slack_webhook_url: Optional[str] = None,
         start_daemon: bool = False,
+        ipc_manager = None
     ):
         """
         Initialize EmissionsLedger with blockchain connection.
@@ -431,7 +432,7 @@ class EmissionsLedgerManager:
         self.last_query_time = 0.0
         self.running_unit_tests = running_unit_tests
         # In-memory ledgers
-        self.emissions_ledgers: Dict[str, EmissionsLedger] = {}
+        self.emissions_ledgers: Dict[str, EmissionsLedger] = ipc_manager.dict() if ipc_manager else {}
         # Daemon control
         self.running = False
         self.daemon_process: Optional[multiprocessing.Process] = None
@@ -882,6 +883,45 @@ class EmissionsLedgerManager:
             chunk_start_block = start_block + int(seconds_from_chunk_start / self.SECONDS_PER_BLOCK)
             chunk_end_block = start_block + int(seconds_from_chunk_end / self.SECONDS_PER_BLOCK)
 
+            # SAFETY CHECK: Verify block continuity from previous checkpoint (if exists)
+            # Block times vary (typically 11-13 seconds), so allow tolerance for drift
+            if chunk_count > 1 and self.emissions_ledgers:
+                # Get last block from any ledger's previous checkpoint (all should be synchronized)
+                sample_ledger = next(iter(self.emissions_ledgers.values()))
+                if sample_ledger.checkpoints:
+                    previous_block_end = sample_ledger.checkpoints[-1].block_end
+
+                    # Enforce that block_end is never None in checkpoints
+                    assert previous_block_end is not None, (
+                        f"Previous checkpoint has block_end=None! This should never happen. "
+                        f"Hotkey: {sample_ledger.hotkey}, checkpoint index: {len(sample_ledger.checkpoints) - 1}"
+                    )
+
+                    expected_start_block = previous_block_end + 1
+
+                    # Calculate tolerance based on chunk duration and block time variance
+                    # If blocks vary ±1s from 12s average, over a 12-hour chunk (~3600 blocks)
+                    # we could see drift of ~300 blocks (3600 * 1s / 12s)
+                    # Use 500 blocks as conservative tolerance
+                    max_tolerance_blocks = 500
+
+                    block_gap = abs(chunk_start_block - expected_start_block)
+                    assert block_gap <= max_tolerance_blocks, (
+                        f"Block continuity check failed! "
+                        f"Expected chunk to start near block {expected_start_block}, "
+                        f"but calculated start block is {chunk_start_block} "
+                        f"(gap: {block_gap} blocks, tolerance: {max_tolerance_blocks} blocks). "
+                        f"This indicates inconsistent block time estimation or time boundary misalignment."
+                    )
+
+                    # Log warning if gap is significant but within tolerance
+                    if block_gap > 50:
+                        bt.logging.warning(
+                            f"Block gap detected: previous chunk ended at block {previous_block_end}, "
+                            f"new chunk starts at block {chunk_start_block} "
+                            f"(gap: {block_gap} blocks, expected: {expected_start_block})"
+                        )
+
             blocks_in_chunk = chunk_end_block - chunk_start_block + 1
 
             # Calculate emissions for ALL hotkeys in this chunk (optimized)
@@ -953,8 +993,12 @@ class EmissionsLedgerManager:
                         block_end=chunk_end_block
                     )
 
-                # Append checkpoint to ledger (in-place)
-                self.emissions_ledgers[hotkey].add_checkpoint(checkpoint)
+                # Append checkpoint to ledger
+                # IMPORTANT: For IPC-managed dicts, we must retrieve, mutate, and reassign
+                # to propagate changes (managed dicts don't track nested mutations)
+                ledger = self.emissions_ledgers[hotkey]
+                ledger.add_checkpoint(checkpoint)
+                self.emissions_ledgers[hotkey] = ledger  # Reassign to trigger IPC update
 
             # Calculate chunk processing time
             chunk_elapsed = time.time() - chunk_start_time
@@ -1305,48 +1349,18 @@ class EmissionsLedgerManager:
         for hotkey, ledger_dict in data.get("ledgers", {}).items():
             checkpoints = []
             for cp in ledger_dict.get("checkpoints", []):
-                # Handle both old format (with cumulative fields) and new format (without cumulative fields)
-                # New format has avg_alpha_to_tao_rate, avg_tao_to_usd_rate, num_blocks
-                # Old format has alpha_to_tao_rate_start, alpha_to_tao_rate_end, cumulative_emissions
-
-                if "avg_alpha_to_tao_rate" in cp:
-                    # New format - use directly
-                    checkpoint = EmissionsCheckpoint(
-                        chunk_start_ms=cp["chunk_start_ms"],
-                        chunk_end_ms=cp["chunk_end_ms"],
-                        chunk_emissions=cp["chunk_emissions"],
-                        chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
-                        chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
-                        avg_alpha_to_tao_rate=cp.get("avg_alpha_to_tao_rate"),
-                        avg_tao_to_usd_rate=cp.get("avg_tao_to_usd_rate"),
-                        num_blocks=cp.get("num_blocks", 0),
-                        block_start=cp.get("block_start"),
-                        block_end=cp.get("block_end")
-                    )
-                else:
-                    # Old format - convert start/end rates to average
-                    rate_start = cp.get("alpha_to_tao_rate_start")
-                    rate_end = cp.get("alpha_to_tao_rate_end")
-                    avg_rate = None
-                    if rate_start is not None and rate_end is not None:
-                        avg_rate = (rate_start + rate_end) / 2.0
-                    elif rate_start is not None:
-                        avg_rate = rate_start
-                    elif rate_end is not None:
-                        avg_rate = rate_end
-
-                    checkpoint = EmissionsCheckpoint(
-                        chunk_start_ms=cp["chunk_start_ms"],
-                        chunk_end_ms=cp["chunk_end_ms"],
-                        chunk_emissions=cp["chunk_emissions"],
-                        chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
-                        chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
-                        avg_alpha_to_tao_rate=avg_rate,
-                        avg_tao_to_usd_rate=None,  # Old format didn't have this
-                        num_blocks=0,  # Old format didn't track this
-                        block_start=cp.get("block_start"),
-                        block_end=cp.get("block_end")
-                    )
+                checkpoint = EmissionsCheckpoint(
+                    chunk_start_ms=cp["chunk_start_ms"],
+                    chunk_end_ms=cp["chunk_end_ms"],
+                    chunk_emissions=cp["chunk_emissions"],
+                    chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
+                    chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
+                    avg_alpha_to_tao_rate=cp.get("avg_alpha_to_tao_rate"),
+                    avg_tao_to_usd_rate=cp.get("avg_tao_to_usd_rate"),
+                    num_blocks=cp.get("num_blocks", 0),
+                    block_start=cp.get("block_start"),
+                    block_end=cp.get("block_end")
+                )
 
                 checkpoints.append(checkpoint)
 
