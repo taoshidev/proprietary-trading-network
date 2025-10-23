@@ -53,6 +53,7 @@ class BaseDataService():
         self.n_equity_events_skipped_afterhours = 0
         self.trade_pair_to_price_history = defaultdict(list)
         self.closed_market_prices = {tp: None for tp in TradePair}
+        self.closed_market_prices_timestamp_ms = {tp: 0 for tp in TradePair}
         self.latest_websocket_events = {}
         self.using_ipc = ipc_manager is not None
         self.n_flushes = 0
@@ -75,6 +76,8 @@ class BaseDataService():
         self.restart_backoff = {}
         self.last_restart_time = {}
         self.tpc_to_last_event_time = {t: 0 for t in self.enabled_websocket_categories}
+
+        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI, TradePair.TAOUSD)
 
         for trade_pair in TradePair:
             assert trade_pair.trade_pair_category in self.trade_pair_category_to_longest_allowed_lag_s, \

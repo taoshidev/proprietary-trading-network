@@ -2,10 +2,13 @@
 import numpy as np
 import pandas as pd
 
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePairCategory
 from vali_objects.position import Position
 from vali_objects.utils.functional_utils import FunctionalUtils
 from vali_objects.utils.risk_profiling import RiskProfiling
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
+from vali_objects.utils.metrics import Metrics
+from vali_objects.utils.ledger_utils import LedgerUtils
 
 
 class PositionPenalties:
@@ -158,3 +161,74 @@ class PositionPenalties:
             "position_times": position_times,
             "steps": steps
         }
+
+    @staticmethod
+    def risk_adjusted_performance_penalty(
+        ledger: PerfLedger,
+        asset_class: TradePairCategory
+    ) -> float:
+        """
+        Calculate risk-adjusted performance penalty from a ledger.
+
+        Penalty is based on average of 4 risk-adjusted metrics (sharpe, sortino, calmar, omega).
+        Uses a sigmoid function to map performance ratio to penalty range [0.2, 1.0].
+
+        Args:
+            ledger: Performance ledger containing returns
+            asset_class: TradePairCategory (CRYPTO or FOREX) to determine which RAT to use
+
+        Returns:
+            float: Penalty value in range [0.2, 1.0]
+        """
+        if not ledger or not ledger.cps:
+            return 1.0
+
+        log_returns = LedgerUtils.daily_return_log(ledger)
+
+        if asset_class == TradePairCategory.FOREX:
+            rat_thresholds = ValiConfig.FOREX_RAT
+        elif asset_class == TradePairCategory.CRYPTO:
+            rat_thresholds = ValiConfig.CRYPTO_RAT
+        else:
+            raise Exception(f"No risk adjusted performance threshold for {asset_class}")
+
+        days_in_year = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["days_in_year"]
+
+        # Calculate average RAT
+        avg_rat = sum(rat_thresholds.values()) / len(rat_thresholds)
+        max_metric_value = ValiConfig.RISK_ADJUSTED_MAX_METRIC_VALUE
+
+        metric_functions = {
+            'calmar': Metrics.calmar,
+            'sharpe': Metrics.sharpe,
+            'omega': Metrics.omega,
+            'sortino': Metrics.sortino,
+        }
+
+        # Calculate all four metrics
+        metrics = {}
+        ras = 0
+        for metric_name, metric_function in metric_functions.items():
+            score = metric_function(
+                log_returns=log_returns,
+                ledger=ledger,
+                # weighting=True, # discuss scoring weighting
+                days_in_year=days_in_year
+            )
+            score = min(score, max_metric_value)
+            metrics[metric_name] = score
+            ras += 0.25 * score
+
+        # Calculate performance ratio
+        performance_ratio = ras / avg_rat
+
+        # Apply sigmoid to map PR to penalty range [0.2, 1.0]
+        sigmoid_value = FunctionalUtils.sigmoid(
+            performance_ratio,
+            shift=ValiConfig.RISK_ADJUSTED_SIGMOID_SHIFT,
+            spread=ValiConfig.RISK_ADJUSTED_SIGMOID_SPREAD
+        )
+        penalty_min = ValiConfig.RISK_ADJUSTED_PERFORMANCE_PENALTY_MIN
+        penalty = penalty_min + (1 - penalty_min) * sigmoid_value
+
+        return float(np.clip(penalty, penalty_min, 1.0))

@@ -169,7 +169,6 @@ class PolygonDataService(BaseDataService):
         super().__init__(provider_name=POLYGON_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.POLYGON_CLIENT = None  # Instantiate later to allow process to start (non picklable)
 
@@ -460,16 +459,15 @@ class PolygonDataService(BaseDataService):
         timestamp_ms: int = None,
         order: Order = None
     ) -> PriceSource | None:
-
+        if not timestamp_ms:
+            timestamp_ms = TimeUtil.now_in_millis()
         if self.is_backtesting:
             # Check that we are within market hours for genuine ptn orders
             if order is not None and order.src == 0:
-                assert self.is_market_open(trade_pair)
+                assert self.is_market_open(trade_pair, time_ms=timestamp_ms)
 
-        if not self.is_market_open(trade_pair):
-            return self.get_event_before_market_close(trade_pair)
-        if timestamp_ms is None:
-            timestamp_ms = TimeUtil.now_in_millis()
+        if not self.is_market_open(trade_pair, time_ms=timestamp_ms):
+            return self.get_event_before_market_close(trade_pair, timestamp_ms)
 
         prev_timestamp = None
         final_agg = None
@@ -508,25 +506,27 @@ class PolygonDataService(BaseDataService):
         else:
             raise ValueError(f"Unknown trade pair category: {trade_pair.trade_pair_category}")
 
-    def get_event_before_market_close(self, trade_pair: TradePair, end_time_ms=None) -> PriceSource | None:
-        if self.closed_market_prices[trade_pair] is not None:
-            return self.closed_market_prices[trade_pair]
-        elif trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
+    def get_event_before_market_close(self, trade_pair: TradePair, target_time_ms:int) -> PriceSource | None:
+        # The caller made sure the market is closed.
+        if trade_pair in self.UNSUPPORTED_TRADE_PAIRS:
             return None
-        write_closed_market_prices = False
+
+        if self.closed_market_prices[trade_pair] is not None:
+            delta_time = target_time_ms - self.closed_market_prices_timestamp_ms[trade_pair]
+            # If this closed market price happened within the last 24 hours, reuse it
+            if delta_time >= 0 and delta_time < 1000 * 60 * 60 * 24:
+                return self.closed_market_prices[trade_pair]
+
         # start 7 days ago
-        if end_time_ms is None:
-            end_time_ms = TimeUtil.now_in_millis()
-            write_closed_market_prices = True
-        start_time_ms = end_time_ms - 1000 * 60 * 60 * 24 * 7
-        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, end_time_ms, end_time_ms, attempting_prev_close=True, force_timespan='day')
+        start_time_ms = target_time_ms - 1000 * 60 * 60 * 24 * 7
+        candles = self.get_candles_for_trade_pair(trade_pair, start_time_ms, target_time_ms, target_time_ms, attempting_prev_close=True, force_timespan='day')
         if len(candles) == 0:
             msg = f"get_event_before_market_close: Failed to fetch market close for {trade_pair.trade_pair}"
             raise ValueError(msg)
 
         ans = candles[-1]
-        if write_closed_market_prices:
-            self.closed_market_prices[trade_pair] = ans
+        self.closed_market_prices[trade_pair] = ans
+        self.closed_market_prices_timestamp_ms[trade_pair] = target_time_ms
         return ans
 
 
@@ -548,9 +548,6 @@ class PolygonDataService(BaseDataService):
 
     def get_close_in_past_hour_fallback(self, trade_pair: TradePair, timestamp_ms: int):
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
 
         prev_timestamp = None
         smallest_delta = None
@@ -587,9 +584,6 @@ class PolygonDataService(BaseDataService):
 
     def get_close_at_date_minute_fallback(self, trade_pair: TradePair, target_timestamp_ms: int) -> PriceSource | None:
         polygon_ticker = self.trade_pair_to_polygon_ticker(trade_pair)  # noqa: F841
-
-        #if not self.is_market_open(trade_pair):
-        #    return self.get_event_before_market_close(trade_pair)
 
         prev_timestamp = None
         smallest_delta = None
@@ -926,8 +920,8 @@ if __name__ == "__main__":
 
     secrets = ValiUtils.get_secrets()
 
-    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=False)
-    ans = polygon_data_provider.get_close_rest(TradePair.USDJPY, 1742577204000)
+    polygon_data_provider = PolygonDataService(api_key=secrets['polygon_apikey'], disable_ws=True)
+    ans = polygon_data_provider.get_close_rest(TradePair.TAOUSD, 1760753263000)
     print('@@', ans)
     time.sleep(10000)
     assert 0, ans
@@ -937,7 +931,6 @@ if __name__ == "__main__":
         #if tp != TradePair.GBPUSD:
         #    continue
 
-        print('PRICE BEFORE MARKET CLOSE: ', polygon_data_provider.get_event_before_market_close(tp))
         print('getting close for', tp.trade_pair_id, ':', polygon_data_provider.get_close_rest(tp))
 
     time.sleep(100000)

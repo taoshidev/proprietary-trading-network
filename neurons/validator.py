@@ -47,6 +47,7 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
@@ -221,6 +222,8 @@ class Validator:
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
                                                      position_manager=None,
                                                      contract_manager=self.contract_manager)  # Set after self.pm creation)
+
+        self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=self.config.slack_webhook_url, start_daemon=True)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,

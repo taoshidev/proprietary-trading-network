@@ -110,7 +110,6 @@ class TiingoDataService(BaseDataService):
         super().__init__(provider_name=TIINGO_PROVIDER_NAME, ipc_manager=ipc_manager)
 
         self.MARKET_STATUS = None
-        self.UNSUPPORTED_TRADE_PAIRS = (TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX, TradePair.FTSE, TradePair.GDAXI)
 
         self.config = {'api_key': self._api_key, 'session': True}
         self.TIINGO_CLIENT = None  # Instantiate the TiingoClient after process starts
@@ -722,7 +721,9 @@ class TiingoDataService(BaseDataService):
 
 if __name__ == "__main__":
     secrets = ValiUtils.get_secrets()
-    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=False)
+    tds = TiingoDataService(api_key=secrets['tiingo_apikey'], disable_ws=True)
+    ps = tds.get_close_rest(TradePair.TAOUSD, target_time_ms=None)
+    print('@@@@@', ps)
     time.sleep(10000)
     for trade_pair in TradePair:
         if not trade_pair.is_forex:
