@@ -47,6 +47,7 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.vali_dataclasses.debt_ledger import DebtLedgerManager
 from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
@@ -223,8 +224,10 @@ class Validator:
                                                      position_manager=None,
                                                      contract_manager=self.contract_manager)  # Set after self.pm creation)
 
-        self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=self.config.slack_webhook_url, start_daemon=True)
 
+        self.debt_ledger_manager = DebtLedgerManager(self.perf_ledger_manager,
+                                     slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
+                                     ipc_manager=self.ipc_manager)
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
                                                 perform_order_corrections=True,
@@ -439,7 +442,8 @@ class Validator:
                 miner_statistics_manager=self.miner_statistics_manager,
                 request_core_manager=self.request_core_manager,
                 asset_selection_manager=self.asset_selection_manager,
-                slack_webhook_url=self.config.slack_webhook_url
+                slack_webhook_url=self.config.slack_webhook_url,
+                debt_ledger_manager=self.debt_ledger_manager
             )
 
             # Start the API Manager in a separate process

@@ -37,6 +37,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 from datetime import datetime, timezone
 
+from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
+
 
 @dataclass
 class DebtCheckpoint:
@@ -318,14 +320,19 @@ class DebtLedger:
 
 
 # TODO: Implement DebtLedgerManager class
-# class DebtLedgerManager:
-#     """
-#     Manages debt ledgers for multiple hotkeys.
-#
-#     Responsibilities:
-#     - Combine data from EmissionsLedgerManager, PerfLedgerManager, and PenaltyLedger
-#     - Build unified DebtCheckpoints by merging data from all three sources
-#     - Handle serialization/deserialization
-#     - Provide query methods for UI consumption
-#     """
-#     pass
+class DebtLedgerManager:
+    #     """
+    #     Manages debt ledgers for multiple hotkeys.
+    #
+    #     Responsibilities:
+    #     - Combine data from EmissionsLedgerManager, PerfLedgerManager, and PenaltyLedger
+    #     - Build unified DebtCheckpoints by merging data from all three sources
+    #     - Handle serialization/deserialization
+    #     - Provide query methods for UI consumption
+    #     """
+    #     pass
+    def __init__(self, perf_ledger_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None):
+        self.perf_ledger_manager = perf_ledger_manager
+        self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=start_daemon,
+                                                               ipc_manager=ipc_manager)
+        #self.penalty_ledger_manager =PenaltyLedgerManager
