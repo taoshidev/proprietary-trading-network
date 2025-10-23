@@ -30,7 +30,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1761116399000 + (1000 * 60 * 60 * 6)  # + 6 hours
+TARGET_MS = 1761260399000 + (1000 * 60 * 60 * 6)  # + 6 hours
 
 
 
