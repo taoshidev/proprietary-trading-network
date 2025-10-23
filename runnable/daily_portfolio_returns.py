@@ -1277,41 +1277,43 @@ class DateUtils:
             raise ValueError("Elimination timestamps are required for date bounds calculation")
 
         first_order_ms = float('inf')
-        last_order_ms = 0
-        elim_time = None
+        has_active_miner = False  # Track if any miner is not eliminated
+        latest_elimination_ms = 0  # Track the latest elimination date
 
+        # First pass: find earliest order and check elimination status
         for hotkey, positions in positions_dict.items():
             for position in positions:
                 first_order_ms = min(position.orders[0].processed_ms, first_order_ms)
-                
-                # If miner has elimination timestamp, use elimination_time + 1 day as their end date
-                if hotkey in elimination_timestamps:
-                    elimination_ms = elimination_timestamps[hotkey]
-                    # Process through elimination day + 1, then stop
-                    # Example: elimination March 18 01:31 -> process March 18, March 19, stop before March 20
-                    elimination_day_start = (elimination_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS  # March 18 00:00
-                    final_end_ms = elimination_day_start + MS_IN_24_HOURS  # March 19 00:00 (will process March 18 and March 19)
-                else:
-                    # No elimination, use current time
-                    last_order_ms = max(last_order_ms, position.orders[0].processed_ms)
-                    # Use the greater of last_date_ms or today_start_ms
-                    # Cap end date at today (beginning of current UTC day) to avoid processing future dates
-                    today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                    final_end_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+
+            # Check elimination status once per hotkey (not per position)
+            if hotkey in elimination_timestamps:
+                elimination_ms = elimination_timestamps[hotkey]
+                latest_elimination_ms = max(latest_elimination_ms, elimination_ms)
+            else:
+                has_active_miner = True
 
         if first_order_ms == float('inf'):
             raise ValueError("No valid orders found in positions")
 
-        # If we only found first_order_ms but no last order, use first as both
-        if last_order_ms == 0:
-            last_order_ms = first_order_ms
+        # Determine final end date based on whether any miner is still active
+        if has_active_miner:
+            # If any miner is active, process through today for all miners
+            today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            final_end_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+            elim_time = None
+        else:
+            # All miners eliminated, use latest elimination + 1 day
+            elimination_day_start = (latest_elimination_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+            final_end_ms = elimination_day_start + MS_IN_24_HOURS
+            elim_time = latest_elimination_ms
 
         # Round to start of UTC day
         first_date_ms = (first_order_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
 
         bt.logging.info(f"Date bounds determined: "
                         f"{TimeUtil.millis_to_formatted_date_str(first_date_ms)} to "
-                        f"{TimeUtil.millis_to_formatted_date_str(final_end_ms)}. elim time ({TimeUtil.millis_to_formatted_date_str(elim_time) if elim_time else 'N/A'})")
+                        f"{TimeUtil.millis_to_formatted_date_str(final_end_ms)}. "
+                        f"elim time ({TimeUtil.millis_to_formatted_date_str(elim_time) if elim_time else 'N/A'})")
 
         return first_date_ms, final_end_ms
 
