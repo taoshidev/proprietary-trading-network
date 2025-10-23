@@ -859,8 +859,14 @@ class EmissionsLedgerManager:
 
         chunk_count = 0
         hotkeys_processed_cumulative = set()  # Track all unique hotkeys seen so far
+
         # Track all hotkeys we've seen across all blocks
-        all_hotkeys_seen = set()
+        # IMPORTANT: Initialize from existing ledgers when resuming to ensure all hotkeys
+        # continue to receive zero-emission checkpoints even if they're no longer active
+        all_hotkeys_seen = set(self.emissions_ledgers.keys()) if self.emissions_ledgers else set()
+
+        if all_hotkeys_seen:
+            bt.logging.info(f"Resuming with {len(all_hotkeys_seen)} hotkeys from existing ledgers")
 
         while current_chunk_start_ms < end_time_ms:
             chunk_count += 1
@@ -930,6 +936,10 @@ class EmissionsLedgerManager:
                     )
                 else:
                     # Hotkey exists but had no emissions in this chunk - create zero-emission checkpoint
+                    # Create ledger if this is a newly discovered hotkey (discovered mid-chunk with no emissions)
+                    if hotkey not in self.emissions_ledgers:
+                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
+
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
                         chunk_end_ms=current_chunk_end_ms,
