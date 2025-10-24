@@ -44,6 +44,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from ptn_api.slack_notifier import SlackNotifier
+from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, TP_ID_PORTFOLIO
 
 
 @dataclass
@@ -57,8 +58,8 @@ class EmissionsCheckpoint:
         chunk_emissions: Alpha tokens earned during this specific 12-hour chunk
         chunk_emissions_tao: TAO value of chunk emissions (using avg conversion rate)
         chunk_emissions_usd: USD value of chunk emissions (using avg TAO/USD rate)
-        avg_alpha_to_tao_rate: Average alpha-to-TAO conversion rate across the chunk
-        avg_tao_to_usd_rate: Average TAO/USD price across the chunk
+        avg_alpha_to_tao_rate: Average alpha-to-TAO conversion rate across the chunk (mandatory)
+        avg_tao_to_usd_rate: Average TAO/USD price across the chunk (mandatory)
         num_blocks: Number of blocks sampled in this chunk
         block_start: Block number at chunk start (for reference)
         block_end: Block number at chunk end (for reference)
@@ -68,8 +69,8 @@ class EmissionsCheckpoint:
     chunk_emissions: float
     chunk_emissions_tao: float = 0.0
     chunk_emissions_usd: float = 0.0
-    avg_alpha_to_tao_rate: Optional[float] = None
-    avg_tao_to_usd_rate: Optional[float] = None
+    avg_alpha_to_tao_rate: float = 0.0
+    avg_tao_to_usd_rate: float = 0.0
     num_blocks: int = 0
     block_start: Optional[int] = None
     block_end: Optional[int] = None
@@ -123,22 +124,48 @@ class EmissionsLedger:
         self.hotkey = hotkey
         self.checkpoints: List[EmissionsCheckpoint] = checkpoints or []
 
-    def add_checkpoint(self, checkpoint: EmissionsCheckpoint):
+    def add_checkpoint(self, checkpoint: EmissionsCheckpoint, target_cp_duration_ms: int):
         """
         Add a checkpoint to the ledger.
 
-        Validates that the new checkpoint is boundary-aligned with the previous checkpoint
-        (no gaps, no overlaps).
+        Validates that the new checkpoint is properly aligned with the target checkpoint
+        duration and the previous checkpoint (no gaps, no overlaps).
 
         Args:
             checkpoint: The checkpoint to add
+            target_cp_duration_ms: Target checkpoint duration in milliseconds
 
         Raises:
-            AssertionError: If the checkpoint boundaries are not aligned with the previous checkpoint
+            AssertionError: If checkpoint validation fails
         """
+        # Validate checkpoint end time aligns with target duration
+        assert checkpoint.chunk_end_ms % target_cp_duration_ms == 0, (
+            f"Checkpoint end time {checkpoint.chunk_end_ms} must align with target_cp_duration_ms "
+            f"{target_cp_duration_ms} for {self.hotkey}"
+        )
+
+        # Validate checkpoint duration is exactly target_cp_duration_ms
+        checkpoint_duration_ms = checkpoint.chunk_end_ms - checkpoint.chunk_start_ms
+        assert checkpoint_duration_ms == target_cp_duration_ms, (
+            f"Checkpoint duration must be exactly {target_cp_duration_ms}ms for {self.hotkey}: "
+            f"chunk spans {checkpoint.chunk_start_ms} to {checkpoint.chunk_end_ms} "
+            f"({datetime.fromtimestamp(checkpoint.chunk_start_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} - "
+            f"{datetime.fromtimestamp(checkpoint.chunk_end_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}), "
+            f"duration is {checkpoint_duration_ms}ms"
+        )
+
         # If there are existing checkpoints, ensure perfect boundary alignment
         if self.checkpoints:
             prev_checkpoint = self.checkpoints[-1]
+
+            # First check it's after previous checkpoint
+            assert checkpoint.chunk_end_ms > prev_checkpoint.chunk_end_ms, (
+                f"Checkpoint end time must be after previous checkpoint for {self.hotkey}: "
+                f"new checkpoint ends at {checkpoint.chunk_end_ms}, "
+                f"but previous checkpoint ends at {prev_checkpoint.chunk_end_ms}"
+            )
+
+            # Then check exact spacing - checkpoints must be contiguous
             assert checkpoint.chunk_start_ms == prev_checkpoint.chunk_end_ms, (
                 f"Checkpoint boundary misalignment for {self.hotkey}: "
                 f"new checkpoint starts at {checkpoint.chunk_start_ms} "
@@ -149,6 +176,60 @@ class EmissionsLedger:
             )
 
         self.checkpoints.append(checkpoint)
+
+    def get_checkpoint_at_time(self, timestamp_ms: int, target_cp_duration_ms: int) -> Optional[EmissionsCheckpoint]:
+        """
+        Get the checkpoint at a specific timestamp (efficient O(1) lookup).
+
+        Uses index calculation instead of scanning since checkpoints are evenly-spaced
+        and contiguous (enforced by strict add_checkpoint validation).
+
+        Args:
+            timestamp_ms: Exact timestamp to query (should match chunk_end_ms)
+            target_cp_duration_ms: Target checkpoint duration in milliseconds
+
+        Returns:
+            Checkpoint at the exact timestamp, or None if not found
+
+        Raises:
+            ValueError: If checkpoint exists at calculated index but timestamp doesn't match (data corruption)
+        """
+        if not self.checkpoints:
+            return None
+
+        # Calculate expected index based on first checkpoint and duration
+        first_checkpoint_end_ms = self.checkpoints[0].chunk_end_ms
+
+        # Check if timestamp is before first checkpoint
+        if timestamp_ms < first_checkpoint_end_ms:
+            return None
+
+        # Calculate index (checkpoints are evenly spaced by target_cp_duration_ms)
+        time_diff = timestamp_ms - first_checkpoint_end_ms
+        if time_diff % target_cp_duration_ms != 0:
+            # Timestamp doesn't align with checkpoint boundaries
+            return None
+
+        index = time_diff // target_cp_duration_ms
+
+        # Check if index is within bounds
+        if index >= len(self.checkpoints):
+            return None
+
+        # Validate the checkpoint at this index has the expected end timestamp
+        checkpoint = self.checkpoints[index]
+        if checkpoint.chunk_end_ms != timestamp_ms:
+            from time_util.time_util import TimeUtil
+            raise ValueError(
+                f"Data corruption detected for {self.hotkey}: "
+                f"checkpoint at index {index} has chunk_end_ms {checkpoint.chunk_end_ms} "
+                f"({TimeUtil.millis_to_formatted_date_str(checkpoint.chunk_end_ms)}), "
+                f"but expected {timestamp_ms} "
+                f"({TimeUtil.millis_to_formatted_date_str(timestamp_ms)}). "
+                f"Checkpoints are not properly contiguous."
+            )
+
+        return checkpoint
 
     def get_cumulative_emissions(self) -> float:
         """
@@ -395,17 +476,12 @@ class EmissionsLedgerManager:
     # Bittensor blocks are produced every ~12 seconds
     SECONDS_PER_BLOCK = 12
 
-    # 12 hours in milliseconds
-    CHUNK_DURATION_MS = 12 * 60 * 60 * 1000
-
-    # Blocks per 12-hour chunk (approximate)
-    BLOCKS_PER_CHUNK = int(CHUNK_DURATION_MS / 1000 / SECONDS_PER_BLOCK)
-
     # Default offset in days from current time for emissions tracking
     DEFAULT_START_TIME_OFFSET_DAYS = 60
 
     def __init__(
         self,
+        perf_ledger_manager: PerfLedgerManager,
         archive_endpoint: str = "wss://archive.chain.opentensor.ai:443",
         netuid: int = 8,
         rate_limit_per_second: float = 1.0,
@@ -418,14 +494,17 @@ class EmissionsLedgerManager:
         Initialize EmissionsLedger with blockchain connection.
 
         Args:
+            perf_ledger_manager: Manager for reading performance ledgers (to align emissions with perf checkpoints)
             archive_endpoint: archive node endpoint for historical queries.
             netuid: Subnet UID to query (default: 8 for mainnet PTN)
             rate_limit_per_second: Maximum queries per second (default: 1.0 for official endpoints)
             running_unit_tests: Whether this is being run in unit tests
             slack_webhook_url: Optional Slack webhook URL for failure notifications
             start_daemon: If True, automatically start daemon process running run_forever (default: False)
+            ipc_manager: Optional IPC manager for multiprocessing
         """
         # Pickleable attributes
+        self.perf_ledger_manager = perf_ledger_manager
         self.archive_endpoint = archive_endpoint
         self.netuid = netuid
         self.rate_limit_per_second = rate_limit_per_second
@@ -507,39 +586,6 @@ class EmissionsLedgerManager:
         self.daemon_process.start()
 
         bt.logging.info(f"Daemon process started (Process ID: {self.daemon_process.pid})")
-
-    @staticmethod
-    def get_chunk_boundaries(timestamp_ms: int) -> tuple[int, int]:
-        """
-        Calculate the 12-hour UTC chunk boundaries for a given timestamp.
-
-        Chunks are aligned to UTC day:
-        - Chunk 1: 00:00 UTC - 12:00 UTC
-        - Chunk 2: 12:00 UTC - 00:00 UTC (next day)
-
-        Args:
-            timestamp_ms: Timestamp in milliseconds
-
-        Returns:
-            Tuple of (chunk_start_ms, chunk_end_ms)
-        """
-        dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-
-        # Determine which chunk this timestamp falls into
-        if dt.hour < 12:
-            # Morning chunk: 00:00 - 12:00
-            chunk_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-            chunk_end = dt.replace(hour=12, minute=0, second=0, microsecond=0)
-        else:
-            # Afternoon/evening chunk: 12:00 - 00:00 next day
-            chunk_start = dt.replace(hour=12, minute=0, second=0, microsecond=0)
-            # Next day at 00:00
-            chunk_end = (dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1))
-
-        chunk_start_ms = int(chunk_start.timestamp() * 1000)
-        chunk_end_ms = int(chunk_end.timestamp() * 1000)
-
-        return chunk_start_ms, chunk_end_ms
 
     def _extract_block_timestamp(self, block_data: dict, block_number: int) -> int:
         """
@@ -745,6 +791,61 @@ class EmissionsLedgerManager:
             secrets = ValiUtils.get_secrets(running_unit_tests=self.running_unit_tests)
             self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
 
+    def _query_rates_for_zero_emission_chunk(
+        self,
+        chunk_start_block: int,
+        chunk_end_block: int
+    ) -> tuple[float, float]:
+        """
+        Query conversion rates for chunks with no emissions.
+
+        When a chunk has no emissions (all hotkeys have zero emissions), we still need
+        to set mandatory rate fields. This method queries rates at the chunk midpoint block.
+
+        Args:
+            chunk_start_block: Start block of the chunk
+            chunk_end_block: End block of the chunk
+
+        Returns:
+            Tuple of (avg_alpha_to_tao_rate, avg_tao_to_usd_rate). Returns (0.0, 0.0) on failure.
+        """
+        bt.logging.debug(
+            f"No emissions found in chunk, querying rates directly for zero-emission checkpoints"
+        )
+
+        # Query rates at a representative block (chunk midpoint)
+        midpoint_block = (chunk_start_block + chunk_end_block) // 2
+
+        try:
+            # Get block hash for midpoint block
+            self._rate_limit()
+            midpoint_block_hash = self.subtensor.substrate.get_block_hash(midpoint_block)
+
+            if midpoint_block_hash:
+                # Query alpha-to-TAO rate
+                avg_alpha_to_tao_rate = self.query_alpha_to_tao_rate(
+                    midpoint_block,
+                    block_hash=midpoint_block_hash
+                )
+
+                # Get block timestamp for TAO/USD rate
+                self._rate_limit()
+                block_data = self.subtensor.substrate.get_block(block_hash=midpoint_block_hash)
+                if block_data:
+                    block_timestamp_ms = self._extract_block_timestamp(block_data, midpoint_block)
+                    avg_tao_to_usd_rate = self.query_tao_to_usd_rate(
+                        midpoint_block,
+                        block_timestamp_ms=block_timestamp_ms
+                    )
+                    return avg_alpha_to_tao_rate, avg_tao_to_usd_rate
+        except Exception as e:
+            bt.logging.warning(
+                f"Failed to query rates for zero-emission chunk: {e}. "
+                f"Using default rates (0.0)"
+            )
+
+        return 0.0, 0.0
+
     def build_all_emissions_ledgers_optimized(
         self,
         start_time_ms: Optional[int] = None,
@@ -760,6 +861,9 @@ class EmissionsLedgerManager:
         all hotkeys simultaneously, sharing block hashes, emission vectors, and
         alpha-to-TAO conversion rates across all hotkeys.
 
+        Emissions checkpoints are aligned with performance ledger checkpoints, ensuring
+        consistency with performance tracking.
+
         Args:
             start_time_ms: Optional start time in milliseconds (default: DEFAULT_START_TIME_OFFSET_DAYS ago)
             end_time_ms: Optional end time (default: current time)
@@ -767,7 +871,38 @@ class EmissionsLedgerManager:
 
         self.instantiate_non_pickleable_components()
         start_exec_time = time.time()
-        bt.logging.info("Building emissions ledgers for all hotkeys (optimized mode)")
+        bt.logging.info("Building emissions ledgers for all hotkeys (aligned with perf ledgers)")
+
+        # Get all perf ledgers (portfolio only) to use as checkpoint reference
+        all_perf_ledgers: Dict[str, Dict[str, 'PerfLedger']] = self.perf_ledger_manager.get_perf_ledgers(
+            portfolio_only=True
+        )
+
+        if not all_perf_ledgers:
+            raise ValueError("No performance ledgers found - cannot build emissions without perf ledger alignment")
+
+        # Pick a reference portfolio ledger (any miner will do since they're all aligned to same boundaries)
+        # Use the one with the most checkpoints for maximum coverage
+        reference_portfolio_ledger = None
+        reference_hotkey = None
+        max_checkpoints = 0
+
+        for hotkey, ledger_dict in all_perf_ledgers.items():
+            portfolio_ledger = ledger_dict.get(TP_ID_PORTFOLIO)
+            if portfolio_ledger and portfolio_ledger.cps:
+                if len(portfolio_ledger.cps) > max_checkpoints:
+                    max_checkpoints = len(portfolio_ledger.cps)
+                    reference_portfolio_ledger = portfolio_ledger
+                    reference_hotkey = hotkey
+
+        if not reference_portfolio_ledger:
+            raise ValueError("No valid portfolio ledgers found with checkpoints")
+
+        bt.logging.info(
+            f"Using portfolio ledger from {reference_hotkey[:16]}...{reference_hotkey[-8:]} "
+            f"as reference ({len(reference_portfolio_ledger.cps)} checkpoints, "
+            f"target_cp_duration_ms: {reference_portfolio_ledger.target_cp_duration_ms}ms)"
+        )
 
         # Rate limit before initial query
         self._rate_limit()
@@ -781,20 +916,11 @@ class EmissionsLedgerManager:
         current_max_uids = int(current_max_uids_result.value if hasattr(current_max_uids_result, 'value') else current_max_uids_result) if current_max_uids_result else 0
         assert current_max_uids == 256, f"Expected max UIDs to be 256, but got {current_max_uids}. The hardcoded value needs to be updated!"
 
-        # Calculate start time dynamically if not specified
-        if start_time_ms is None:
-            # Use default lookback period
-            current_time = datetime.now(timezone.utc)
-            start_time = current_time - timedelta(days=self.DEFAULT_START_TIME_OFFSET_DAYS)
-            start_time_ms = int(start_time.timestamp() * 1000)
-
-            bt.logging.info(f"Using default start date ({self.DEFAULT_START_TIME_OFFSET_DAYS} days ago): {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
         # Validate that start_time_ms doesn't conflict with existing data
         checkpoint_info = self.get_checkpoint_info()
         last_computed_chunk_end_ms = checkpoint_info["last_computed_chunk_end_ms"]
 
-        if last_computed_chunk_end_ms > 0:
+        if last_computed_chunk_end_ms > 0 and start_time_ms is not None:
             assert start_time_ms >= last_computed_chunk_end_ms, (
                 f"start_time_ms must be >= last computed checkpoint end time. "
                 f"Existing data ends at: {TimeUtil.millis_to_formatted_date_str(last_computed_chunk_end_ms)} "
@@ -803,123 +929,116 @@ class EmissionsLedgerManager:
                 f"Caller must provide valid start time that continues from existing data."
             )
 
-        # Default end time is now
+        # Default end time is now with lag
+        current_time_ms = int(time.time() * 1000)
         if end_time_ms is None:
-            end_time_ms = int(time.time() * 1000)
+            end_time_ms = current_time_ms - self.DEFAULT_LAG_TIME_MS
 
-        # Get current block and estimate block range
+        # CRITICAL: Enforce 12-hour lag to ensure we never build checkpoints too close to real-time
+        # This prevents incomplete or unreliable data from being included
+        min_allowed_end_time_ms = current_time_ms - self.DEFAULT_LAG_TIME_MS
+        if end_time_ms > min_allowed_end_time_ms:
+            bt.logging.warning(
+                f"Requested end_time_ms ({TimeUtil.millis_to_formatted_date_str(end_time_ms)}) "
+                f"is too recent (within {self.DEFAULT_LAG_TIME_MS / 1000 / 3600:.1f} hours of current time). "
+                f"Adjusting to enforce mandatory {self.DEFAULT_LAG_TIME_MS / 1000 / 3600:.1f}-hour lag: "
+                f"{TimeUtil.millis_to_formatted_date_str(min_allowed_end_time_ms)}"
+            )
+            end_time_ms = min_allowed_end_time_ms
+
+        # Filter perf checkpoints to those within our time range and that are complete (not active)
+        target_cp_duration_ms = reference_portfolio_ledger.target_cp_duration_ms
+        checkpoints_to_process = []
+
+        # Determine the start cutoff time (use the more restrictive of the two)
+        start_cutoff_ms = max(
+            last_computed_chunk_end_ms if last_computed_chunk_end_ms > 0 else 0,
+            start_time_ms if start_time_ms is not None else 0
+        )
+
+        for checkpoint in reference_portfolio_ledger.cps:
+            # Skip active checkpoints (incomplete)
+            if checkpoint.accum_ms != target_cp_duration_ms:
+                continue
+
+            checkpoint_time_ms = checkpoint.last_update_ms
+
+            # Skip checkpoints before our start cutoff time
+            if checkpoint_time_ms <= start_cutoff_ms:
+                continue
+
+            # Skip checkpoints after our end time
+            if checkpoint_time_ms > end_time_ms:
+                continue
+
+            checkpoints_to_process.append(checkpoint)
+
+        if not checkpoints_to_process:
+            bt.logging.info("No new checkpoints to process")
+            return
+
+        bt.logging.info(
+            f"Processing {len(checkpoints_to_process)} checkpoints "
+            f"(from {TimeUtil.millis_to_formatted_date_str(checkpoints_to_process[0].last_update_ms)} "
+            f"to {TimeUtil.millis_to_formatted_date_str(checkpoints_to_process[-1].last_update_ms)})"
+        )
+
+        # Get current block for estimating block ranges
         self._rate_limit()
         current_block = self.subtensor.get_current_block()
         current_time_ms = int(time.time() * 1000)
-
-        seconds_from_start = (current_time_ms - start_time_ms) / 1000
-        blocks_from_start = int(seconds_from_start / self.SECONDS_PER_BLOCK)
-        start_block = current_block - blocks_from_start
-
-        seconds_from_end = (current_time_ms - end_time_ms) / 1000
-        blocks_from_end = int(seconds_from_end / self.SECONDS_PER_BLOCK)
-        end_block = current_block - blocks_from_end
-
-        # Format dates for logging
-        start_date = datetime.fromtimestamp(start_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-        end_date = datetime.fromtimestamp(end_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-
-        bt.logging.info(f"Block range: {start_block} to {end_block} ({start_date} to {end_date})")
-
-        # SAFETY CHECK 1: Ensure end_time_ms is at a chunk boundary (prevent partial chunks)
-        end_chunk_start, end_chunk_end = self.get_chunk_boundaries(end_time_ms)
-        if end_time_ms != end_chunk_start and end_time_ms != end_chunk_end:
-            # end_time_ms is in the middle of a chunk - round down to previous chunk boundary
-            end_time_ms = end_chunk_start
-            end_date = datetime.fromtimestamp(end_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-            bt.logging.warning(
-                f"end_time_ms was not at chunk boundary, rounded down to {end_date} "
-                f"to prevent partial chunks"
-            )
-
-        # SAFETY CHECK 2: Ensure end_time is at least CHUNK_DURATION_MS behind current time (data finality)
-        min_lag_ms = self.CHUNK_DURATION_MS  # 12 hours minimum
-        time_behind_current = current_time_ms - end_time_ms
-        if time_behind_current < min_lag_ms:
-            raise ValueError(
-                f"end_time_ms must be at least {min_lag_ms / 1000 / 3600:.1f} hours behind current time "
-                f"to ensure data finality. Current lag: {time_behind_current / 1000 / 3600:.1f} hours. "
-                f"Current time: {datetime.fromtimestamp(current_time_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}, "
-                f"End time: {end_date}"
-            )
-
-        # No cumulative tracking needed - each checkpoint stores only chunk data
-
-        # Generate list of 12-hour chunks
-        current_chunk_start_ms, current_chunk_end_ms = self.get_chunk_boundaries(start_time_ms)
-
-        # If start time is not at chunk boundary, adjust to next chunk
-        if current_chunk_start_ms < start_time_ms:
-            current_chunk_start_ms = current_chunk_end_ms
-            current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
 
         chunk_count = 0
         hotkeys_processed_cumulative = set()  # Track all unique hotkeys seen so far
 
         # Track all hotkeys we've seen across all blocks
         # IMPORTANT: Initialize from existing ledgers when resuming to ensure all hotkeys
-        # continue to receive zero-emission checkpoints even if they're no longer active
+        # continue to receive zero-emission checkpoints even if they're no longer active.
+        # Additional hotkeys will be discovered from blockchain queries in _calculate_emissions_for_all_hotkeys.
+        # NOTE: Emissions tracking is independent of perf ledgers - we use perf ledgers only for
+        # time boundaries, not to filter which hotkeys get emissions checkpoints.
         all_hotkeys_seen = set(self.emissions_ledgers.keys()) if self.emissions_ledgers else set()
 
         if all_hotkeys_seen:
             bt.logging.info(f"Resuming with {len(all_hotkeys_seen)} hotkeys from existing ledgers")
 
-        while current_chunk_start_ms < end_time_ms:
+        # Iterate over perf ledger checkpoints
+        for checkpoint_idx, checkpoint in enumerate(checkpoints_to_process):
             chunk_count += 1
             chunk_start_time = time.time()
 
-            # Determine actual time range for this chunk
-            actual_start_ms = max(current_chunk_start_ms, start_time_ms)
-            actual_end_ms = min(current_chunk_end_ms, end_time_ms)
+            # Checkpoint boundaries from perf ledger
+            current_chunk_end_ms = checkpoint.last_update_ms
 
-            # Calculate corresponding blocks
-            seconds_from_chunk_start = (actual_start_ms - start_time_ms) / 1000
-            seconds_from_chunk_end = (actual_end_ms - start_time_ms) / 1000
-            chunk_start_block = start_block + int(seconds_from_chunk_start / self.SECONDS_PER_BLOCK)
-            chunk_end_block = start_block + int(seconds_from_chunk_end / self.SECONDS_PER_BLOCK)
+            # Calculate start time from previous checkpoint or target duration
+            if checkpoint_idx == 0:
+                # First checkpoint - calculate start from checkpoint duration
+                current_chunk_start_ms = current_chunk_end_ms - target_cp_duration_ms
+            else:
+                # Use previous checkpoint's end time as this checkpoint's start time
+                current_chunk_start_ms = checkpoints_to_process[checkpoint_idx - 1].last_update_ms
 
-            # SAFETY CHECK: Verify block continuity from previous checkpoint (if exists)
-            # Block times vary (typically 11-13 seconds), so allow tolerance for drift
+            # Calculate corresponding blocks using time from current time
+            seconds_from_chunk_start = (current_time_ms - current_chunk_start_ms) / 1000
+            seconds_from_chunk_end = (current_time_ms - current_chunk_end_ms) / 1000
+            chunk_start_block = current_block - int(seconds_from_chunk_start / self.SECONDS_PER_BLOCK)
+            chunk_end_block = current_block - int(seconds_from_chunk_end / self.SECONDS_PER_BLOCK)
+
+            # Optional: Log block continuity info for debugging
+            # Since we're aligned with perf ledger time boundaries, block numbers are just for reference
             if chunk_count > 1 and self.emissions_ledgers:
-                # Get last block from any ledger's previous checkpoint (all should be synchronized)
                 sample_ledger = next(iter(self.emissions_ledgers.values()))
-                if sample_ledger.checkpoints:
+                if sample_ledger.checkpoints and sample_ledger.checkpoints[-1].block_end is not None:
                     previous_block_end = sample_ledger.checkpoints[-1].block_end
-
-                    # Enforce that block_end is never None in checkpoints
-                    assert previous_block_end is not None, (
-                        f"Previous checkpoint has block_end=None! This should never happen. "
-                        f"Hotkey: {sample_ledger.hotkey}, checkpoint index: {len(sample_ledger.checkpoints) - 1}"
-                    )
-
                     expected_start_block = previous_block_end + 1
-
-                    # Calculate tolerance based on chunk duration and block time variance
-                    # If blocks vary ±1s from 12s average, over a 12-hour chunk (~3600 blocks)
-                    # we could see drift of ~300 blocks (3600 * 1s / 12s)
-                    # Use 500 blocks as conservative tolerance
-                    max_tolerance_blocks = 500
-
                     block_gap = abs(chunk_start_block - expected_start_block)
-                    assert block_gap <= max_tolerance_blocks, (
-                        f"Block continuity check failed! "
-                        f"Expected chunk to start near block {expected_start_block}, "
-                        f"but calculated start block is {chunk_start_block} "
-                        f"(gap: {block_gap} blocks, tolerance: {max_tolerance_blocks} blocks). "
-                        f"This indicates inconsistent block time estimation or time boundary misalignment."
-                    )
 
-                    # Log warning if gap is significant but within tolerance
-                    if block_gap > 50:
-                        bt.logging.warning(
-                            f"Block gap detected: previous chunk ended at block {previous_block_end}, "
+                    # Log warning if gap is significant (blocks are for reference only)
+                    if block_gap > 100:
+                        bt.logging.debug(
+                            f"Block estimation drift: previous chunk ended at block {previous_block_end}, "
                             f"new chunk starts at block {chunk_start_block} "
-                            f"(gap: {block_gap} blocks, expected: {expected_start_block})"
+                            f"(gap: {block_gap} blocks). This is normal due to block time variance."
                         )
 
             blocks_in_chunk = chunk_end_block - chunk_start_block + 1
@@ -934,16 +1053,25 @@ class EmissionsLedgerManager:
             # Track hotkeys with activity in this chunk
             hotkeys_active_in_chunk = set()
 
-            # Get shared rate values and num_blocks for zero-emission checkpoints (from any hotkey with emissions)
-            shared_avg_alpha_to_tao_rate = None
-            shared_avg_tao_to_usd_rate = None
+            # Get shared rate values and num_blocks for zero-emission checkpoints
+            # These values are mandatory, so we must always ensure they are set
+            shared_avg_alpha_to_tao_rate = 0.0
+            shared_avg_tao_to_usd_rate = 0.0
             shared_num_blocks = 0
+
             if chunk_results:
                 # Use rates from first hotkey with emissions (rates are same for all hotkeys)
                 first_result = next(iter(chunk_results.values()))
                 shared_avg_alpha_to_tao_rate = first_result[3]  # avg_alpha_to_tao_rate (index 3 in 6-tuple)
                 shared_avg_tao_to_usd_rate = first_result[4]     # avg_tao_to_usd_rate (index 4 in 6-tuple)
                 shared_num_blocks = first_result[5]              # num_blocks (index 5 in 6-tuple)
+            elif all_hotkeys_seen:
+                # No emissions in this chunk, but we still need to create zero-emission checkpoints
+                # with valid rates. Query rates at the chunk midpoint block.
+                shared_avg_alpha_to_tao_rate, shared_avg_tao_to_usd_rate = self._query_rates_for_zero_emission_chunk(
+                    chunk_start_block,
+                    chunk_end_block
+                )
 
             # Single loop: create checkpoints for ALL hotkeys in all_hotkeys_seen
             # (includes both hotkeys with emissions and hotkeys without emissions)
@@ -997,7 +1125,7 @@ class EmissionsLedgerManager:
                 # IMPORTANT: For IPC-managed dicts, we must retrieve, mutate, and reassign
                 # to propagate changes (managed dicts don't track nested mutations)
                 ledger = self.emissions_ledgers[hotkey]
-                ledger.add_checkpoint(checkpoint)
+                ledger.add_checkpoint(checkpoint, target_cp_duration_ms)
                 self.emissions_ledgers[hotkey] = ledger  # Reassign to trigger IPC update
 
             # Calculate chunk processing time
@@ -1020,13 +1148,12 @@ class EmissionsLedgerManager:
             # Save ledger state after each successful chunk (incremental persistence for crash recovery)
             self.save_to_disk(create_backup=False)
 
-            # Move to next chunk
-            current_chunk_start_ms = current_chunk_end_ms
-            current_chunk_end_ms = current_chunk_start_ms + self.CHUNK_DURATION_MS
-
         # Log completion (worked in-place on self.emissions_ledgers)
         elapsed_time = time.time() - start_exec_time
-        bt.logging.info(f"Built {chunk_count} chunks for {len(self.emissions_ledgers)} hotkeys in {elapsed_time:.2f} seconds")
+        bt.logging.info(
+            f"Built {chunk_count} checkpoints for {len(self.emissions_ledgers)} hotkeys in {elapsed_time:.2f} seconds "
+            f"(aligned with perf ledger, target_cp_duration_ms: {target_cp_duration_ms}ms)"
+        )
 
         # Log summary for each hotkey
         for hotkey, ledger in self.emissions_ledgers.items():
@@ -1094,7 +1221,7 @@ class EmissionsLedgerManager:
         start_block: int,
         end_block: int,
         all_hotkeys_seen: Optional[set] = None,
-    ) -> Dict[str, tuple[float, float, float, Optional[float], Optional[float], int]]:
+    ) -> Dict[str, tuple[float, float, float, float, float, int]]:
         """
         Calculate emissions for ALL hotkeys between two blocks (OPTIMIZED).
 
@@ -1112,6 +1239,7 @@ class EmissionsLedgerManager:
         Returns:
             Dictionary mapping hotkey to (alpha_emissions, tao_emissions, usd_emissions,
                                          avg_alpha_to_tao_rate, avg_tao_to_usd_rate, num_blocks)
+            All rate values are guaranteed to be floats (not None).
         """
         # Sample blocks at regular intervals
         sample_interval = int(3600 / self.SECONDS_PER_BLOCK)  # ~300 blocks per hour
@@ -1229,9 +1357,9 @@ class EmissionsLedgerManager:
             previous_tao_to_usd_rate = tao_to_usd_rate
             previous_block = block
 
-        # Calculate average rates
-        avg_alpha_to_tao_rate = sum_alpha_to_tao_rate / num_blocks_sampled if num_blocks_sampled > 0 else None
-        avg_tao_to_usd_rate = sum_tao_to_usd_rate / num_blocks_sampled if num_blocks_sampled > 0 else None
+        # Calculate average rates (guaranteed to be non-None)
+        avg_alpha_to_tao_rate = sum_alpha_to_tao_rate / num_blocks_sampled if num_blocks_sampled > 0 else 0.0
+        avg_tao_to_usd_rate = sum_tao_to_usd_rate / num_blocks_sampled if num_blocks_sampled > 0 else 0.0
 
         # Build result dictionary for ALL hotkeys seen
         results = {}
@@ -1355,8 +1483,8 @@ class EmissionsLedgerManager:
                     chunk_emissions=cp["chunk_emissions"],
                     chunk_emissions_tao=cp.get("chunk_emissions_tao", 0.0),
                     chunk_emissions_usd=cp.get("chunk_emissions_usd", 0.0),
-                    avg_alpha_to_tao_rate=cp.get("avg_alpha_to_tao_rate"),
-                    avg_tao_to_usd_rate=cp.get("avg_tao_to_usd_rate"),
+                    avg_alpha_to_tao_rate=cp["avg_alpha_to_tao_rate"],
+                    avg_tao_to_usd_rate=cp["avg_tao_to_usd_rate"],
                     num_blocks=cp.get("num_blocks", 0),
                     block_start=cp.get("block_start"),
                     block_end=cp.get("block_end")
@@ -1551,6 +1679,29 @@ class EmissionsLedgerManager:
     def get_ledger(self, hotkey: str) -> Optional[EmissionsLedger]:
         """Get emissions ledger for a specific hotkey."""
         return self.emissions_ledgers.get(hotkey)
+
+    def get_earliest_emissions_timestamp(self) -> Optional[int]:
+        """
+        Get the earliest emissions timestamp across all ledgers (efficient single IPC read).
+
+        Reads the IPC dict once and finds the minimum chunk_start_ms across all ledgers.
+        This is more efficient than calling get_ledger() for each hotkey individually.
+
+        Returns:
+            Earliest chunk_start_ms across all emissions ledgers, or None if no ledgers exist
+        """
+        if not self.emissions_ledgers:
+            return None
+
+        earliest_ms = None
+        # Read IPC dict once - this is the key optimization
+        for ledger in self.emissions_ledgers.values():
+            if ledger.checkpoints:
+                ledger_earliest_ms = ledger.checkpoints[0].chunk_start_ms
+                if earliest_ms is None or ledger_earliest_ms < earliest_ms:
+                    earliest_ms = ledger_earliest_ms
+
+        return earliest_ms
 
     def get_cumulative_emissions(self, hotkey: str) -> float:
         """Get cumulative alpha emissions for a hotkey."""
@@ -1748,8 +1899,24 @@ if __name__ == "__main__":
     if args.verbose:
         bt.logging.enable_debug()
 
-    # Initialize ledger manager
-    emissions_ledger_manager = EmissionsLedgerManager(start_daemon=False)
+    # Create minimal metagraph for PerfLedgerManager
+    bt.logging.info("Initializing metagraph for performance ledger access...")
+    metagraph = bt.metagraph(netuid=args.netuid, network=args.network)
+
+    # Initialize PerfLedgerManager (loads existing perf ledgers from disk)
+    bt.logging.info("Initializing performance ledger manager...")
+    perf_ledger_manager = PerfLedgerManager(
+        metagraph=metagraph,
+        running_unit_tests=False,
+        build_portfolio_ledgers_only=True  # Only need portfolio ledgers for alignment
+    )
+
+    # Initialize emissions ledger manager
+    bt.logging.info("Initializing emissions ledger manager...")
+    emissions_ledger_manager = EmissionsLedgerManager(
+        perf_ledger_manager=perf_ledger_manager,
+        start_daemon=False
+    )
 
     # Calculate end_time_ms with required lag (12 hours behind current time for data finality)
     current_time_ms = int(time.time() * 1000)

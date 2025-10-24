@@ -138,20 +138,59 @@ class PenaltyLedger:
         """Get the most recent checkpoint, or None if no checkpoints exist."""
         return self.checkpoints[-1] if self.checkpoints else None
 
-    def get_checkpoint_at_time(self, timestamp_ms: int) -> Optional[PenaltyCheckpoint]:
+    def get_checkpoint_at_time(self, timestamp_ms: int, target_cp_duration_ms: int) -> Optional[PenaltyCheckpoint]:
         """
-        Get the checkpoint at or immediately before a given timestamp.
+        Get the checkpoint at a specific timestamp (efficient O(1) lookup).
+
+        Uses index calculation instead of scanning since checkpoints are evenly-spaced
+        and contiguous (enforced by strict add_checkpoint validation).
 
         Args:
-            timestamp_ms: Timestamp in milliseconds
+            timestamp_ms: Exact timestamp to query (should match last_processed_ms)
+            target_cp_duration_ms: Target checkpoint duration in milliseconds
 
         Returns:
-            The checkpoint at or before the timestamp, or None if no such checkpoint exists
+            Checkpoint at the exact timestamp, or None if not found
+
+        Raises:
+            ValueError: If checkpoint exists at calculated index but timestamp doesn't match (data corruption)
         """
-        for checkpoint in reversed(self.checkpoints):
-            if checkpoint.last_processed_ms <= timestamp_ms:
-                return checkpoint
-        return None
+        if not self.checkpoints:
+            return None
+
+        # Calculate expected index based on first checkpoint and duration
+        first_checkpoint_ms = self.checkpoints[0].last_processed_ms
+
+        # Check if timestamp is before first checkpoint
+        if timestamp_ms < first_checkpoint_ms:
+            return None
+
+        # Calculate index (checkpoints are evenly spaced by target_cp_duration_ms)
+        time_diff = timestamp_ms - first_checkpoint_ms
+        if time_diff % target_cp_duration_ms != 0:
+            # Timestamp doesn't align with checkpoint boundaries
+            return None
+
+        index = time_diff // target_cp_duration_ms
+
+        # Check if index is within bounds
+        if index >= len(self.checkpoints):
+            return None
+
+        # Validate the checkpoint at this index has the expected timestamp
+        checkpoint = self.checkpoints[index]
+        if checkpoint.last_processed_ms != timestamp_ms:
+            from time_util.time_util import TimeUtil
+            raise ValueError(
+                f"Data corruption detected for {self.hotkey}: "
+                f"checkpoint at index {index} has last_processed_ms {checkpoint.last_processed_ms} "
+                f"({TimeUtil.millis_to_formatted_date_str(checkpoint.last_processed_ms)}), "
+                f"but expected {timestamp_ms} "
+                f"({TimeUtil.millis_to_formatted_date_str(timestamp_ms)}). "
+                f"Checkpoints are not properly contiguous."
+            )
+
+        return checkpoint
 
     def to_dict(self) -> dict:
         """
