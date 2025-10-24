@@ -32,12 +32,18 @@ Usage:
         # ... other fields
     )
     ledger.add_checkpoint(checkpoint)
+
+Standalone Usage:
+Use runnable/local_debt_ledger.py for standalone execution with hard-coded configuration.
+Edit the configuration variables at the top of that file to customize behavior.
+
 """
 from dataclasses import dataclass
 from typing import List, Optional
 from datetime import datetime, timezone
 
 from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
+from vali_objects.vali_dataclasses.penalty_ledger import PenaltyLedgerManager
 
 
 @dataclass
@@ -331,7 +337,9 @@ class DebtLedgerManager:
     #     - Provide query methods for UI consumption
     #     """
     #     pass
-    def __init__(self, perf_ledger_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None):
+    def __init__(self, perf_ledger_manager, position_manager, contract_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None):
+        self.penalty_ledger_manager = PenaltyLedgerManager(position_manager=position_manager, perf_ledger_manager=perf_ledger_manager,
+           contract_manager=contract_manager, slack_webhook_url=slack_webhook_url)
         self.perf_ledger_manager = perf_ledger_manager
         self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=start_daemon,
                                                                ipc_manager=ipc_manager)
