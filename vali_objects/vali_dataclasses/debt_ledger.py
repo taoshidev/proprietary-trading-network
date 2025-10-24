@@ -78,9 +78,11 @@ class DebtCheckpoint:
         avg_tao_to_usd_rate: Average TAO/USD price for this chunk
 
         # Performance Data (from PerfLedger)
+        # Note: Sourced from PerfCheckpoint attributes - some have different names:
+        #   portfolio_return <- gain, max_drawdown <- mdd, max_portfolio_value <- mpv
         portfolio_return: Current portfolio return multiplier (1.0 = break-even)
         pnl_gain: Cumulative PnL gain
-        pnl_loss: Cumulative PnL loss
+        pnl_loss: Cumulative PnL loss (negative value)
         spread_fee_loss: Cumulative spread fee losses
         carry_fee_loss: Cumulative carry fee losses
         max_drawdown: Maximum drawdown (worst loss from peak)
