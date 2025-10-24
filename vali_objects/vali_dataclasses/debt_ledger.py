@@ -968,14 +968,14 @@ class DebtLedgerManager:
                     chunk_emissions_usd=emissions_checkpoint.chunk_emissions_usd,
                     avg_alpha_to_tao_rate=emissions_checkpoint.avg_alpha_to_tao_rate,
                     avg_tao_to_usd_rate=emissions_checkpoint.avg_tao_to_usd_rate,
-                    # Performance data
-                    portfolio_return=perf_checkpoint.gain,
-                    pnl_gain=perf_checkpoint.gain_loss_by_type[0],  # gain_loss_by_type[0] is gain
-                    pnl_loss=perf_checkpoint.gain_loss_by_type[1],  # gain_loss_by_type[1] is loss
-                    spread_fee_loss=perf_checkpoint.gain_loss_by_type[2],  # gain_loss_by_type[2] is spread fee
-                    carry_fee_loss=perf_checkpoint.gain_loss_by_type[3],  # gain_loss_by_type[3] is carry fee
-                    max_drawdown=perf_checkpoint.max_drawdown,
-                    max_portfolio_value=perf_checkpoint.prev_portfolio_ret,  # Use prev_portfolio_ret as the max achieved
+                    # Performance data - access attributes directly from PerfCheckpoint
+                    portfolio_return=perf_checkpoint.gain,  # Current portfolio multiplier
+                    pnl_gain=perf_checkpoint.pnl_gain,  # Cumulative PnL gain
+                    pnl_loss=perf_checkpoint.pnl_loss,  # Cumulative PnL loss (negative value)
+                    spread_fee_loss=perf_checkpoint.spread_fee_loss,  # Cumulative spread fees
+                    carry_fee_loss=perf_checkpoint.carry_fee_loss,  # Cumulative carry fees
+                    max_drawdown=perf_checkpoint.mdd,  # Max drawdown
+                    max_portfolio_value=perf_checkpoint.mpv,  # Max portfolio value achieved
                     open_ms=perf_checkpoint.open_ms,
                     accum_ms=perf_checkpoint.accum_ms,
                     n_updates=perf_checkpoint.n_updates,
