@@ -718,14 +718,8 @@ class DebtLedgerManager:
                 # Success - reset failure counter
                 if consecutive_failures > 0:
                     bt.logging.info(f"Recovered after {consecutive_failures} failure(s)")
-
-                    # Send recovery alert
-                    recovery_message = (
-                        f":white_check_mark: *Debt Ledger - Recovered*\n"
-                        f"*Failed Attempts:* {consecutive_failures}\n"
-                        f"Service is back to normal"
-                    )
-                    self.slack_notifier.send_alert(recovery_message, alert_key="debt_ledger_recovery", force=True)
+                    # Send recovery alert with VM/git/hotkey context
+                    self.slack_notifier.send_ledger_recovery_alert("Debt Ledger", consecutive_failures)
 
                 consecutive_failures = 0
 
@@ -743,17 +737,12 @@ class DebtLedgerManager:
                     exc_info=True
                 )
 
-                # Send Slack alert (rate-limited to avoid spam)
-                error_message = (
-                    f":rotating_light: *Debt Ledger - Update Failed*\n"
-                    f"*Consecutive Failures:* {consecutive_failures}\n"
-                    f"*Error:* {str(e)[:200]}\n"
-                    f"*Next Retry:* {backoff_seconds}s backoff\n"
-                    f"*Action:* Will retry automatically. Check logs if failures persist."
-                )
-                self.slack_notifier.send_alert(
-                    error_message,
-                    alert_key="debt_ledger_failure"
+                # Send Slack alert with VM/git/hotkey context
+                self.slack_notifier.send_ledger_failure_alert(
+                    "Debt Ledger",
+                    consecutive_failures,
+                    e,
+                    backoff_seconds
                 )
 
             # Calculate sleep time and sleep

@@ -155,3 +155,49 @@ class SlackNotifier:
             f"Service is back online"
         )
         return self.send_alert(message, alert_key=f"{service_name}_recovery", force=True)
+
+    def send_ledger_failure_alert(self, ledger_type, consecutive_failures, error_msg, backoff_seconds):
+        """
+        Send formatted alert for ledger update failures.
+
+        Args:
+            ledger_type: Type of ledger (e.g., "Debt Ledger", "Emissions Ledger", "Penalty Ledger")
+            consecutive_failures: Number of consecutive failures
+            error_msg: Error message (will be truncated to 200 chars)
+            backoff_seconds: Backoff time before next retry
+        """
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        hotkey_display = f"...{self.hotkey[-8:]}" if self.hotkey else "Unknown"
+        message = (
+            f":rotating_light: *{ledger_type} - Update Failed*\n"
+            f"*Time:* {timestamp}\n"
+            f"*Consecutive Failures:* {consecutive_failures}\n"
+            f"*Error:* {str(error_msg)[:200]}\n"
+            f"*Next Retry:* {backoff_seconds}s backoff\n"
+            f"*VM Name:* {self.vm_hostname}\n"
+            f"*Validator Hotkey:* {hotkey_display}\n"
+            f"*Git Branch:* {self.git_branch}\n"
+            f"*Action:* Will retry automatically. Check logs if failures persist."
+        )
+        return self.send_alert(message, alert_key=f"{ledger_type.lower().replace(' ', '_')}_failure")
+
+    def send_ledger_recovery_alert(self, ledger_type, consecutive_failures):
+        """
+        Send alert when ledger service recovers.
+
+        Args:
+            ledger_type: Type of ledger (e.g., "Debt Ledger", "Emissions Ledger", "Penalty Ledger")
+            consecutive_failures: Number of failures before recovery
+        """
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        hotkey_display = f"...{self.hotkey[-8:]}" if self.hotkey else "Unknown"
+        message = (
+            f":white_check_mark: *{ledger_type} - Recovered*\n"
+            f"*Time:* {timestamp}\n"
+            f"*Failed Attempts:* {consecutive_failures}\n"
+            f"*VM Name:* {self.vm_hostname}\n"
+            f"*Validator Hotkey:* {hotkey_display}\n"
+            f"*Git Branch:* {self.git_branch}\n"
+            f"Service is back to normal"
+        )
+        return self.send_alert(message, alert_key=f"{ledger_type.lower().replace(' ', '_')}_recovery", force=True)
