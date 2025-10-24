@@ -888,7 +888,13 @@ class EmissionsLedgerManager:
         max_checkpoints = 0
 
         for hotkey, ledger_dict in all_perf_ledgers.items():
-            portfolio_ledger = ledger_dict.get(TP_ID_PORTFOLIO)
+            # Handle both return formats: portfolio_only=True returns PerfLedger directly,
+            # portfolio_only=False returns Dict[str, PerfLedger]
+            if isinstance(ledger_dict, dict):
+                portfolio_ledger = ledger_dict.get(TP_ID_PORTFOLIO)
+            else:
+                portfolio_ledger = ledger_dict  # Already a PerfLedger when portfolio_only=True
+
             if portfolio_ledger and portfolio_ledger.cps:
                 if len(portfolio_ledger.cps) > max_checkpoints:
                     max_checkpoints = len(portfolio_ledger.cps)

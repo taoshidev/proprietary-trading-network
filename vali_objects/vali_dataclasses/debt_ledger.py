@@ -487,9 +487,10 @@ class DebtLedgerManager:
 
     def __init__(self, perf_ledger_manager, position_manager, contract_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False):
         self.perf_ledger_manager = perf_ledger_manager
+        # Disable sub-manager daemons - DebtLedgerManager orchestrates all updates
         self.penalty_ledger_manager = PenaltyLedgerManager(position_manager=position_manager, perf_ledger_manager=perf_ledger_manager,
-           contract_manager=contract_manager, slack_webhook_url=slack_webhook_url, run_daemon=start_daemon, running_unit_tests=running_unit_tests)
-        self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=start_daemon,
+           contract_manager=contract_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests)
+        self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=False,
                                                                ipc_manager=ipc_manager, perf_ledger_manager=perf_ledger_manager, running_unit_tests=running_unit_tests)
 
         self.debt_ledgers: dict[str, DebtLedger] = ipc_manager.dict() if ipc_manager else {}
@@ -681,14 +682,36 @@ class DebtLedgerManager:
         # Main loop
         while self.running:
             try:
-                bt.logging.info("Starting debt ledger delta update...")
+                bt.logging.info("="*80)
+                bt.logging.info("Starting coordinated ledger update cycle...")
+                bt.logging.info("="*80)
                 start_time = time.time()
 
-                # Perform delta update (only new checkpoints)
-                self.build_debt_ledgers()
+                # IMPORTANT: Update sub-ledgers FIRST in correct order before building debt ledgers
+                # This ensures debt ledgers have the latest data from all sources
+
+                # Step 1: Update penalty ledgers
+                bt.logging.info("Step 1/3: Updating penalty ledgers...")
+                penalty_start = time.time()
+                self.penalty_ledger_manager.build_penalty_ledgers(verbose=verbose, delta_update=True)
+                bt.logging.info(f"Penalty ledgers updated in {time.time() - penalty_start:.2f}s")
+
+                # Step 2: Update emissions ledgers
+                bt.logging.info("Step 2/3: Updating emissions ledgers...")
+                emissions_start = time.time()
+                self.emissions_ledger_manager.build_delta_update()
+                bt.logging.info(f"Emissions ledgers updated in {time.time() - emissions_start:.2f}s")
+
+                # Step 3: Build debt ledgers (combines data from penalty + emissions + perf)
+                bt.logging.info("Step 3/3: Building debt ledgers...")
+                debt_start = time.time()
+                self.build_debt_ledgers(verbose=verbose, delta_update=True)
+                bt.logging.info(f"Debt ledgers built in {time.time() - debt_start:.2f}s")
 
                 elapsed = time.time() - start_time
-                bt.logging.info(f"Delta update completed in {elapsed:.2f}s")
+                bt.logging.info("="*80)
+                bt.logging.info(f"Complete update cycle finished in {elapsed:.2f}s")
+                bt.logging.info("="*80)
 
                 # Success - reset failure counter
                 if consecutive_failures > 0:
