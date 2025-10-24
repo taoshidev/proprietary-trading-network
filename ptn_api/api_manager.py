@@ -78,7 +78,8 @@ class APIManager:
                  ws_host="localhost", ws_port=8765,
                  position_manager=None, contract_manager=None,
                  miner_statistics_manager=None, request_core_manager=None,
-                 asset_selection_manager=None, slack_webhook_url=None, debt_ledger_manager=None):
+                 asset_selection_manager=None, slack_webhook_url=None, debt_ledger_manager=None,
+                 validator_hotkey=None):
         """Initialize API management with shared queue and server configurations.
 
         Args:
@@ -91,6 +92,7 @@ class APIManager:
             position_manager: PositionManager instance (optional) for fast miner positions
             contract_manager: ValidatorContractManager instance (optional) for collateral operations
             slack_webhook_url: Slack webhook URL for health alerts (optional)
+            validator_hotkey: Validator hotkey for identification in alerts (optional)
         """
         if shared_queue is None:
             raise ValueError("shared_queue cannot be None - a valid queue is required")
@@ -111,7 +113,7 @@ class APIManager:
         self.debt_ledger_manager = debt_ledger_manager
 
         # Initialize Slack notifier
-        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
+        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
         self.health_monitor_thread = None
         self.shutdown_event = threading.Event()
 

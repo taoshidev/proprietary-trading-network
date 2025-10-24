@@ -443,7 +443,8 @@ class Validator:
                 request_core_manager=self.request_core_manager,
                 asset_selection_manager=self.asset_selection_manager,
                 slack_webhook_url=self.config.slack_webhook_url,
-                debt_ledger_manager=self.debt_ledger_manager
+                debt_ledger_manager=self.debt_ledger_manager,
+                validator_hotkey=self.wallet.hotkey.ss58_address
             )
 
             # Start the API Manager in a separate process
