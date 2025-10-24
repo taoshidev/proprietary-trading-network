@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     # Build penalty ledgers
     bt.logging.info("Building penalty ledgers...")
-    debt_ledger.build_penalty_ledger(verbose=VERBOSE)
+    debt_ledger.build_penalty_ledgers(verbose=VERBOSE)
 
     # Print summary
     bt.logging.info("\n" + "="*60)
