@@ -16,13 +16,14 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
                       asset_selection_manager=None, debt_ledger_manager=None):
     """Starts the REST API server in a separate process."""
     try:
+        print(f"[REST] Step 1/4: Starting REST server process with host={host}, port={port}")
 
         # Get default API keys file path
         api_keys_file = ValiBkpUtils.get_api_keys_file_path()
-
-        print(f"Starting REST server process with host={host}, port={port}")
+        print(f"[REST] Step 2/4: API keys file path: {api_keys_file}")
 
         # Create and run the REST server
+        print(f"[REST] Step 3/4: Creating PTNRestServer instance...")
         rest_server = PTNRestServer(
             api_keys_file=api_keys_file,
             shared_queue=shared_queue,
@@ -36,9 +37,11 @@ def start_rest_server(shared_queue, host="127.0.0.1", port=48888, refresh_interv
             asset_selection_manager=asset_selection_manager,
             debt_ledger_manager=debt_ledger_manager
         )
+        print(f"[REST] Step 4/4: PTNRestServer created successfully, starting server...")
         rest_server.run()
     except Exception as e:
-        print(f"Error in REST server process: {e}")
+        print(f"[REST] FATAL ERROR in REST server process: {e}")
+        print(f"[REST] Exception type: {type(e).__name__}")
         print(traceback.format_exc())
         raise
 

@@ -309,9 +309,12 @@ class PTNRestServer(APIKeyMixin):
             position_manager: Optional position manager for handling miner positions
             contract_manager: Optional contract manager for handling collateral operations
         """
+        print(f"[REST-INIT] Step 1/8: Initializing API key handling...")
         # Initialize API key handling
         APIKeyMixin.__init__(self, api_keys_file, refresh_interval)
+        print(f"[REST-INIT] Step 1/8: API key handling initialized ✓")
 
+        print(f"[REST-INIT] Step 2/8: Setting REST server configuration...")
         # REST server configuration
         self.shared_queue = shared_queue
         self.position_manager: PositionManager = position_manager
@@ -324,25 +327,40 @@ class PTNRestServer(APIKeyMixin):
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
+        print(f"[REST-INIT] Step 2/8: Configuration set ✓")
+
+        print(f"[REST-INIT] Step 3/8: Creating Flask app...")
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 KB upper bound
+        print(f"[REST-INIT] Step 3/8: Flask app created ✓")
 
+        print(f"[REST-INIT] Step 4/8: Loading contract owner...")
         self.contract_manager.load_contract_owner()
+        print(f"[REST-INIT] Step 4/8: Contract owner loaded ✓")
 
         # Flask-Compress removed to prevent double-compression of pre-compressed endpoints
         # Our critical endpoints (validator-checkpoint, minerstatistics) serve pre-compressed data
 
+        print(f"[REST-INIT] Step 5/8: Setting up metrics tracking...")
         # Initialize metrics tracking
         self._setup_metrics(metrics_interval_minutes)
+        print(f"[REST-INIT] Step 5/8: Metrics tracking initialized ✓")
 
+        print(f"[REST-INIT] Step 6/8: Registering routes...")
         # Register routes
         self._register_routes()
+        print(f"[REST-INIT] Step 6/8: Routes registered ✓")
 
+        print(f"[REST-INIT] Step 7/8: Registering error handlers...")
         # Register error handlers
         self._register_error_handlers()
+        print(f"[REST-INIT] Step 7/8: Error handlers registered ✓")
 
+        print(f"[REST-INIT] Step 8/8: Starting API key refresh thread...")
         # Start API key refresh thread
         self.start_refresh_thread()
+        print(f"[REST-INIT] Step 8/8: API key refresh thread started ✓")
+
         print(f"[{current_process().name}] RestServer initialized with {len(self.accessible_api_keys)} API keys")
 
     def _jsonify_with_custom_encoder(self, data, status_code=200):
