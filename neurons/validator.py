@@ -854,15 +854,16 @@ class Validator:
         return temp
 
     def _add_order_to_existing_position(self, existing_position, trade_pair, signal_order_type: OrderType,
-                                        signal_leverage: float, order_time_ms: int, miner_hotkey: str,
-                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource,
-                                        account_size):
+                                        leverage: float, value: float, volume: float, order_time_ms: int, miner_hotkey: str,
+                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource):
         # Must be locked by caller
         best_price_source = price_sources[0]
         order = Order(
             trade_pair=trade_pair,
             order_type=signal_order_type,
-            leverage=signal_leverage,
+            leverage=leverage,
+            value=value,
+            volume=volume,
             price=best_price_source.parse_appropriate_price(order_time_ms, trade_pair.is_forex, signal_order_type,
                                                             existing_position),
             processed_ms=order_time_ms,
@@ -873,7 +874,7 @@ class Validator:
             src=src
         )
         self.price_slippage_model.refresh_features_daily(time_ms=order_time_ms)
-        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
+        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
         net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
         existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
         self.position_manager.save_miner_position(existing_position)
@@ -892,6 +893,30 @@ class Validator:
         else:
             account_size = max(account_size, ValiConfig.MIN_CAPITAL)
         return account_size
+
+    def parse_order_size(self, signal, price, trade_pair, portfolio_value):
+        """
+        parses an order signal and calculates leverage, value, and volume
+        """
+        leverage = signal.get("leverage")
+        value = signal.get("value")
+        volume = signal.get("volume")
+
+        fields_set = [x is not None for x in (leverage, value, volume)]
+        if sum(fields_set) != 1:
+            raise ValueError("Exactly one of 'leverage', 'value', or 'volume' must be set")
+
+        if leverage is not None:
+            value = leverage * portfolio_value
+            volume = value / (price * trade_pair.lot_size)
+        elif value is not None:
+            leverage = value / portfolio_value
+            volume = value / (price * trade_pair.lot_size)
+        elif volume is not None:
+            value = volume * (price * trade_pair.lot_size)
+            leverage = value / portfolio_value
+
+        return leverage, value, volume
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
@@ -926,7 +951,6 @@ class Validator:
                 raise SignalException(
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
 
-            signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
@@ -944,10 +968,15 @@ class Validator:
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type,
                     now_ms, miner_hotkey, miner_order_uuid, now_ms, price_sources, miner_repo_version, account_size)
                 if existing_position:
+                    best_price_source = price_sources[0]
+                    price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,existing_position)
+                    miner_account_size = self._get_account_size(miner_hotkey, now_ms)
+                    leverage, value, volume = self.parse_order_size(signal, price, trade_pair, miner_account_size)
+
                     self._add_order_to_existing_position(existing_position, trade_pair, signal_order_type,
-                                                        signal_leverage, now_ms, miner_hotkey,
+                                                        leverage, value, volume, now_ms, miner_hotkey,
                                                         price_sources, miner_order_uuid, miner_repo_version,
-                                                        OrderSource.ORGANIC, account_size)
+                                                        OrderSource.ORGANIC)
                     synapse.order_json = existing_position.orders[-1].__str__()
                 else:
                     # Happens if a FLAT is sent when no position exists
