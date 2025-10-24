@@ -1813,16 +1813,8 @@ class EmissionsLedgerManager:
                 # Success - reset failure counter
                 if consecutive_failures > 0:
                     bt.logging.info(f"Recovered after {consecutive_failures} failure(s)")
-
-                    # Send recovery alert
-                    recovery_message = (
-                        f":white_check_mark: *Emissions Ledger - Recovered*\n"
-                        f"*NetUID:* {self.netuid}\n"
-                        f"*Failed Attempts:* {consecutive_failures}\n"
-                        f"*Chunks Added:* {chunks_added}\n"
-                        f"Service is back to normal"
-                    )
-                    self.slack_notifier.send_alert(recovery_message, alert_key="emissions_ledger_recovery", force=True)
+                    # Send recovery alert with VM/git/hotkey context
+                    self.slack_notifier.send_ledger_recovery_alert("Emissions Ledger", consecutive_failures)
 
                 consecutive_failures = 0
 
@@ -1840,19 +1832,12 @@ class EmissionsLedgerManager:
                     exc_info=True
                 )
 
-                # Send Slack alert (rate-limited to avoid spam)
-                error_message = (
-                    f":rotating_light: *Emissions Ledger - Update Failed*\n"
-                    f"*NetUID:* {self.netuid}\n"
-                    f"*Archive Endpoint:* {self.archive_endpoint}\n"
-                    f"*Consecutive Failures:* {consecutive_failures}\n"
-                    f"*Error:* {str(e)[:200]}\n"
-                    f"*Next Retry:* {backoff_seconds}s backoff\n"
-                    f"*Action:* Will retry automatically. Check logs if failures persist."
-                )
-                self.slack_notifier.send_alert(
-                    error_message,
-                    alert_key="emissions_ledger_failure"
+                # Send Slack alert with VM/git/hotkey context
+                self.slack_notifier.send_ledger_failure_alert(
+                    "Emissions Ledger",
+                    consecutive_failures,
+                    e,
+                    backoff_seconds
                 )
 
             # Calculate sleep time and sleep (moved to end of loop)
