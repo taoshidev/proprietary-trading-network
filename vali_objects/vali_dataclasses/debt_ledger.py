@@ -829,7 +829,7 @@ class DebtLedgerManager:
                 )
 
         # Filter checkpoints to process
-        times_to_process = []
+        perf_checkpoints_to_process = []
         for checkpoint in reference_portfolio_ledger.cps:
             # Skip active checkpoints (incomplete)
             if checkpoint.accum_ms != target_cp_duration_ms:
@@ -841,16 +841,16 @@ class DebtLedgerManager:
             if delta_update and checkpoint_ms <= last_processed_ms:
                 continue
 
-            times_to_process.append(checkpoint_ms)
+            perf_checkpoints_to_process.append(checkpoint)
 
-        if not times_to_process:
+        if not perf_checkpoints_to_process:
             bt.logging.info("No new checkpoints to process")
             return
 
         bt.logging.info(
-            f"Processing {len(times_to_process)} checkpoints "
-            f"(from {TimeUtil.millis_to_formatted_date_str(times_to_process[0].last_update_ms)} "
-            f"to {TimeUtil.millis_to_formatted_date_str(times_to_process[-1].last_update_ms)})"
+            f"Processing {len(perf_checkpoints_to_process)} checkpoints "
+            f"(from {TimeUtil.millis_to_formatted_date_str(perf_checkpoints_to_process[0].last_update_ms)} "
+            f"to {TimeUtil.millis_to_formatted_date_str(perf_checkpoints_to_process[-1].last_update_ms)})"
         )
 
         # Track all hotkeys we need to process (from perf ledgers)
@@ -866,15 +866,15 @@ class DebtLedgerManager:
 
         # Iterate over TIMESTAMPS processing ALL hotkeys at each timestamp
         checkpoint_count = 0
-        for checkpoint_ms in times_to_process:
+        for perf_checkpoint in perf_checkpoints_to_process:
             checkpoint_count += 1
             checkpoint_start_time = time.time()
 
             # Skip this entire timestamp if it's before the earliest emissions data
-            if earliest_emissions_ms and checkpoint_ms < earliest_emissions_ms:
+            if earliest_emissions_ms and perf_checkpoint.last_update_ms < earliest_emissions_ms:
                 if verbose:
                     bt.logging.info(
-                        f"Skipping checkpoint {checkpoint_count} at {TimeUtil.millis_to_formatted_date_str(checkpoint_ms)} "
+                        f"Skipping checkpoint {checkpoint_count} at {TimeUtil.millis_to_formatted_date_str(perf_checkpoint.last_update_ms)} "
                         f"(before earliest emissions data)"
                     )
                 continue
@@ -893,13 +893,6 @@ class DebtLedgerManager:
                 if not portfolio_ledger or not portfolio_ledger.cps:
                     continue
 
-                # Find perf checkpoint at this timestamp
-                perf_checkpoint = None
-                for cp in portfolio_ledger.cps:
-                    if cp.last_update_ms == checkpoint_ms and cp.accum_ms == target_cp_duration_ms:
-                        perf_checkpoint = cp
-                        break
-
                 if not perf_checkpoint:
                     continue  # This hotkey doesn't have a perf checkpoint at this timestamp
 
@@ -907,13 +900,13 @@ class DebtLedgerManager:
                 penalty_ledger = self.penalty_ledger_manager.get_penalty_ledger(hotkey)
                 penalty_checkpoint = None
                 if penalty_ledger:
-                    penalty_checkpoint = penalty_ledger.get_checkpoint_at_time(checkpoint_ms, target_cp_duration_ms)
+                    penalty_checkpoint = penalty_ledger.get_checkpoint_at_time(perf_checkpoint.last_update_ms, target_cp_duration_ms)
 
                 # Get corresponding emissions checkpoint (efficient O(1) lookup)
                 emissions_ledger = self.emissions_ledger_manager.get_ledger(hotkey)
                 emissions_checkpoint = None
                 if emissions_ledger:
-                    emissions_checkpoint = emissions_ledger.get_checkpoint_at_time(checkpoint_ms, target_cp_duration_ms)
+                    emissions_checkpoint = emissions_ledger.get_checkpoint_at_time(perf_checkpoint.last_update_ms, target_cp_duration_ms)
 
                 # Skip if we don't have both penalty and emissions data
                 if not penalty_checkpoint or not emissions_checkpoint:
@@ -921,19 +914,19 @@ class DebtLedgerManager:
                     continue
 
                 # Validate timestamps match
-                if penalty_checkpoint.last_processed_ms != checkpoint_ms:
+                if penalty_checkpoint.last_processed_ms != perf_checkpoint.last_update_ms:
                     if verbose:
                         bt.logging.warning(
                             f"Penalty checkpoint timestamp mismatch for {hotkey}: "
-                            f"expected {checkpoint_ms}, got {penalty_checkpoint.last_processed_ms}"
+                            f"expected {perf_checkpoint.last_update_ms}, got {penalty_checkpoint.last_processed_ms}"
                         )
                     continue
 
-                if emissions_checkpoint.chunk_end_ms != checkpoint_ms:
+                if emissions_checkpoint.chunk_end_ms != perf_checkpoint.last_update_ms:
                     if verbose:
                         bt.logging.warning(
                             f"Emissions checkpoint end time mismatch for {hotkey}: "
-                            f"expected {checkpoint_ms}, got {emissions_checkpoint.chunk_end_ms}"
+                            f"expected {perf_checkpoint.last_update_ms}, got {emissions_checkpoint.chunk_end_ms}"
                         )
                     continue
 
@@ -945,7 +938,7 @@ class DebtLedgerManager:
 
                 # Create unified debt checkpoint combining all three sources
                 debt_checkpoint = DebtCheckpoint(
-                    timestamp_ms=checkpoint_ms,
+                    timestamp_ms=perf_checkpoint.last_update_ms,
                     # Emissions data (chunk only - cumulative calculated by summing)
                     chunk_emissions_alpha=emissions_checkpoint.chunk_emissions,
                     chunk_emissions_tao=emissions_checkpoint.chunk_emissions_tao,
@@ -980,9 +973,9 @@ class DebtLedgerManager:
 
             # Log progress for this checkpoint
             checkpoint_elapsed = time.time() - checkpoint_start_time
-            checkpoint_dt = datetime.fromtimestamp(checkpoint_ms / 1000, tz=timezone.utc)
+            checkpoint_dt = datetime.fromtimestamp(perf_checkpoint.last_update_ms / 1000, tz=timezone.utc)
             bt.logging.info(
-                f"Checkpoint {checkpoint_count}/{len(times_to_process)} "
+                f"Checkpoint {checkpoint_count}/{len(perf_checkpoints_to_process)} "
                 f"({checkpoint_dt.strftime('%Y-%m-%d %H:%M UTC')}): "
                 f"{hotkeys_processed_at_checkpoint} hotkeys processed, "
                 f"{len(hotkeys_missing_data)} missing data, "
