@@ -453,6 +453,7 @@ class Validator:
             bt.logging.info(
                 f"API services started - REST: {self.config.api_host}:{self.config.api_rest_port}, WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
         else:
+            bt.logging.info("API services not started as per configuration.")
             self.api_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
