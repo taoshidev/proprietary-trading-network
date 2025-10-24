@@ -600,6 +600,15 @@ class PenaltyLedgerManager:
             portfolio_only=False
         )
         all_positions: Dict[str, List[Position]] = self.position_manager.get_positions_for_all_miners()
+
+        bt.logging.info(
+            f"Building penalty ledgers for {len(all_perf_ledgers)} hotkeys "
+            f"({'delta update' if delta_update else 'full rebuild'})"
+        )
+
+        hotkeys_processed = 0
+        total_checkpoints_added = 0
+
         for miner_hotkey, ledger_dict in all_perf_ledgers.items():
             # Get portfolio ledger for this miner
             portfolio_ledger = ledger_dict.get(TP_ID_PORTFOLIO)
@@ -710,13 +719,19 @@ class PenaltyLedgerManager:
             # to propagate changes (managed dicts don't track nested mutations)
             if checkpoints_processed > 0:
                 self.penalty_ledgers[miner_hotkey] = penalty_ledger  # Reassign to trigger IPC update
+                hotkeys_processed += 1
+                total_checkpoints_added += checkpoints_processed
                 if verbose:
                     bt.logging.info(
                         f"Processed {checkpoints_processed} new penalty checkpoints for miner {miner_hotkey} "
                         f"(total: {len(penalty_ledger.checkpoints)})"
                     )
 
-        bt.logging.info(f"Built penalty ledgers for {len(self.penalty_ledgers)} miners")
+        bt.logging.info(
+            f"Built penalty ledgers: {hotkeys_processed} hotkeys processed, "
+            f"{total_checkpoints_added} new checkpoints added, "
+            f"{len(self.penalty_ledgers)} total ledgers"
+        )
 
         # Save to disk after building
         self.save_to_disk()
