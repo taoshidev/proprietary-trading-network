@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 from vali_objects.position import Position
+from vali_objects.utils.asset_selection_manager import AssetSelectionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLIO
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.position_penalties import PositionPenalties
@@ -264,6 +265,7 @@ class PenaltyLedgerManager:
         position_manager: PositionManager,
         perf_ledger_manager: PerfLedgerManager,
         contract_manager: ValidatorContractManager,
+        asset_selection_manager: AssetSelectionManager,
         ipc_manager=None,
         running_unit_tests: bool = False,
         slack_webhook_url=None,
@@ -276,6 +278,7 @@ class PenaltyLedgerManager:
             position_manager: Manager for reading miner positions
             perf_ledger_manager: Manager for reading performance ledgers
             contract_manager: Manager for reading miner collateral/account sizes
+            asset_selection_manager: Manager for tracking miner asset class selections
             ipc_manager: Optional IPC manager for multiprocessing
             running_unit_tests: Whether this is being run in unit tests
             slack_webhook_url: Optional Slack webhook URL for failure notifications
@@ -284,6 +287,7 @@ class PenaltyLedgerManager:
         self.position_manager = position_manager
         self.perf_ledger_manager = perf_ledger_manager
         self.contract_manager = contract_manager
+        self.asset_selection_manager = asset_selection_manager
         self.running_unit_tests = running_unit_tests
 
         # Storage for penalty checkpoints per miner
@@ -670,10 +674,13 @@ class PenaltyLedgerManager:
 
                         elif penalty_config.input_type == PenaltyInputType.ASSET_LEDGER:
                             segmentation_machine = AssetSegmentation({miner_hotkey: ledger_dict})
-                            accumulated_penalty = 1.0
+                            accumulated_penalty = 1
 
-                            for asset_class, asset_config in ValiConfig.ASSET_CLASS_BREAKDOWN.items():
-                                subcategories = asset_config.get("subcategory_weights", {}).keys()
+                            asset_class = self.asset_selection_manager.asset_selections.get(miner_hotkey);
+                            if not asset_class:
+                                accumulated_penalty = 0
+                            else:
+                                subcategories = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class].get("subcategory_weights", {}).keys()
 
                                 subcategory_penalties = []
                                 for subcategory in subcategories:

@@ -263,7 +263,7 @@ class Validator:
         self.uuid_tracker.add_initial_uuids(self.position_manager.get_positions_for_all_miners())
 
         self.debt_ledger_manager = DebtLedgerManager(self.perf_ledger_manager, self.position_manager, self.contract_manager,
-                                     slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
+                                     self.asset_selection_manager, slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
                                      ipc_manager=self.ipc_manager)
 
         self.checkpoint_lock = threading.Lock()
