@@ -487,11 +487,11 @@ class DebtLedgerManager:
 
     DEFAULT_CHECK_INTERVAL_SECONDS = 3600 * 12  # 12 hours
 
-    def __init__(self, perf_ledger_manager, position_manager, contract_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False):
+    def __init__(self, perf_ledger_manager, position_manager, contract_manager, asset_selection_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False):
         self.perf_ledger_manager = perf_ledger_manager
         # Disable sub-manager daemons - DebtLedgerManager orchestrates all updates
         self.penalty_ledger_manager = PenaltyLedgerManager(position_manager=position_manager, perf_ledger_manager=perf_ledger_manager,
-           contract_manager=contract_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests)
+           contract_manager=contract_manager, asset_selection_manager=asset_selection_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests)
         self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=False,
                                                                ipc_manager=ipc_manager, perf_ledger_manager=perf_ledger_manager, running_unit_tests=running_unit_tests)
 
