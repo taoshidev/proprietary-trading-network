@@ -264,7 +264,8 @@ class Validator:
 
         self.debt_ledger_manager = DebtLedgerManager(self.perf_ledger_manager, self.position_manager, self.contract_manager,
                                      self.asset_selection_manager, slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
-                                     ipc_manager=self.ipc_manager)
+                                     ipc_manager=self.ipc_manager, validator_hotkey=self.wallet.hotkey.ss58_address)
+
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""

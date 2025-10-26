@@ -269,7 +269,8 @@ class PenaltyLedgerManager:
         ipc_manager=None,
         running_unit_tests: bool = False,
         slack_webhook_url=None,
-        run_daemon: bool = False
+        run_daemon: bool = False,
+        validator_hotkey: Optional[str] = None
     ):
         """
         Initialize PenaltyLedgerManager with managers for positions, performance ledgers, and collateral.
@@ -297,7 +298,7 @@ class PenaltyLedgerManager:
         self.running = False
 
         # Slack notifications
-        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
+        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
 
         # Load existing ledgers from disk
         self.load_from_disk()
