@@ -487,16 +487,17 @@ class DebtLedgerManager:
 
     DEFAULT_CHECK_INTERVAL_SECONDS = 3600 * 12  # 12 hours
 
-    def __init__(self, perf_ledger_manager, position_manager, contract_manager, asset_selection_manager, slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False):
+    def __init__(self, perf_ledger_manager, position_manager, contract_manager, asset_selection_manager,
+                 slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False, validator_hotkey=None):
         self.perf_ledger_manager = perf_ledger_manager
-        # Disable sub-manager daemons - DebtLedgerManager orchestrates all updates
         self.penalty_ledger_manager = PenaltyLedgerManager(position_manager=position_manager, perf_ledger_manager=perf_ledger_manager,
-           contract_manager=contract_manager, asset_selection_manager=asset_selection_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests)
+           contract_manager=contract_manager, asset_selection_manager=asset_selection_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests, validator_hotkey=validator_hotkey)
+
         self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=False,
-                                                               ipc_manager=ipc_manager, perf_ledger_manager=perf_ledger_manager, running_unit_tests=running_unit_tests)
+                                                               ipc_manager=ipc_manager, perf_ledger_manager=perf_ledger_manager, running_unit_tests=running_unit_tests, validator_hotkey=validator_hotkey)
 
         self.debt_ledgers: dict[str, DebtLedger] = ipc_manager.dict() if ipc_manager else {}
-        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
+        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
         self.running_unit_tests = running_unit_tests
         self.running = False
 
@@ -949,6 +950,17 @@ class DebtLedgerManager:
                     debt_ledger = self.debt_ledgers[hotkey]
                 else:
                     debt_ledger = DebtLedger(hotkey)
+
+                # Skip if this hotkey already has a checkpoint at this timestamp (delta update safety check)
+                if delta_update and debt_ledger.checkpoints:
+                    last_checkpoint_ms = debt_ledger.checkpoints[-1].timestamp_ms
+                    if perf_checkpoint.last_update_ms <= last_checkpoint_ms:
+                        if verbose:
+                            bt.logging.info(
+                                f"Skipping checkpoint for {hotkey} at {perf_checkpoint.last_update_ms} "
+                                f"(already processed, last checkpoint: {last_checkpoint_ms})"
+                            )
+                        continue
 
                 # Create unified debt checkpoint combining all three sources
                 debt_checkpoint = DebtCheckpoint(

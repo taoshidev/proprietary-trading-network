@@ -488,7 +488,8 @@ class EmissionsLedgerManager:
         running_unit_tests: bool = False,
         slack_webhook_url: Optional[str] = None,
         start_daemon: bool = False,
-        ipc_manager = None
+        ipc_manager = None,
+        validator_hotkey: Optional[str] = None
     ):
         """
         Initialize EmissionsLedger with blockchain connection.
@@ -516,7 +517,7 @@ class EmissionsLedgerManager:
         self.running = False
         self.daemon_process: Optional[multiprocessing.Process] = None
         # Slack notifications
-        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url)
+        self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
 
         # Non-pickleable components (lazy-initialized when needed)
         self.subtensor = None
