@@ -5,6 +5,7 @@ import websockets
 import traceback
 import argparse
 import os
+import logging
 from multiprocessing import Manager
 from collections import defaultdict, deque
 from multiprocessing import current_process
@@ -631,6 +632,40 @@ class WebSocketServer(APIKeyMixin):
 
         # Initialize the message queue
         self.message_queue = asyncio.Queue()
+
+        # Suppress EOFError logs from websockets library (caused by health monitor TCP checks)
+        # These errors occur when the health monitor creates a raw TCP connection to check if the port is open,
+        # but doesn't complete the WebSocket handshake. This is expected behavior and not an actual error.
+
+        # Add a filter to suppress the specific EOF errors during handshake
+        class HandshakeEOFFilter(logging.Filter):
+            def filter(self, record):
+                # Get the full message including exception info
+                msg = record.getMessage()
+                if record.exc_info:
+                    import io
+                    sio = io.StringIO()
+                    traceback.print_exception(*record.exc_info, file=sio)
+                    msg += '\n' + sio.getvalue()
+
+                # Suppress "connection closed while reading HTTP request line" errors
+                if 'connection closed while reading HTTP request line' in msg:
+                    return False
+                # Suppress "opening handshake failed" errors
+                if 'opening handshake failed' in msg:
+                    return False
+                # Suppress "stream ends after 0 bytes" errors (health check connections)
+                if 'stream ends after 0 bytes, before end of line' in msg:
+                    return False
+                # Suppress EOFError from health checks
+                if 'EOFError' in msg and 'handshake' in msg.lower():
+                    return False
+                return True
+
+        # Apply filter to websockets loggers
+        for logger_name in ['websockets.server', 'websockets', 'websockets.protocol']:
+            logger = logging.getLogger(logger_name)
+            logger.addFilter(HandshakeEOFFilter())
 
         # Start sequence number periodic save task
         self.save_task = asyncio.create_task(self._periodic_save_sequence())
