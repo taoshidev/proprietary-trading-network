@@ -387,15 +387,21 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
+        bt.logging.info("[INIT] Step 1/10: Initializing PlagiarismDetector...")
         self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
                                                       position_manager=self.position_manager)
+        bt.logging.info("[INIT] Step 2/10: Starting plagiarism detector process...")
         # Start the plagiarism detector in its own thread
         self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
         self.plagiarism_thread.start()
+        bt.logging.info(f"[INIT] Step 2/10 complete: Plagiarism detector process started (PID: {self.plagiarism_thread.pid})")
 
+        bt.logging.info("[INIT] Step 3/10: Initializing MDDChecker...")
         self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
                                       shutdown_dict=shutdown_dict)
+        bt.logging.info("[INIT] Step 3/10 complete: MDDChecker initialized")
 
+        bt.logging.info("[INIT] Step 4/10: Initializing SubtensorWeightSetter...")
         self.weight_setter = SubtensorWeightSetter(
             self.metagraph,
             position_manager=self.position_manager,
@@ -406,30 +412,45 @@ class Validator:
             hotkey=self.wallet.hotkey.ss58_address,
             contract_manager=self.contract_manager
         )
+        bt.logging.info("[INIT] Step 4/10 complete: SubtensorWeightSetter initialized")
 
+        bt.logging.info("[INIT] Step 5/10: Initializing RequestCoreManager and MinerStatisticsManager...")
         self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, asset_selection_manager=self.asset_selection_manager)
         self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager)
+        bt.logging.info("[INIT] Step 5/10 complete: Managers initialized")
 
+        bt.logging.info("[INIT] Step 6/10: Starting perf ledger updater process...")
         # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
         self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
         self.perf_ledger_updater_thread.start()
+        bt.logging.info(f"[INIT] Step 6/10 complete: Perf ledger updater process started (PID: {self.perf_ledger_updater_thread.pid})")
 
+        bt.logging.info("[INIT] Step 7/10: Starting weight setter process...")
         # Start the weight setter loop in its own process
         self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
         self.weight_setter_process.start()
+        bt.logging.info(f"[INIT] Step 7/10 complete: Weight setter process started (PID: {self.weight_setter_process.pid})")
 
+        bt.logging.info("[INIT] Step 8/10: Starting weight processing thread...")
         # Start dedicated weight processing thread in MetagraphUpdater (validators only)
         if self.metagraph_updater.weight_request_queue:
             self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
             self.weight_processing_thread.start()
+            bt.logging.info("[INIT] Step 8/10 complete: Weight processing thread started")
+        else:
+            bt.logging.info("[INIT] Step 8/10 skipped: No weight request queue")
 
+        bt.logging.info("[INIT] Step 9/10: Starting request output generator (if enabled)...")
         if self.config.start_generate:
             self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
             self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
             self.rog_thread.start()
+            bt.logging.info("[INIT] Step 9/10 complete: Request output generator started")
         else:
             self.rog_thread = None
+            bt.logging.info("[INIT] Step 9/10 skipped: Request output generator not enabled")
 
+        bt.logging.info("[INIT] Step 10/10: Starting API services (if enabled)...")
         if self.config.serve:
             # Create API Manager with configuration options
             self.api_manager = APIManager(
