@@ -141,16 +141,46 @@ class APIManager:
         Daemon thread that monitors process health and sends Slack alerts.
         Runs independently of the main monitoring loop.
         """
+        import socket
+
         print("[HealthMonitor] Daemon thread started")
         ws_was_down = False
         rest_was_down = False
+        check_count = 0
+
+        def check_port_listening(host, port, timeout=2):
+            """Check if a port is actually listening and accepting connections."""
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                result = sock.connect_ex((host, port))
+                sock.close()
+                return result == 0  # 0 means success
+            except Exception as e:
+                print(f"[HealthMonitor] Error checking port {host}:{port}: {e}")
+                return False
 
         while not self.shutdown_event.is_set():
             try:
+                check_count += 1
+
+                # Log heartbeat every 6 checks (1 minute)
+                if check_count % 6 == 0:
+                    print(f"[HealthMonitor] Heartbeat #{check_count}: "
+                          f"WS={'UP' if ws_process.is_alive() else 'DOWN'}, "
+                          f"REST={'UP' if rest_process.is_alive() else 'DOWN'}")
+
                 # Check WebSocket server health
-                if not ws_process.is_alive():
+                ws_process_alive = ws_process.is_alive()
+                ws_port_open = check_port_listening(self.ws_host, self.ws_port)
+                ws_healthy = ws_process_alive and ws_port_open
+
+                if not ws_healthy:
                     if not ws_was_down:
-                        print(f"[HealthMonitor] WebSocket server down! PID: {ws_process.pid}, Exit: {ws_process.exitcode}")
+                        print(f"[HealthMonitor] WebSocket server DOWN! "
+                              f"Process alive: {ws_process_alive}, "
+                              f"Port {self.ws_port} open: {ws_port_open}, "
+                              f"PID: {ws_process.pid}, Exit: {ws_process.exitcode}")
                         self.slack_notifier.send_websocket_down_alert(
                             pid=ws_process.pid,
                             exit_code=ws_process.exitcode,
@@ -160,14 +190,21 @@ class APIManager:
                         ws_was_down = True
                 else:
                     if ws_was_down:
-                        print("[HealthMonitor] WebSocket server recovered!")
+                        print("[HealthMonitor] WebSocket server RECOVERED!")
                         self.slack_notifier.send_recovery_alert("WebSocket Server")
                         ws_was_down = False
 
                 # Check REST server health
-                if not rest_process.is_alive():
+                rest_process_alive = rest_process.is_alive()
+                rest_port_open = check_port_listening(self.rest_host, self.rest_port)
+                rest_healthy = rest_process_alive and rest_port_open
+
+                if not rest_healthy:
                     if not rest_was_down:
-                        print(f"[HealthMonitor] REST server down! PID: {rest_process.pid}, Exit: {rest_process.exitcode}")
+                        print(f"[HealthMonitor] REST server DOWN! "
+                              f"Process alive: {rest_process_alive}, "
+                              f"Port {self.rest_port} open: {rest_port_open}, "
+                              f"PID: {rest_process.pid}, Exit: {rest_process.exitcode}")
                         self.slack_notifier.send_rest_down_alert(
                             pid=rest_process.pid,
                             exit_code=rest_process.exitcode,
@@ -177,7 +214,7 @@ class APIManager:
                         rest_was_down = True
                 else:
                     if rest_was_down:
-                        print("[HealthMonitor] REST server recovered!")
+                        print("[HealthMonitor] REST server RECOVERED!")
                         self.slack_notifier.send_recovery_alert("REST Server")
                         rest_was_down = False
 
@@ -186,6 +223,7 @@ class APIManager:
 
             except Exception as e:
                 print(f"[HealthMonitor] Error in health check: {e}")
+                traceback.print_exc()
                 time.sleep(10)
 
         print("[HealthMonitor] Daemon thread stopped")
