@@ -149,9 +149,13 @@ class SlackNotifier:
     def send_recovery_alert(self, service_name):
         """Send alert when service recovers."""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        hotkey_display = f"...{self.hotkey[-8:]}" if self.hotkey else "Unknown"
         message = (
             f":white_check_mark: *{service_name} Recovered*\n"
             f"*Time:* {timestamp}\n"
+            f"*VM Name:* {self.vm_hostname}\n"
+            f"*Validator Hotkey:* {hotkey_display}\n"
+            f"*Git Branch:* {self.git_branch}\n"
             f"Service is back online"
         )
         return self.send_alert(message, alert_key=f"{service_name}_recovery", force=True)
