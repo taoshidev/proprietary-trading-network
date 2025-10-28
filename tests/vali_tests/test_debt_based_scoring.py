@@ -11,10 +11,6 @@ from vali_objects.scoring.debt_based_scoring import DebtBasedScoring
 class TestDebtBasedScoring(unittest.TestCase):
     """Test debt-based scoring functionality"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        self.target_cp_duration_ms = 43200000  # 12 hours
-
     def test_empty_ledgers(self):
         """Test with no ledgers"""
         result = DebtBasedScoring.compute_results({})
