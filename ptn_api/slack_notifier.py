@@ -156,9 +156,40 @@ class SlackNotifier:
             f"*VM Name:* {self.vm_hostname}\n"
             f"*Validator Hotkey:* {hotkey_display}\n"
             f"*Git Branch:* {self.git_branch}\n"
-            f"Service is back online"
+            f"Service is back online after auto-restart"
         )
         return self.send_alert(message, alert_key=f"{service_name}_recovery", force=True)
+
+    def send_restart_alert(self, service_name, restart_count, new_pid):
+        """Send alert when service is being restarted."""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        hotkey_display = f"...{self.hotkey[-8:]}" if self.hotkey else "Unknown"
+        message = (
+            f":arrows_counterclockwise: *{service_name} Auto-Restarting*\n"
+            f"*Time:* {timestamp}\n"
+            f"*Restart Attempt:* {restart_count}/3\n"
+            f"*New PID:* {new_pid}\n"
+            f"*VM Name:* {self.vm_hostname}\n"
+            f"*Validator Hotkey:* {hotkey_display}\n"
+            f"*Git Branch:* {self.git_branch}\n"
+            f"Attempting automatic recovery..."
+        )
+        return self.send_alert(message, alert_key=f"{service_name}_restart")
+
+    def send_critical_alert(self, service_name, error_msg):
+        """Send critical alert when auto-restart fails."""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        hotkey_display = f"...{self.hotkey[-8:]}" if self.hotkey else "Unknown"
+        message = (
+            f":red_circle: *CRITICAL: {service_name} Auto-Restart Failed*\n"
+            f"*Time:* {timestamp}\n"
+            f"*Error:* {error_msg}\n"
+            f"*VM Name:* {self.vm_hostname}\n"
+            f"*Validator Hotkey:* {hotkey_display}\n"
+            f"*Git Branch:* {self.git_branch}\n"
+            f"*Action:* MANUAL INTERVENTION REQUIRED"
+        )
+        return self.send_alert(message, alert_key=f"{service_name}_critical", force=True)
 
     def send_ledger_failure_alert(self, ledger_type, consecutive_failures, error_msg, backoff_seconds):
         """

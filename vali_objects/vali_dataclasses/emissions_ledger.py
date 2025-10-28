@@ -37,6 +37,7 @@ import bittensor as bt
 import time
 import argparse
 import scalecodec
+from async_substrate_interface.errors import SubstrateRequestException
 
 from time_util.time_util import TimeUtil
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
@@ -519,6 +520,8 @@ class EmissionsLedgerManager:
         self.running_unit_tests = running_unit_tests
         # In-memory ledgers
         self.emissions_ledgers: Dict[str, EmissionsLedger] = ipc_manager.dict() if ipc_manager else {}
+        # Hotkey to coldkey cache (persistent, saves queries)
+        self.hotkey_to_coldkey: Dict[str, str] = {}
         # Daemon control
         self.running = False
         self.daemon_process: Optional[multiprocessing.Process] = None
@@ -819,42 +822,74 @@ class EmissionsLedgerManager:
     def _query_alpha_balance_at_block(
         self,
         hotkey_ss58: str,
-        block_hash: str
+        block_number: int
     ) -> float:
         """
-        Query ALPHA balance for a hotkey at a specific block.
+        Query ALPHA balance (staked alpha) for a hotkey at a specific block.
+
+        Uses subtensor.get_stake() which queries the alpha stake amount for a hotkey
+        within this subnet. Alpha emissions are automatically staked to the hotkey.
+
+        Caches the hotkey->coldkey mapping to avoid redundant queries, since
+        coldkey ownership doesn't change.
 
         Args:
             hotkey_ss58: SS58 address of the hotkey
-            block_hash: Block hash to query at
+            block_number: Block number to query at
 
         Returns:
-            ALPHA balance in tokens (not RAO)
+            ALPHA balance in tokens
 
         Raises:
             ValueError: If query returns invalid data
             Exception: If substrate query fails
         """
-        self._rate_limit()
+        # Check cache first for coldkey
+        if hotkey_ss58 in self.hotkey_to_coldkey:
+            coldkey = self.hotkey_to_coldkey[hotkey_ss58]
+        else:
+            # Cache miss - query and cache it
+            self._rate_limit()
+
+            try:
+                # Query the coldkey that owns this hotkey (current block is fine, ownership doesn't change)
+                coldkey = self.subtensor.substrate.query(
+                    module='SubtensorModule',
+                    storage_function='Owner',
+                    params=[hotkey_ss58]
+                )
+
+                if not coldkey:
+                    raise ValueError(f"No coldkey found for hotkey {hotkey_ss58}")
+
+                # Cache it for future queries
+                self.hotkey_to_coldkey[hotkey_ss58] = str(coldkey)
+                coldkey = str(coldkey)
+
+            except Exception as e:
+                raise Exception(
+                    f"Failed to query coldkey (Owner) for hotkey {hotkey_ss58}: {e}"
+                )
 
         try:
-            subnet_account = self.subtensor.substrate.query(
-                module='SubtensorModule',
-                storage_function='SubnetAccount',
-                params=[self.netuid, hotkey_ss58],
-                block_hash=block_hash
+            # Rate limit before stake query
+            self._rate_limit()
+
+            # Query the alpha stake using get_stake()
+            stake_balance = self.subtensor.get_stake(
+                coldkey_ss58=coldkey,
+                hotkey_ss58=hotkey_ss58,
+                netuid=self.netuid,
+                block=block_number
             )
+
+            # Convert Balance object to float (note: .tao represents ALPHA when netuid != 0)
+            alpha_balance = float(stake_balance.tao)
+
         except Exception as e:
             raise Exception(
-                f"Failed to query ALPHA balance for {hotkey_ss58} at block {block_hash}: {e}"
-            )
-
-        try:
-            alpha_balance_rao = float(subnet_account) if subnet_account is not None else 0.0
-            alpha_balance = alpha_balance_rao / 1e9
-        except Exception as e:
-            raise ValueError(
-                f"Failed to parse ALPHA balance from subnet_account for {hotkey_ss58}: {e}"
+                f"Failed to query ALPHA stake for hotkey {hotkey_ss58} (coldkey {coldkey}) "
+                f"at block {block_number}: {e}"
             )
 
         return alpha_balance
@@ -1205,7 +1240,7 @@ class EmissionsLedgerManager:
 
                     # Query balance snapshots at checkpoint end
                     tao_balance = self._query_tao_balance_at_block(hotkey, end_block_hash)
-                    alpha_balance = self._query_alpha_balance_at_block(hotkey, end_block_hash)
+                    alpha_balance = self._query_alpha_balance_at_block(hotkey, chunk_end_block)
 
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
@@ -1229,7 +1264,7 @@ class EmissionsLedgerManager:
 
                     # Query balance snapshots at checkpoint end
                     tao_balance = self._query_tao_balance_at_block(hotkey, end_block_hash)
-                    alpha_balance = self._query_alpha_balance_at_block(hotkey, end_block_hash)
+                    alpha_balance = self._query_alpha_balance_at_block(hotkey, chunk_end_block)
 
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
@@ -1564,6 +1599,7 @@ class EmissionsLedgerManager:
             "last_update_ms": int(time.time() * 1000),
             "netuid": self.netuid,
             "archive_endpoint": self.archive_endpoint,
+            "hotkey_to_coldkey": self.hotkey_to_coldkey,  # Save cache for efficiency
             "ledgers": {}
         }
 
@@ -1595,6 +1631,8 @@ class EmissionsLedgerManager:
         # Load data
         data = self._read_compressed(ledger_path)
 
+        # Load hotkey->coldkey cache (optimization to avoid redundant queries)
+        self.hotkey_to_coldkey = data.get("hotkey_to_coldkey", {})
 
         # Extract metadata
         metadata = {
@@ -1628,8 +1666,9 @@ class EmissionsLedgerManager:
             self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey=hotkey, checkpoints=checkpoints)
 
         bt.logging.info(
-            f"Loaded {len(self.emissions_ledgers)} emissions ledgers, ",
-            f"metadata: {metadata}, ",
+            f"Loaded {len(self.emissions_ledgers)} emissions ledgers, "
+            f"{len(self.hotkey_to_coldkey)} cached hotkey->coldkey mappings, "
+            f"metadata: {metadata}, "
             f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}"
         )
 
