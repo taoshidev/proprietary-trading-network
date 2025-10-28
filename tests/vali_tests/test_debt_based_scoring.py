@@ -1,8 +1,9 @@
 """
-Unit tests for debt-based scoring algorithm
+Unit tests for debt-based scoring algorithm with emission projection
 """
 
 import unittest
+from unittest.mock import Mock, MagicMock
 from datetime import datetime, timezone
 from vali_objects.vali_dataclasses.debt_ledger import DebtLedger, DebtCheckpoint
 from vali_objects.scoring.debt_based_scoring import DebtBasedScoring
@@ -11,15 +12,40 @@ from vali_objects.scoring.debt_based_scoring import DebtBasedScoring
 class TestDebtBasedScoring(unittest.TestCase):
     """Test debt-based scoring functionality"""
 
+    def setUp(self):
+        """Set up mock dependencies"""
+        # Mock subtensor
+        self.mock_subtensor = Mock()
+        self.mock_metagraph = Mock()
+        self.mock_metagraph.emission = [1e9] * 10  # 10 miners, 1 TAO each per block in RAO
+        self.mock_subtensor.metagraph = Mock(return_value=self.mock_metagraph)
+        self.mock_subtensor.get_current_block = Mock(return_value=1000000)
+
+        # Mock emissions ledger manager
+        self.mock_emissions_mgr = Mock()
+        self.mock_emissions_mgr.query_alpha_to_tao_rate = Mock(return_value=0.5)  # 1 ALPHA = 0.5 TAO
+
+        self.netuid = 8
+
     def test_empty_ledgers(self):
         """Test with no ledgers"""
-        result = DebtBasedScoring.compute_results({})
+        result = DebtBasedScoring.compute_results(
+            {},
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr
+        )
         self.assertEqual(result, [])
 
     def test_single_miner(self):
         """Test with single miner returns weight 1.0"""
         ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
-        result = DebtBasedScoring.compute_results({"test_hotkey": ledger})
+        result = DebtBasedScoring.compute_results(
+            {"test_hotkey": ledger},
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr
+        )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], ("test_hotkey", 1.0))
 
@@ -35,7 +61,13 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"hotkey1": ledger1, "hotkey2": ledger2}
 
-        result = DebtBasedScoring.compute_results(ledgers, current_time_ms=current_time_ms)
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms
+        )
 
         # All miners should have zero weight
         self.assertEqual(len(result), 2)
@@ -85,7 +117,13 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"hotkey1": ledger1, "hotkey2": ledger2}
 
-        result = DebtBasedScoring.compute_results(ledgers, current_time_ms=current_time_ms)
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms
+        )
 
         # Check that weights sum to 1.0
         total_weight = sum(weight for _, weight in result)
@@ -124,7 +162,14 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"negative_miner": ledger_negative, "positive_miner": ledger_positive}
 
-        result = DebtBasedScoring.compute_results(ledgers, current_time_ms=current_time_ms, verbose=True)
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms,
+            verbose=True
+        )
 
         # Negative miner should get minimal weight (remaining payout clamped to 0)
         weights_dict = dict(result)
@@ -159,7 +204,13 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"no_penalty": ledger1, "with_penalty": ledger2}
 
-        result = DebtBasedScoring.compute_results(ledgers, current_time_ms=current_time_ms)
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms
+        )
 
         # Miner with no penalty should get higher weight
         weights_dict = dict(result)
@@ -168,6 +219,28 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Ratio should be approximately 2:1 (4000 vs 2000 needed payout)
         ratio = weights_dict["no_penalty"] / weights_dict["with_penalty"]
         self.assertAlmostEqual(ratio, 2.0, places=1)
+
+    def test_emission_projection_calculation(self):
+        """Test that emission projection is calculated correctly"""
+        # Use mocked subtensor with known emission rate
+        days_until_target = 10
+
+        projected_alpha = DebtBasedScoring._estimate_alpha_emissions_until_target(
+            subtensor=self.mock_subtensor,
+            netuid=self.netuid,
+            emissions_ledger_manager=self.mock_emissions_mgr,
+            days_until_target=days_until_target,
+            verbose=True
+        )
+
+        # Expected calculation:
+        # - 10 miners * 1 TAO/block = 10 TAO/block
+        # - 7200 blocks/day * 10 days = 72000 blocks
+        # - 10 TAO/block * 72000 blocks = 720,000 TAO
+        # - 720,000 TAO / 0.5 (ALPHA to TAO rate) = 1,440,000 ALPHA
+
+        expected_alpha = 10 * 7200 * 10 / 0.5  # 1,440,000
+        self.assertAlmostEqual(projected_alpha, expected_alpha, places=0)
 
 
 if __name__ == '__main__':
