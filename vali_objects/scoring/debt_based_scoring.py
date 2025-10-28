@@ -40,7 +40,6 @@ class DebtBasedScoring:
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
         current_time_ms: int = None,
-        target_cp_duration_ms: int = 43200000,  # 12 hours in milliseconds
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
@@ -57,7 +56,6 @@ class DebtBasedScoring:
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
             current_time_ms: Current timestamp in milliseconds (defaults to now)
-            target_cp_duration_ms: Duration of each checkpoint in milliseconds (default: 12 hours)
             verbose: Enable detailed logging
 
         Returns:
