@@ -17,7 +17,9 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Mock subtensor
         self.mock_subtensor = Mock()
         self.mock_metagraph = Mock()
-        self.mock_metagraph.emission = [1e9] * 10  # 10 miners, 1 TAO each per block in RAO
+        # metagraph.emission is in TAO per tempo (360 blocks)
+        # To get 10 TAO/block total, we need 10 * 360 = 3600 TAO per tempo
+        self.mock_metagraph.emission = [360] * 10  # 10 miners, 360 TAO per tempo each = 1 TAO/block each
         self.mock_subtensor.metagraph = Mock(return_value=self.mock_metagraph)
         self.mock_subtensor.get_current_block = Mock(return_value=1000000)
 

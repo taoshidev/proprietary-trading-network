@@ -41,8 +41,11 @@ def test_emission_rate_query():
     print("Analyzing emission rates:")
     print("-" * 80)
 
-    # Total emissions per block (already in TAO, not RAO)
-    total_emission_tao = sum(metagraph.emission)
+    # Total emissions per block
+    # metagraph.emission is already in TAO (not RAO), but per tempo (360 blocks)
+    # Convert: per-tempo → per-block (÷360)
+    total_tao_per_tempo = sum(metagraph.emission)
+    total_emission_tao = total_tao_per_tempo / 360
 
     print(f"Total subnet emission: {total_emission_tao:.6f} TAO/block")
 
