@@ -63,6 +63,8 @@ class EmissionsCheckpoint:
         num_blocks: Number of blocks sampled in this chunk
         block_start: Block number at chunk start (for reference)
         block_end: Block number at chunk end (for reference)
+        tao_balance_snapshot: TAO balance at block_end (for validation)
+        alpha_balance_snapshot: ALPHA balance at block_end (for validation)
     """
     chunk_start_ms: int
     chunk_end_ms: int
@@ -74,6 +76,8 @@ class EmissionsCheckpoint:
     num_blocks: int = 0
     block_start: Optional[int] = None
     block_end: Optional[int] = None
+    tao_balance_snapshot: float = 0.0
+    alpha_balance_snapshot: float = 0.0
 
     def __eq__(self, other):
         if not isinstance(other, EmissionsCheckpoint):
@@ -102,6 +106,8 @@ class EmissionsCheckpoint:
             'num_blocks': self.num_blocks,
             'block_start': self.block_start,
             'block_end': self.block_end,
+            'tao_balance_snapshot': self.tao_balance_snapshot,
+            'alpha_balance_snapshot': self.alpha_balance_snapshot,
         }
 
 
@@ -762,6 +768,97 @@ class EmissionsLedgerManager:
 
         return price_source.close
 
+    def _query_tao_balance_at_block(
+        self,
+        hotkey_ss58: str,
+        block_hash: str
+    ) -> float:
+        """
+        Query free TAO balance for a hotkey at a specific block.
+
+        Args:
+            hotkey_ss58: SS58 address of the hotkey
+            block_hash: Block hash to query at
+
+        Returns:
+            TAO balance in tokens (not RAO)
+
+        Raises:
+            ValueError: If query returns None or invalid data
+            Exception: If substrate query fails
+        """
+        self._rate_limit()
+
+        try:
+            account_info = self.subtensor.substrate.query(
+                module='System',
+                storage_function='Account',
+                params=[hotkey_ss58],
+                block_hash=block_hash
+            )
+        except Exception as e:
+            raise Exception(
+                f"Failed to query TAO balance for {hotkey_ss58} at block {block_hash}: {e}"
+            )
+
+        if account_info is None:
+            raise ValueError(
+                f"TAO balance query returned None for {hotkey_ss58} at block {block_hash}"
+            )
+
+        try:
+            free_balance_rao = account_info.get('data', {}).get('free', 0)
+            tao_balance = float(free_balance_rao) / 1e9
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse TAO balance from account_info for {hotkey_ss58}: {e}"
+            )
+
+        return tao_balance
+
+    def _query_alpha_balance_at_block(
+        self,
+        hotkey_ss58: str,
+        block_hash: str
+    ) -> float:
+        """
+        Query ALPHA balance for a hotkey at a specific block.
+
+        Args:
+            hotkey_ss58: SS58 address of the hotkey
+            block_hash: Block hash to query at
+
+        Returns:
+            ALPHA balance in tokens (not RAO)
+
+        Raises:
+            ValueError: If query returns invalid data
+            Exception: If substrate query fails
+        """
+        self._rate_limit()
+
+        try:
+            subnet_account = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='SubnetAccount',
+                params=[self.netuid, hotkey_ss58],
+                block_hash=block_hash
+            )
+        except Exception as e:
+            raise Exception(
+                f"Failed to query ALPHA balance for {hotkey_ss58} at block {block_hash}: {e}"
+            )
+
+        try:
+            alpha_balance_rao = float(subnet_account) if subnet_account is not None else 0.0
+            alpha_balance = alpha_balance_rao / 1e9
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse ALPHA balance from subnet_account for {hotkey_ss58}: {e}"
+            )
+
+        return alpha_balance
+
     def instantiate_non_pickleable_components(self):
         """
         Lazy-initialize non-pickleable components (subtensor, live_price_fetcher).
@@ -1080,6 +1177,15 @@ class EmissionsLedgerManager:
                     chunk_end_block
                 )
 
+            # Query block hash for balance snapshots at checkpoint end
+            self._rate_limit()
+            end_block_hash = self.subtensor.substrate.get_block_hash(chunk_end_block)
+            if not end_block_hash:
+                raise ValueError(
+                    f"Failed to get block_hash for block {chunk_end_block} "
+                    f"(chunk {current_chunk_start_ms}-{current_chunk_end_ms})"
+                )
+
             # Single loop: create checkpoints for ALL hotkeys in all_hotkeys_seen
             # (includes both hotkeys with emissions and hotkeys without emissions)
             for hotkey in all_hotkeys_seen:
@@ -1097,6 +1203,10 @@ class EmissionsLedgerManager:
                         hotkeys_active_in_chunk.add(hotkey)
                         hotkeys_processed_cumulative.add(hotkey)
 
+                    # Query balance snapshots at checkpoint end
+                    tao_balance = self._query_tao_balance_at_block(hotkey, end_block_hash)
+                    alpha_balance = self._query_alpha_balance_at_block(hotkey, end_block_hash)
+
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
                         chunk_end_ms=current_chunk_end_ms,
@@ -1107,13 +1217,19 @@ class EmissionsLedgerManager:
                         avg_tao_to_usd_rate=avg_tao_to_usd_rate,
                         num_blocks=num_blocks,
                         block_start=chunk_start_block,
-                        block_end=chunk_end_block
+                        block_end=chunk_end_block,
+                        tao_balance_snapshot=tao_balance,
+                        alpha_balance_snapshot=alpha_balance
                     )
                 else:
                     # Hotkey exists but had no emissions in this chunk - create zero-emission checkpoint
                     # Create ledger if this is a newly discovered hotkey (discovered mid-chunk with no emissions)
                     if hotkey not in self.emissions_ledgers:
                         self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
+
+                    # Query balance snapshots at checkpoint end
+                    tao_balance = self._query_tao_balance_at_block(hotkey, end_block_hash)
+                    alpha_balance = self._query_alpha_balance_at_block(hotkey, end_block_hash)
 
                     checkpoint = EmissionsCheckpoint(
                         chunk_start_ms=current_chunk_start_ms,
@@ -1125,7 +1241,9 @@ class EmissionsLedgerManager:
                         avg_tao_to_usd_rate=shared_avg_tao_to_usd_rate,
                         num_blocks=shared_num_blocks,
                         block_start=chunk_start_block,
-                        block_end=chunk_end_block
+                        block_end=chunk_end_block,
+                        tao_balance_snapshot=tao_balance,
+                        alpha_balance_snapshot=alpha_balance
                     )
 
                 # Append checkpoint to ledger
@@ -1253,6 +1371,12 @@ class EmissionsLedgerManager:
         sampled_blocks = list(range(start_block, end_block + 1, sample_interval))
         if sampled_blocks[-1] != end_block:
             sampled_blocks.append(end_block)
+
+        # Fail-fast: sampled_blocks must be populated
+        if not sampled_blocks:
+            raise ValueError(
+                f"No sampled blocks found for block range {start_block}-{end_block}"
+            )
 
         # Initialize tracking for emissions
         hotkey_total_alpha = defaultdict(float)
@@ -1494,7 +1618,9 @@ class EmissionsLedgerManager:
                     avg_tao_to_usd_rate=cp["avg_tao_to_usd_rate"],
                     num_blocks=cp.get("num_blocks", 0),
                     block_start=cp.get("block_start"),
-                    block_end=cp.get("block_end")
+                    block_end=cp.get("block_end"),
+                    tao_balance_snapshot=cp.get("tao_balance_snapshot", 0.0),
+                    alpha_balance_snapshot=cp.get("alpha_balance_snapshot", 0.0)
                 )
 
                 checkpoints.append(checkpoint)

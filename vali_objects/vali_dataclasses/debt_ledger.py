@@ -76,6 +76,8 @@ class DebtCheckpoint:
         chunk_emissions_usd: USD value earned in this chunk
         avg_alpha_to_tao_rate: Average alpha-to-TAO conversion rate for this chunk
         avg_tao_to_usd_rate: Average TAO/USD price for this chunk
+        tao_balance_snapshot: TAO balance at checkpoint end (for validation)
+        alpha_balance_snapshot: ALPHA balance at checkpoint end (for validation)
 
         # Performance Data (from PerfLedger)
         # Note: Sourced from PerfCheckpoint attributes - some have different names:
@@ -113,6 +115,8 @@ class DebtCheckpoint:
     chunk_emissions_usd: float = 0.0
     avg_alpha_to_tao_rate: float = 0.0
     avg_tao_to_usd_rate: float = 0.0
+    tao_balance_snapshot: float = 0.0
+    alpha_balance_snapshot: float = 0.0
 
     # Performance Data
     portfolio_return: float = 1.0
@@ -162,6 +166,8 @@ class DebtCheckpoint:
                 'chunk_usd': self.chunk_emissions_usd,
                 'avg_alpha_to_tao_rate': self.avg_alpha_to_tao_rate,
                 'avg_tao_to_usd_rate': self.avg_tao_to_usd_rate,
+                'tao_balance_snapshot': self.tao_balance_snapshot,
+                'alpha_balance_snapshot': self.alpha_balance_snapshot,
             },
 
             # Performance
@@ -425,6 +431,8 @@ class DebtLedger:
                     chunk_emissions_usd=emissions.get('chunk_usd', 0.0),
                     avg_alpha_to_tao_rate=emissions.get('avg_alpha_to_tao_rate', 0.0),
                     avg_tao_to_usd_rate=emissions.get('avg_tao_to_usd_rate', 0.0),
+                    tao_balance_snapshot=emissions.get('tao_balance_snapshot', 0.0),
+                    alpha_balance_snapshot=emissions.get('alpha_balance_snapshot', 0.0),
                     # Performance
                     portfolio_return=performance.get('portfolio_return', 1.0),
                     pnl_gain=performance.get('pnl_gain', 0.0),
@@ -452,6 +460,8 @@ class DebtLedger:
                     chunk_emissions_usd=cp_dict.get('chunk_emissions_usd', 0.0),
                     avg_alpha_to_tao_rate=cp_dict.get('avg_alpha_to_tao_rate', 0.0),
                     avg_tao_to_usd_rate=cp_dict.get('avg_tao_to_usd_rate', 0.0),
+                    tao_balance_snapshot=cp_dict.get('tao_balance_snapshot', 0.0),
+                    alpha_balance_snapshot=cp_dict.get('alpha_balance_snapshot', 0.0),
                     portfolio_return=cp_dict.get('portfolio_return', 1.0),
                     pnl_gain=cp_dict.get('pnl_gain', 0.0),
                     pnl_loss=cp_dict.get('pnl_loss', 0.0),
@@ -971,6 +981,8 @@ class DebtLedgerManager:
                     chunk_emissions_usd=emissions_checkpoint.chunk_emissions_usd,
                     avg_alpha_to_tao_rate=emissions_checkpoint.avg_alpha_to_tao_rate,
                     avg_tao_to_usd_rate=emissions_checkpoint.avg_tao_to_usd_rate,
+                    tao_balance_snapshot=emissions_checkpoint.tao_balance_snapshot,
+                    alpha_balance_snapshot=emissions_checkpoint.alpha_balance_snapshot,
                     # Performance data - access attributes directly from PerfCheckpoint
                     portfolio_return=perf_checkpoint.gain,  # Current portfolio multiplier
                     pnl_gain=perf_checkpoint.pnl_gain,  # Cumulative PnL gain
