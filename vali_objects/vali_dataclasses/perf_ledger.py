@@ -515,7 +515,7 @@ class PerfLedgerManager(CacheController):
         self.contract_manager = contract_manager
         self.cached_miner_account_sizes = {}  # Deepcopy of contract_manager.miner_account_sizes
         self.cache_last_refreshed_date = None  # 'YYYY-MM-DD' format, refresh daily
-        self.pds = live_price_fetcher.polygon_data_service if live_price_fetcher else None  # Load it later once the process starts so ipc works.
+        self.pds = live_price_fetcher if live_price_fetcher else None  # Load it later once the process starts so ipc works.
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
