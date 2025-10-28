@@ -317,8 +317,10 @@ class DebtBasedScoring:
             metagraph = subtensor.metagraph(netuid)
 
             # Get total TAO emission per block for the subnet (sum across all miners)
-            # metagraph.emission is already in TAO (not RAO)
-            total_tao_per_block = sum(metagraph.emission)
+            # metagraph.emission is already in TAO (not RAO), but per tempo (360 blocks)
+            # Need to convert: per-tempo → per-block (÷360)
+            total_tao_per_tempo = sum(metagraph.emission)
+            total_tao_per_block = total_tao_per_tempo / 360
 
             if verbose:
                 bt.logging.info(f"Current subnet emission rate: {total_tao_per_block:.6f} TAO/block")
