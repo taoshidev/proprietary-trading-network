@@ -3,23 +3,36 @@ Debt-Based Scoring
 
 This module computes miner weights based on debt ledger information.
 The algorithm pays miners based on their previous month's performance (PnL scaled by penalties),
-proportionally distributing emissions to cover remaining debt over the days left in the current month.
+proportionally distributing emissions to cover remaining debt by day 25 of the current month.
 
 Key Concepts:
 - "Needed payout" = What miners earned in previous month (PnL * penalties)
 - "Actual payout" = What they've been paid so far in current month (ALPHA emissions)
 - "Remaining payout" = needed_payout - actual_payout
-- Weights = Rate of emissions needed to cover remaining payout over remaining days
+- "Projected emissions" = Estimated total ALPHA available from now until day 25
+- Weights = Proportional to remaining_payout, with warning if insufficient emissions
+
+Algorithm Flow:
+1. Calculate needed_payout from previous month's performance
+2. Calculate actual_payout from current month's emissions
+3. Calculate remaining_payout for each miner
+4. Query real-time TAO emission rate from subtensor
+5. Convert to ALPHA using current conversion rate
+6. Project total ALPHA available until day 25
+7. Set weights proportional to remaining_payout
+8. Warn if sum(remaining_payouts) > projected_emissions
 
 Important Notes:
 - Debt-based scoring only activates starting November 2025
 - Before November 2025, all miners get zero weights
+- Target payout completion by day 25 of each month
 - Checkpoints are 12-hour intervals (2 per day)
+- Uses real-time subtensor queries for emission rate estimation
 """
 
 import bittensor as bt
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from calendar import monthrange
 
 from time_util.time_util import TimeUtil
@@ -29,32 +42,51 @@ from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
 class DebtBasedScoring:
     """
     Debt-based scoring system that pays miners proportionally to their previous month's
-    performance, distributing remaining payments over the days left in the current month.
+    performance, targeting payout completion by day 25 of each month.
+
+    Uses real-time subtensor queries to estimate emission rates and project available ALPHA.
     """
 
     # Activation date: November 2025
     ACTIVATION_YEAR = 2025
     ACTIVATION_MONTH = 11
 
+    # Target payout completion by day 25
+    PAYOUT_TARGET_DAY = 25
+
+    # Bittensor network parameters (approximate, for fallback)
+    BLOCKS_PER_DAY_FALLBACK = 7200  # ~12 seconds per block
+    RAO_PER_TOKEN = 1e9
+
     @staticmethod
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
+        subtensor: 'bt.subtensor',
+        netuid: int,
+        emissions_ledger_manager: 'EmissionsLedgerManager',
         current_time_ms: int = None,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
-        Compute miner weights based on debt ledger information.
+        Compute miner weights based on debt ledger information with real-time emission projections.
 
         The algorithm works as follows:
         1. Check if we're in activation period (>= November 2025)
         2. For each miner, calculate their "needed payout" from previous month's performance
         3. Calculate "actual payout" given so far in current month
         4. Calculate "remaining payout" to be distributed
-        5. Compute target emission rate to cover remaining payout over remaining days
-        6. Normalize weights so they sum to 1.0
+        5. Query real-time TAO emission rate from subtensor
+        6. Convert to ALPHA using current conversion rate
+        7. Project total ALPHA available from now until day 25
+        8. Set weights proportional to remaining_payout
+        9. Warn if sum(remaining_payouts) > projected_emissions
+        10. Normalize weights so they sum to 1.0
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
+            subtensor: Bittensor subtensor instance for querying emission rates
+            netuid: Network UID for this subnet
+            emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
 
@@ -131,26 +163,30 @@ class DebtBasedScoring:
                 f"{current_dt.strftime('%Y-%m-%d %H:%M:%S')}"
             )
 
-        # Calculate days remaining in current month
-        current_month_days = monthrange(current_year, current_month)[1]
+        # Calculate days until target payout day (day 25)
         current_day = current_dt.day
-        days_remaining = current_month_days - current_day + 1  # +1 to include today
+
+        if current_day > DebtBasedScoring.PAYOUT_TARGET_DAY:
+            # Past target day, treat as 0 days remaining (will warn about insufficient time)
+            days_until_target = 0
+        else:
+            days_until_target = DebtBasedScoring.PAYOUT_TARGET_DAY - current_day + 1  # +1 to include today
 
         if verbose:
             bt.logging.info(
-                f"Days in current month: {current_month_days}, "
-                f"current day: {current_day}, "
-                f"days remaining: {days_remaining}"
+                f"Current day: {current_day}, "
+                f"target day: {DebtBasedScoring.PAYOUT_TARGET_DAY}, "
+                f"days until target: {days_until_target}"
             )
 
-        # Step 4-6: Process each miner
-        miner_target_emissions = {}
+        # Step 4-6: Process each miner to calculate remaining payouts
+        miner_remaining_payouts = {}
 
         for hotkey, debt_ledger in ledger_dict.items():
             if not debt_ledger.checkpoints:
                 if verbose:
                     bt.logging.debug(f"Skipping {hotkey}: no checkpoints")
-                miner_target_emissions[hotkey] = 0.0
+                miner_remaining_payouts[hotkey] = 0.0
                 continue
 
             # Extract checkpoints for previous month
@@ -173,7 +209,7 @@ class DebtBasedScoring:
                 )
 
             # Step 4: Calculate needed payout from previous month
-            # "needed payout" = sum of (net_pnl * total_penalty) for all checkpoints in previous month
+            # "needed payout" = (net_pnl * total_penalty) from last checkpoint of previous month
             needed_payout = 0.0
             if prev_month_checkpoints:
                 # Use the LAST checkpoint's cumulative values (not sum of chunks)
@@ -191,26 +227,53 @@ class DebtBasedScoring:
             if remaining_payout < 0:
                 remaining_payout = 0.0
 
-            # Calculate target emission rate per day
-            if days_remaining > 0:
-                target_emission_per_day = remaining_payout / days_remaining
-            else:
-                target_emission_per_day = 0.0
-
-            miner_target_emissions[hotkey] = target_emission_per_day
+            miner_remaining_payouts[hotkey] = remaining_payout
 
             if verbose:
                 bt.logging.debug(
                     f"{hotkey[:16]}...{hotkey[-8:]}: "
                     f"needed_payout={needed_payout:.6f}, "
                     f"actual_payout={actual_payout:.6f}, "
-                    f"remaining={remaining_payout:.6f}, "
-                    f"target_per_day={target_emission_per_day:.6f}"
+                    f"remaining={remaining_payout:.6f}"
                 )
 
-        # Step 7: Normalize weights
-        # Weights must sum to 1.0 (this is the "rate" of emissions each miner gets)
-        normalized_weights = DebtBasedScoring._normalize_scores(miner_target_emissions)
+        # Step 7-9: Query real-time emissions and project availability
+        total_remaining_payout = sum(miner_remaining_payouts.values())
+
+        if total_remaining_payout > 0 and days_until_target > 0:
+            # Query current emission rate and project availability
+            try:
+                projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
+                    subtensor=subtensor,
+                    netuid=netuid,
+                    emissions_ledger_manager=emissions_ledger_manager,
+                    days_until_target=days_until_target,
+                    verbose=verbose
+                )
+
+                # Check if projected emissions are sufficient
+                if projected_alpha_available < total_remaining_payout:
+                    shortage_pct = ((total_remaining_payout - projected_alpha_available) / total_remaining_payout) * 100
+                    bt.logging.warning(
+                        f"⚠️  INSUFFICIENT EMISSIONS: Projected ALPHA available until day {DebtBasedScoring.PAYOUT_TARGET_DAY} "
+                        f"({projected_alpha_available:.2f}) is less than total remaining payout needed "
+                        f"({total_remaining_payout:.2f}). Shortage: {shortage_pct:.1f}%. "
+                        f"Miners will receive proportional payouts."
+                    )
+                elif verbose:
+                    surplus_pct = ((projected_alpha_available - total_remaining_payout) / total_remaining_payout) * 100
+                    bt.logging.info(
+                        f"✓ Projected ALPHA available ({projected_alpha_available:.2f}) exceeds "
+                        f"total remaining payout needed ({total_remaining_payout:.2f}). "
+                        f"Surplus: {surplus_pct:.1f}%"
+                    )
+
+            except Exception as e:
+                bt.logging.error(f"Failed to estimate emission projections: {e}. Continuing with weights calculation.")
+
+        # Step 10: Normalize weights
+        # Weights are proportional to remaining_payout (sum to 1.0)
+        normalized_weights = DebtBasedScoring._normalize_scores(miner_remaining_payouts)
 
         # Convert to sorted list
         result = sorted(normalized_weights.items(), key=lambda x: x[1], reverse=True)
@@ -224,6 +287,79 @@ class DebtBasedScoring:
                     bt.logging.info(f"  {hotkey[:16]}...{hotkey[-8:]}: {weight:.6f}")
 
         return result
+
+    @staticmethod
+    def _estimate_alpha_emissions_until_target(
+        subtensor: 'bt.subtensor',
+        netuid: int,
+        emissions_ledger_manager: 'EmissionsLedgerManager',
+        days_until_target: int,
+        verbose: bool = False
+    ) -> float:
+        """
+        Estimate total ALPHA emissions available from now until target day.
+
+        Uses real-time subtensor queries to get current TAO emission rate,
+        then converts to ALPHA using current conversion rate.
+
+        Args:
+            subtensor: Bittensor subtensor instance
+            netuid: Network UID for this subnet
+            emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
+            days_until_target: Number of days until target payout day
+            verbose: Enable detailed logging
+
+        Returns:
+            Estimated total ALPHA emissions available (float)
+        """
+        try:
+            # Query current metagraph to get emission rates
+            metagraph = subtensor.metagraph(netuid)
+
+            # Get total TAO emission per block for the subnet (sum across all miners)
+            # metagraph.emission is in RAO, convert to TAO
+            total_tao_per_block = sum(metagraph.emission) / DebtBasedScoring.RAO_PER_TOKEN
+
+            if verbose:
+                bt.logging.info(f"Current subnet emission rate: {total_tao_per_block:.6f} TAO/block")
+
+            # Estimate blocks until target day
+            # Use approximate 12 seconds per block (7200 blocks/day)
+            blocks_until_target = days_until_target * DebtBasedScoring.BLOCKS_PER_DAY_FALLBACK
+
+            # Calculate total TAO emissions until target
+            total_tao_until_target = total_tao_per_block * blocks_until_target
+
+            if verbose:
+                bt.logging.info(
+                    f"Estimated blocks until day {DebtBasedScoring.PAYOUT_TARGET_DAY}: {blocks_until_target}, "
+                    f"total TAO: {total_tao_until_target:.2f}"
+                )
+
+            # Query current ALPHA-to-TAO conversion rate
+            # Use the latest block for most recent rate
+            current_block = subtensor.get_current_block()
+            alpha_to_tao_rate = emissions_ledger_manager.query_alpha_to_tao_rate(current_block)
+
+            if verbose:
+                bt.logging.info(f"Current ALPHA-to-TAO rate: {alpha_to_tao_rate:.6f}")
+
+            # Convert TAO to ALPHA
+            # If ALPHA costs X TAO per ALPHA, then Y TAO buys Y/X ALPHA
+            if alpha_to_tao_rate > 0:
+                total_alpha_until_target = total_tao_until_target / alpha_to_tao_rate
+            else:
+                bt.logging.warning("ALPHA-to-TAO rate is zero, cannot convert")
+                return 0.0
+
+            if verbose:
+                bt.logging.info(f"Projected ALPHA available until target: {total_alpha_until_target:.2f}")
+
+            return total_alpha_until_target
+
+        except Exception as e:
+            bt.logging.error(f"Error estimating ALPHA emissions: {e}")
+            raise
 
     @staticmethod
     def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
