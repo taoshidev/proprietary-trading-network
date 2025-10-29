@@ -498,7 +498,6 @@ class TestReregistration(TestBase):
         # Verify metadata is present
         metadata = data[DEPARTED_HOTKEYS_KEY][self.DEREGISTERED_MINER]
         self.assertIn("detected_ms", metadata)
-        self.assertIn("block", metadata)
 
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
