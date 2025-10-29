@@ -55,7 +55,8 @@ class PenaltyCheckpoint:
         risk_profile_penalty: float = 1.0,
         min_collateral_penalty: float = 1.0,
         risk_adjusted_performance_penalty: float = 1.0,
-        total_penalty: float = 1.0
+        total_penalty: float = 1.0,
+        challenge_period_status: str = "unknown"
     ):
         self.last_processed_ms = int(last_processed_ms)
         self.drawdown_penalty = float(drawdown_penalty)
@@ -63,6 +64,7 @@ class PenaltyCheckpoint:
         self.min_collateral_penalty = float(min_collateral_penalty)
         self.risk_adjusted_performance_penalty = float(risk_adjusted_performance_penalty)
         self.total_penalty = float(total_penalty)
+        self.challenge_period_status = str(challenge_period_status)
 
     def __eq__(self, other):
         if not isinstance(other, PenaltyCheckpoint):
@@ -225,7 +227,8 @@ class PenaltyLedger:
                 risk_profile_penalty=cp_dict.get('risk_profile_penalty', 1.0),
                 min_collateral_penalty=cp_dict.get('min_collateral_penalty', 1.0),
                 risk_adjusted_performance_penalty=cp_dict.get('risk_adjusted_performance_penalty', 1.0),
-                total_penalty=cp_dict.get('total_penalty', 1.0)
+                total_penalty=cp_dict.get('total_penalty', 1.0),
+                challenge_period_status=cp_dict.get('challenge_period_status', 'unknown')
             )
             checkpoints.append(checkpoint)
 
@@ -266,6 +269,7 @@ class PenaltyLedgerManager:
         perf_ledger_manager: PerfLedgerManager,
         contract_manager: ValidatorContractManager,
         asset_selection_manager: AssetSelectionManager,
+        challengeperiod_manager=None,
         ipc_manager=None,
         running_unit_tests: bool = False,
         slack_webhook_url=None,
@@ -280,6 +284,7 @@ class PenaltyLedgerManager:
             perf_ledger_manager: Manager for reading performance ledgers
             contract_manager: Manager for reading miner collateral/account sizes
             asset_selection_manager: Manager for tracking miner asset class selections
+            challengeperiod_manager: Optional manager for challenge period status (for real-time status)
             ipc_manager: Optional IPC manager for multiprocessing
             running_unit_tests: Whether this is being run in unit tests
             slack_webhook_url: Optional Slack webhook URL for failure notifications
@@ -289,6 +294,7 @@ class PenaltyLedgerManager:
         self.perf_ledger_manager = perf_ledger_manager
         self.contract_manager = contract_manager
         self.asset_selection_manager = asset_selection_manager
+        self.challengeperiod_manager = challengeperiod_manager
         self.running_unit_tests = running_unit_tests
 
         # Storage for penalty checkpoints per miner
@@ -456,26 +462,46 @@ class PenaltyLedgerManager:
     # DAEMON MODE
     # ============================================================================
 
+    def _calculate_next_aligned_time(self) -> float:
+        """
+        Calculate the next 12-hour UTC-aligned timestamp (00:00 or 12:00 UTC).
+
+        Returns:
+            Unix timestamp of the next aligned time
+        """
+        now_utc = datetime.now(timezone.utc)
+
+        # Get current hour in UTC
+        current_hour = now_utc.hour
+
+        # Determine next aligned time (00:00 or 12:00 UTC)
+        if current_hour < 12:
+            # Next alignment is 12:00 today
+            next_aligned = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+        else:
+            # Next alignment is 00:00 tomorrow
+            from datetime import timedelta
+            next_aligned = (now_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        return next_aligned.timestamp()
+
     def run_daemon_forever(self, check_interval_seconds: Optional[int] = None, verbose: bool = False):
         """
         Run as daemon - continuously update penalty ledgers forever.
 
-        Checks for new performance checkpoints at regular intervals and performs delta updates.
+        Checks for new performance checkpoints at 12-hour UTC-aligned intervals (00:00 and 12:00 UTC).
         Handles graceful shutdown on SIGINT/SIGTERM.
 
         Features:
         - Delta updates (only processes new checkpoints since last update)
-        - Periodic refresh (default: every 12 hours)
+        - UTC-aligned refresh (at 00:00 and 12:00 UTC for accurate data per checkpoint)
         - Graceful shutdown
         - Automatic retry on failures
 
         Args:
-            check_interval_seconds: How often to check for new checkpoints (default: 12 hours)
+            check_interval_seconds: Deprecated - now uses 12-hour UTC alignment instead
             verbose: Enable detailed logging
         """
-        if check_interval_seconds is None:
-            check_interval_seconds = self.DEFAULT_CHECK_INTERVAL_SECONDS
-
         self.running = True
 
         # Register signal handlers for graceful shutdown
@@ -487,9 +513,9 @@ class PenaltyLedgerManager:
         signal.signal(signal.SIGTERM, signal_handler)
 
         bt.logging.info("=" * 80)
-        bt.logging.info("Penalty Ledger Manager - Daemon Mode")
+        bt.logging.info("Penalty Ledger Manager - Daemon Mode (UTC-Aligned)")
         bt.logging.info("=" * 80)
-        bt.logging.info(f"Check Interval: {check_interval_seconds}s ({check_interval_seconds / 3600:.1f} hours)")
+        bt.logging.info("Refresh Schedule: 00:00 UTC and 12:00 UTC (12-hour intervals)")
         bt.logging.info(f"Delta Update Mode: Enabled (resumes from last checkpoint)")
         bt.logging.info(f"Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
         bt.logging.info("=" * 80)
@@ -547,7 +573,7 @@ class PenaltyLedgerManager:
             # Calculate sleep time and sleep
             if self.running:
                 if consecutive_failures > 0:
-                    # Exponential backoff
+                    # Exponential backoff on failure
                     backoff_seconds = min(
                         initial_backoff_seconds * (backoff_multiplier ** (consecutive_failures - 1)),
                         max_backoff_seconds
@@ -559,16 +585,42 @@ class PenaltyLedgerManager:
                         f"Retrying after {consecutive_failures} failure(s). "
                         f"Backoff: {backoff_seconds}s. Next attempt at: {next_check_str}"
                     )
+                    # Sleep in small intervals to allow graceful shutdown
+                    while self.running and time.time() < next_check_time:
+                        time.sleep(10)
                 else:
-                    # Normal interval
-                    next_check_time = time.time() + check_interval_seconds
+                    # Normal interval - align to next 12-hour UTC boundary
+                    # Recalculate target time periodically for precision
+                    next_check_time = self._calculate_next_aligned_time()
                     next_check_str = datetime.fromtimestamp(next_check_time, tz=timezone.utc).strftime(
                         '%Y-%m-%d %H:%M:%S UTC')
-                    bt.logging.info(f"Next check at: {next_check_str}")
+                    time_until_next = next_check_time - time.time()
+                    bt.logging.info(f"Next check at: {next_check_str} (in {time_until_next / 3600:.2f} hours)")
 
-                # Sleep in small intervals to allow graceful shutdown
-                while self.running and time.time() < next_check_time:
-                    time.sleep(10)
+                    # Sleep in smaller chunks (60s) and recalculate target time periodically
+                    # This ensures we hit the UTC boundary as precisely as possible
+                    last_log_time = time.time()
+                    while self.running:
+                        current_time = time.time()
+
+                        # Recalculate next boundary every iteration to account for drift
+                        next_check_time = self._calculate_next_aligned_time()
+                        time_remaining = next_check_time - current_time
+
+                        # If we've reached or passed the boundary, break and run update
+                        if time_remaining <= 0:
+                            bt.logging.info("Reached UTC boundary - triggering update")
+                            break
+
+                        # Log progress every hour
+                        if current_time - last_log_time >= 3600:
+                            bt.logging.info(f"Time until next boundary: {time_remaining / 3600:.2f} hours")
+                            last_log_time = current_time
+
+                        # Sleep for 60 seconds or remaining time, whichever is smaller
+                        # This provides good balance between precision and CPU efficiency
+                        sleep_duration = min(60.0, time_remaining)
+                        time.sleep(sleep_duration)
 
         bt.logging.info("Penalty Ledger Manager daemon stopped")
 
@@ -594,6 +646,19 @@ class PenaltyLedgerManager:
             portfolio_only=False
         )
         all_positions: Dict[str, List[Position]] = self.position_manager.get_positions_for_all_miners()
+
+        # OPTIMIZATION: Fetch entire active_miners dict once upfront to avoid O(n) IPC calls
+        # Instead of calling get_miner_bucket() for each miner (which makes an IPC call each time),
+        # we fetch the entire dict once and do local lookups
+        challenge_period_statuses = {}
+        if self.challengeperiod_manager:
+            # Make a single IPC call to get the entire dict
+            active_miners_snapshot = dict(self.challengeperiod_manager.active_miners)
+            # Extract just the bucket status for each hotkey (first element of the tuple)
+            challenge_period_statuses = {
+                hotkey: bucket_tuple[0].value if bucket_tuple and bucket_tuple[0] else "unknown"
+                for hotkey, bucket_tuple in active_miners_snapshot.items()
+            }
 
         bt.logging.info(
             f"Building penalty ledgers for {len(all_perf_ledgers)} hotkeys "
@@ -707,6 +772,17 @@ class PenaltyLedgerManager:
                     penalties[penalty_name] = penalty_value
                     total_penalty *= penalty_value
 
+                # Get challenge period status (real-time if available, otherwise "unknown")
+                challenge_period_status = "unknown"
+                if challenge_period_statuses:
+                    # For historical checkpoints, use "unknown"
+                    # Only populate status for the most recent checkpoint (real-time)
+                    latest_cp = portfolio_ledger.cps[-1] if portfolio_ledger.cps else None
+                    if latest_cp and checkpoint_ms == latest_cp.last_update_ms:
+                        # This is the most recent checkpoint - get real-time status from local dict
+                        # (no IPC call needed - we fetched all statuses upfront)
+                        challenge_period_status = challenge_period_statuses.get(miner_hotkey, "unknown")
+
                 # Create penalty checkpoint
                 penalty_checkpoint = PenaltyCheckpoint(
                     last_processed_ms=checkpoint_ms,
@@ -714,7 +790,8 @@ class PenaltyLedgerManager:
                     risk_profile_penalty=penalties.get('risk_profile', 1.0),
                     min_collateral_penalty=penalties.get('min_collateral', 1.0),
                     risk_adjusted_performance_penalty=penalties.get('risk_adjusted_performance', 1.0),
-                    total_penalty=total_penalty
+                    total_penalty=total_penalty,
+                    challenge_period_status=challenge_period_status
                 )
 
                 # Add checkpoint to ledger (validates ordering)
