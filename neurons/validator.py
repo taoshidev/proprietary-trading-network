@@ -954,7 +954,13 @@ class Validator:
 
         # don't process re-registered miners
         if self.elimination_manager.is_hotkey_re_registered(synapse.dendrite.hotkey):
+            # Get deregistration timestamp and convert to human-readable date
+            departed_info = self.elimination_manager.departed_hotkeys.get(synapse.dendrite.hotkey, {})
+            detected_ms = departed_info.get("detected_ms", 0)
+            dereg_date = TimeUtil.millis_to_formatted_date_str(detected_ms) if detected_ms else "unknown"
+
             msg = (f"This miner hotkey {synapse.dendrite.hotkey} was previously de-registered and is not allowed to re-register. "
+                   f"De-registered on: {dereg_date} UTC. "
                    f"Re-registration is not permitted on this subnet.")
             bt.logging.warning(msg)
             synapse.successfully_processed = False
