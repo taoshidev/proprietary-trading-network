@@ -10,6 +10,7 @@ from setproctitle import setproctitle
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from shared_objects.error_utils import ErrorUtils
+from shared_objects.metagraph_utils import is_anomalous_hotkey_loss
 from shared_objects.subtensor_lock import get_subtensor_lock
 from time_util.time_util import TimeUtil
 
@@ -772,9 +773,10 @@ class MetagraphUpdater(CacheController):
         if not lost_hotkeys and not gained_hotkeys:
             bt.logging.info(f"metagraph hotkeys remain the same. n = {len(hotkeys_after)}")
 
-        percent_lost = 100 * len(lost_hotkeys) / len(hotkeys_before) if lost_hotkeys else 0
+        # Use shared anomaly detection logic
+        is_anomalous, percent_lost = is_anomalous_hotkey_loss(lost_hotkeys, len(hotkeys_before))
         # failsafe condition to reject new metagraph
-        if len(lost_hotkeys) > 10 and percent_lost >= 25:
+        if is_anomalous:
             error_msg = (f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
                          f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
             bt.logging.error(error_msg)
