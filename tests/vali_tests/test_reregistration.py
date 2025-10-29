@@ -15,7 +15,9 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import (
     EliminationManager,
-    DEPARTED_HOTKEYS_KEY,
+    DEPARTED_HOTKEYS_KEY
+)
+from shared_objects.metagraph_utils import (
     ANOMALY_DETECTION_MIN_LOST,
     ANOMALY_DETECTION_PERCENT_THRESHOLD
 )
