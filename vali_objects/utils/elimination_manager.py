@@ -412,8 +412,7 @@ class EliminationManager(CacheController):
                 current_time_ms = TimeUtil.now_in_millis()
                 for hotkey in new_departures:
                     self.departed_hotkeys[hotkey] = {
-                        "detected_ms": current_time_ms,
-                        "block": self.metagraph.block if hasattr(self.metagraph, 'block') else None
+                        "detected_ms": current_time_ms
                     }
                 self._save_departed_hotkeys()
                 bt.logging.info(
@@ -452,7 +451,7 @@ class EliminationManager(CacheController):
         """Load departed hotkeys from disk.
 
         Returns:
-            Dict mapping hotkey -> metadata dict with keys: detected_ms, block
+            Dict mapping hotkey -> metadata dict with key: detected_ms
         """
         location = ValiBkpUtils.get_departed_hotkeys_dir(running_unit_tests=self.running_unit_tests)
         try:
@@ -462,7 +461,7 @@ class EliminationManager(CacheController):
             # Handle legacy list format for backwards compatibility
             if isinstance(departed_data, list):
                 bt.logging.info(f"Converting legacy departed hotkeys list to dict format")
-                departed_data = {hotkey: {"detected_ms": 0, "block": None} for hotkey in departed_data}
+                departed_data = {hotkey: {"detected_ms": 0} for hotkey in departed_data}
             bt.logging.trace(f"Loaded {len(departed_data)} departed hotkeys from disk. Dir: {location}")
             return departed_data
         except Exception as e:
