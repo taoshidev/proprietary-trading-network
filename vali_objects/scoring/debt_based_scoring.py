@@ -44,6 +44,7 @@ from calendar import monthrange
 
 from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 
 
 class DebtBasedScoring:
@@ -213,15 +214,19 @@ class DebtBasedScoring:
                 continue
 
             # Extract checkpoints for previous month
+            # Only include checkpoints where status is MAINCOMP or PROBATION (earning periods)
             prev_month_checkpoints = [
                 cp for cp in debt_ledger.checkpoints
                 if prev_month_start_ms <= cp.timestamp_ms <= prev_month_end_ms
+                and cp.challenge_period_status in (MinerBucket.MAINCOMP.value, MinerBucket.PROBATION.value)
             ]
 
             # Extract checkpoints for current month (up to now)
+            # Only include checkpoints where status is MAINCOMP or PROBATION (earning periods)
             current_month_checkpoints = [
                 cp for cp in debt_ledger.checkpoints
                 if current_month_start_ms <= cp.timestamp_ms <= current_time_ms
+                and cp.challenge_period_status in (MinerBucket.MAINCOMP.value, MinerBucket.PROBATION.value)
             ]
 
             if verbose:

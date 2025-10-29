@@ -25,6 +25,7 @@ from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_filter import PositionFilter
 from vali_objects.utils.asset_segmentation import AssetSegmentation
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import ValiConfig
 from time_util.time_util import TimeUtil
 from ptn_api.slack_notifier import SlackNotifier
@@ -56,7 +57,7 @@ class PenaltyCheckpoint:
         min_collateral_penalty: float = 1.0,
         risk_adjusted_performance_penalty: float = 1.0,
         total_penalty: float = 1.0,
-        challenge_period_status: str = "unknown"
+        challenge_period_status: str = None
     ):
         self.last_processed_ms = int(last_processed_ms)
         self.drawdown_penalty = float(drawdown_penalty)
@@ -64,7 +65,7 @@ class PenaltyCheckpoint:
         self.min_collateral_penalty = float(min_collateral_penalty)
         self.risk_adjusted_performance_penalty = float(risk_adjusted_performance_penalty)
         self.total_penalty = float(total_penalty)
-        self.challenge_period_status = str(challenge_period_status)
+        self.challenge_period_status = challenge_period_status if challenge_period_status else MinerBucket.UNKNOWN.value
 
     def __eq__(self, other):
         if not isinstance(other, PenaltyCheckpoint):
@@ -228,7 +229,7 @@ class PenaltyLedger:
                 min_collateral_penalty=cp_dict.get('min_collateral_penalty', 1.0),
                 risk_adjusted_performance_penalty=cp_dict.get('risk_adjusted_performance_penalty', 1.0),
                 total_penalty=cp_dict.get('total_penalty', 1.0),
-                challenge_period_status=cp_dict.get('challenge_period_status', 'unknown')
+                challenge_period_status=cp_dict.get('challenge_period_status', MinerBucket.UNKNOWN.value)
             )
             checkpoints.append(checkpoint)
 
@@ -624,6 +625,65 @@ class PenaltyLedgerManager:
 
         bt.logging.info("Penalty Ledger Manager daemon stopped")
 
+    def _get_status_for_checkpoint(self, checkpoint_ms: int, bucket_data: tuple) -> str:
+        """
+        Determine the challenge period status for a checkpoint based on bucket transitions.
+
+        Tuple structure: (bucket, bucket_start_time_ms, previous_bucket, previous_bucket_time_ms)
+
+        Logic:
+        - CHALLENGE: all checkpoints → CHALLENGE
+        - MAINCOMP: checkpoints before bucket_start_time → CHALLENGE, after → MAINCOMP
+        - PROBATION: checkpoints before bucket_start_time → UNKNOWN, after → PROBATION
+        - PLAGIARISM: checkpoints before bucket_start_time → UNKNOWN, after → PLAGIARISM
+
+        Args:
+            checkpoint_ms: The checkpoint timestamp in milliseconds
+            bucket_data: Tuple containing (bucket, bucket_start_time_ms, previous_bucket, previous_bucket_time_ms)
+
+        Returns:
+            Status string for this checkpoint
+        """
+        if not bucket_data or len(bucket_data) < 2:
+            return MinerBucket.UNKNOWN.value
+
+        bucket, bucket_start_time_ms = bucket_data[0], bucket_data[1]
+
+        if not bucket:
+            return MinerBucket.UNKNOWN.value
+
+        current_status = bucket.value
+
+        # CHALLENGE status: all checkpoints are CHALLENGE
+        if current_status == MinerBucket.CHALLENGE.value:
+            return MinerBucket.CHALLENGE.value
+
+        # MAINCOMP status: before bucket_start_time → CHALLENGE, after → MAINCOMP
+        elif current_status == MinerBucket.MAINCOMP.value:
+            if bucket_start_time_ms and checkpoint_ms >= bucket_start_time_ms:
+                return MinerBucket.MAINCOMP.value
+            else:
+                # Before the transition to MAINCOMP, miner was in CHALLENGE
+                return MinerBucket.CHALLENGE.value
+
+        # PROBATION status: before bucket_start_time → UNKNOWN, after → PROBATION
+        elif current_status == MinerBucket.PROBATION.value:
+            if bucket_start_time_ms and checkpoint_ms >= bucket_start_time_ms:
+                return MinerBucket.PROBATION.value
+            else:
+                # Before entering probation, status is unknown (could be MAINCOMP or CHALLENGE)
+                return MinerBucket.UNKNOWN.value
+
+        # PLAGIARISM status: before bucket_start_time → UNKNOWN, after → PLAGIARISM
+        elif current_status == MinerBucket.PLAGIARISM.value:
+            if bucket_start_time_ms and checkpoint_ms >= bucket_start_time_ms:
+                return MinerBucket.PLAGIARISM.value
+            else:
+                # Before being marked as plagiarism, status is unknown
+                return MinerBucket.UNKNOWN.value
+
+        return MinerBucket.UNKNOWN.value
+
     def build_penalty_ledgers(self, verbose: bool = False, delta_update: bool = True):
         """
         Build penalty ledgers for all checkpoints in all performance ledgers.
@@ -650,14 +710,16 @@ class PenaltyLedgerManager:
         # OPTIMIZATION: Fetch entire active_miners dict once upfront to avoid O(n) IPC calls
         # Instead of calling get_miner_bucket() for each miner (which makes an IPC call each time),
         # we fetch the entire dict once and do local lookups
-        challenge_period_statuses = {}
+        # Tuple structure: (bucket, bucket_start_time_ms, previous_bucket, previous_bucket_time_ms)
+        challenge_period_data = {}
         if self.challengeperiod_manager:
-            # Make a single IPC call to get the entire dict
+            # Make a single IPC call to get the entire dict with full tuple data
             active_miners_snapshot = dict(self.challengeperiod_manager.active_miners)
-            # Extract just the bucket status for each hotkey (first element of the tuple)
-            challenge_period_statuses = {
-                hotkey: bucket_tuple[0].value if bucket_tuple and bucket_tuple[0] else "unknown"
+            # Keep full tuple data for timestamp-based backfilling
+            challenge_period_data = {
+                hotkey: bucket_tuple
                 for hotkey, bucket_tuple in active_miners_snapshot.items()
+                if bucket_tuple  # Filter out None entries
             }
 
         bt.logging.info(
@@ -772,16 +834,13 @@ class PenaltyLedgerManager:
                     penalties[penalty_name] = penalty_value
                     total_penalty *= penalty_value
 
-                # Get challenge period status (real-time if available, otherwise "unknown")
-                challenge_period_status = "unknown"
-                if challenge_period_statuses:
-                    # For historical checkpoints, use "unknown"
-                    # Only populate status for the most recent checkpoint (real-time)
-                    latest_cp = portfolio_ledger.cps[-1] if portfolio_ledger.cps else None
-                    if latest_cp and checkpoint_ms == latest_cp.last_update_ms:
-                        # This is the most recent checkpoint - get real-time status from local dict
-                        # (no IPC call needed - we fetched all statuses upfront)
-                        challenge_period_status = challenge_period_statuses.get(miner_hotkey, "unknown")
+                # Get challenge period status using timestamp-based backfilling
+                challenge_period_status = MinerBucket.UNKNOWN.value
+                if challenge_period_data and miner_hotkey in challenge_period_data:
+                    # Use helper method to determine status based on checkpoint timestamp
+                    # and bucket transition timestamps
+                    bucket_data = challenge_period_data[miner_hotkey]
+                    challenge_period_status = self._get_status_for_checkpoint(checkpoint_ms, bucket_data)
 
                 # Create penalty checkpoint
                 penalty_checkpoint = PenaltyCheckpoint(
