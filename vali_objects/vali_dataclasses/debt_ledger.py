@@ -498,10 +498,23 @@ class DebtLedgerManager:
     DEFAULT_CHECK_INTERVAL_SECONDS = 3600 * 12  # 12 hours
 
     def __init__(self, perf_ledger_manager, position_manager, contract_manager, asset_selection_manager,
-                 slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False, validator_hotkey=None):
+                 challengeperiod_manager=None, slack_webhook_url=None, start_daemon=True, ipc_manager=None, running_unit_tests=False, validator_hotkey=None):
         self.perf_ledger_manager = perf_ledger_manager
-        self.penalty_ledger_manager = PenaltyLedgerManager(position_manager=position_manager, perf_ledger_manager=perf_ledger_manager,
-           contract_manager=contract_manager, asset_selection_manager=asset_selection_manager, slack_webhook_url=slack_webhook_url, run_daemon=False, running_unit_tests=running_unit_tests, validator_hotkey=validator_hotkey)
+
+        # IMPORTANT: PenaltyLedgerManager now runs in its own daemon (run_daemon=True)
+        # This ensures penalty ledgers refresh every 12 hours UTC-aligned with accurate checkpoint data
+        self.penalty_ledger_manager = PenaltyLedgerManager(
+            position_manager=position_manager,
+            perf_ledger_manager=perf_ledger_manager,
+            contract_manager=contract_manager,
+            asset_selection_manager=asset_selection_manager,
+            challengeperiod_manager=challengeperiod_manager,
+            slack_webhook_url=slack_webhook_url,
+            run_daemon=True,  # Run penalty ledger in its own daemon
+            running_unit_tests=running_unit_tests,
+            validator_hotkey=validator_hotkey,
+            ipc_manager=ipc_manager
+        )
 
         self.emissions_ledger_manager = EmissionsLedgerManager(slack_webhook_url=slack_webhook_url, start_daemon=False,
                                                                ipc_manager=ipc_manager, perf_ledger_manager=perf_ledger_manager, running_unit_tests=running_unit_tests, validator_hotkey=validator_hotkey)
@@ -703,20 +716,18 @@ class DebtLedgerManager:
                 # IMPORTANT: Update sub-ledgers FIRST in correct order before building debt ledgers
                 # This ensures debt ledgers have the latest data from all sources
 
-                # Step 1: Update penalty ledgers
-                bt.logging.info("Step 1/3: Updating penalty ledgers...")
-                penalty_start = time.time()
-                self.penalty_ledger_manager.build_penalty_ledgers(verbose=verbose, delta_update=True)
-                bt.logging.info(f"Penalty ledgers updated in {time.time() - penalty_start:.2f}s")
+                # NOTE: Penalty ledgers are now updated in their own dedicated daemon (UTC-aligned 12-hour intervals)
+                # This ensures penalty data has accurate challenge period status per checkpoint
 
-                # Step 2: Update emissions ledgers
-                bt.logging.info("Step 2/3: Updating emissions ledgers...")
+                # Step 1: Update emissions ledgers
+                bt.logging.info("Step 1/2: Updating emissions ledgers...")
                 emissions_start = time.time()
                 self.emissions_ledger_manager.build_delta_update()
                 bt.logging.info(f"Emissions ledgers updated in {time.time() - emissions_start:.2f}s")
 
-                # Step 3: Build debt ledgers (combines data from penalty + emissions + perf)
-                bt.logging.info("Step 3/3: Building debt ledgers...")
+                # Step 2: Build debt ledgers (combines data from penalty + emissions + perf)
+                # Penalty ledgers are updated separately by their dedicated daemon
+                bt.logging.info("Step 2/2: Building debt ledgers...")
                 debt_start = time.time()
                 self.build_debt_ledgers(verbose=verbose, delta_update=True)
                 bt.logging.info(f"Debt ledgers built in {time.time() - debt_start:.2f}s")
