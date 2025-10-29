@@ -9,7 +9,7 @@ Key Concepts:
 - "Needed payout" = What miners earned in previous month (PnL * penalties)
 - "Actual payout" = What they've been paid so far in current month (ALPHA emissions)
 - "Remaining payout" = needed_payout - actual_payout
-- "Projected emissions" = Estimated total ALPHA available from now until day 25
+- "Projected emissions" = Estimated total ALPHA available using aggressive timeline
 - Weights = Proportional to remaining_payout, with warning if insufficient emissions
 
 Algorithm Flow:
@@ -18,14 +18,21 @@ Algorithm Flow:
 3. Calculate remaining_payout for each miner
 4. Query real-time TAO emission rate from subtensor
 5. Convert to ALPHA using current conversion rate
-6. Project total ALPHA available until day 25
-7. Set weights proportional to remaining_payout
-8. Warn if sum(remaining_payouts) > projected_emissions
+6. Apply aggressive payout strategy (early month = 4-day horizon, late month = actual remaining)
+7. Project total ALPHA available over aggressive timeline
+8. Set weights proportional to remaining_payout
+9. Warn if sum(remaining_payouts) > projected_emissions
+
+Aggressive Payout Strategy:
+- Day 1-20: Target completion in 4 days (aggressive, creates urgency)
+- Day 21-24: Target completion in actual remaining days (tapers off)
+- Day 25: Final deadline
+- This front-loads emissions early in the month while respecting the hard deadline
 
 Important Notes:
 - Debt-based scoring only activates starting November 2025
 - Before November 2025, all miners get zero weights
-- Target payout completion by day 25 of each month
+- Hard deadline: day 25 of each month
 - Checkpoints are 12-hour intervals (2 per day)
 - Uses real-time subtensor queries for emission rate estimation
 """
@@ -53,6 +60,11 @@ class DebtBasedScoring:
 
     # Target payout completion by day 25
     PAYOUT_TARGET_DAY = 25
+
+    # Aggressive payout buffer: aim to complete this many days from now (minimum)
+    # This makes early-month payouts more aggressive (day 1 targets 4-day completion)
+    # while tapering to actual remaining days as we approach the deadline
+    AGGRESSIVE_PAYOUT_BUFFER_DAYS = 4
 
     # Bittensor network parameters (approximate, for fallback)
     BLOCKS_PER_DAY_FALLBACK = 7200  # ~12 seconds per block
@@ -168,15 +180,26 @@ class DebtBasedScoring:
 
         if current_day > DebtBasedScoring.PAYOUT_TARGET_DAY:
             # Past target day, treat as 0 days remaining (will warn about insufficient time)
-            days_until_target = 0
+            actual_days_until_target = 0
         else:
-            days_until_target = DebtBasedScoring.PAYOUT_TARGET_DAY - current_day + 1  # +1 to include today
+            actual_days_until_target = DebtBasedScoring.PAYOUT_TARGET_DAY - current_day + 1  # +1 to include today
+
+        # Apply aggressive payout strategy:
+        # Early in month: Use shorter time horizon (e.g., 4 days) to be more aggressive
+        # Late in month: Use actual remaining days as we approach deadline
+        # This creates urgency early while respecting the hard deadline
+        days_until_target = min(actual_days_until_target, DebtBasedScoring.AGGRESSIVE_PAYOUT_BUFFER_DAYS)
+
+        # Ensure at least 1 day if we haven't reached deadline yet
+        if actual_days_until_target > 0 and days_until_target == 0:
+            days_until_target = 1
 
         if verbose:
             bt.logging.info(
                 f"Current day: {current_day}, "
                 f"target day: {DebtBasedScoring.PAYOUT_TARGET_DAY}, "
-                f"days until target: {days_until_target}"
+                f"actual days until target: {actual_days_until_target}, "
+                f"aggressive days until target: {days_until_target}"
             )
 
         # Step 4-6: Process each miner to calculate remaining payouts
@@ -255,17 +278,19 @@ class DebtBasedScoring:
                 if projected_alpha_available < total_remaining_payout:
                     shortage_pct = ((total_remaining_payout - projected_alpha_available) / total_remaining_payout) * 100
                     bt.logging.warning(
-                        f"⚠️  INSUFFICIENT EMISSIONS: Projected ALPHA available until day {DebtBasedScoring.PAYOUT_TARGET_DAY} "
+                        f"⚠️  INSUFFICIENT EMISSIONS: Projected ALPHA available in next {days_until_target} days "
                         f"({projected_alpha_available:.2f}) is less than total remaining payout needed "
                         f"({total_remaining_payout:.2f}). Shortage: {shortage_pct:.1f}%. "
+                        f"Using aggressive {days_until_target}-day payout strategy (target day {DebtBasedScoring.PAYOUT_TARGET_DAY}). "
                         f"Miners will receive proportional payouts."
                     )
                 elif verbose:
                     surplus_pct = ((projected_alpha_available - total_remaining_payout) / total_remaining_payout) * 100
                     bt.logging.info(
-                        f"✓ Projected ALPHA available ({projected_alpha_available:.2f}) exceeds "
+                        f"✓ Projected ALPHA available in next {days_until_target} days ({projected_alpha_available:.2f}) exceeds "
                         f"total remaining payout needed ({total_remaining_payout:.2f}). "
-                        f"Surplus: {surplus_pct:.1f}%"
+                        f"Surplus: {surplus_pct:.1f}%. "
+                        f"Using aggressive {days_until_target}-day payout strategy (actual deadline: day {DebtBasedScoring.PAYOUT_TARGET_DAY})."
                     )
 
             except Exception as e:

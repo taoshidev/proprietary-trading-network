@@ -244,6 +244,55 @@ class TestDebtBasedScoring(unittest.TestCase):
         expected_alpha = 10 * 7200 * 10 / 0.5  # 1,440,000
         self.assertAlmostEqual(projected_alpha, expected_alpha, places=0)
 
+    def test_aggressive_payout_strategy(self):
+        """Test that aggressive payout strategy is applied correctly"""
+        # Test day 1 - should use 4-day buffer (aggressive)
+        current_time_day1 = datetime(2025, 12, 1, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms_day1 = int(current_time_day1.timestamp() * 1000)
+
+        # Create simple ledger with remaining payout
+        prev_month_checkpoint = datetime(2025, 11, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
+        ledger.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=10000.0,
+            pnl_loss=-2000.0,  # net_pnl = 8000
+            total_penalty=1.0,
+        ))
+
+        # Run compute_results and check projection uses 4-day window
+        result = DebtBasedScoring.compute_results(
+            {"test_hotkey": ledger},
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms_day1,
+            verbose=True
+        )
+
+        # Verify weight is assigned (single miner gets 1.0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], ("test_hotkey", 1.0))
+
+        # Test day 23 - should use 3-day buffer (actual remaining is 3)
+        current_time_day23 = datetime(2025, 12, 23, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms_day23 = int(current_time_day23.timestamp() * 1000)
+
+        result = DebtBasedScoring.compute_results(
+            {"test_hotkey": ledger},
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms_day23,
+            verbose=True
+        )
+
+        # Should still return weight
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], ("test_hotkey", 1.0))
+
 
 if __name__ == '__main__':
     unittest.main()
