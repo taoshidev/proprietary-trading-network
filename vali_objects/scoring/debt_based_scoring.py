@@ -13,8 +13,8 @@ Key Concepts:
 - Weights = Proportional to remaining_payout, with warning if insufficient emissions
 
 Algorithm Flow:
-1. Calculate needed_payout from previous month's performance
-2. Calculate actual_payout from current month's emissions
+1. Calculate needed_payout from previous month's performance (only MAINCOMP/PROBATION checkpoints)
+2. Calculate actual_payout from current month's emissions (only MAINCOMP/PROBATION checkpoints)
 3. Calculate remaining_payout for each miner
 4. Query real-time TAO emission rate from subtensor
 5. Convert to ALPHA using current conversion rate
@@ -22,6 +22,11 @@ Algorithm Flow:
 7. Project total ALPHA available over aggressive timeline
 8. Set weights proportional to remaining_payout
 9. Warn if sum(remaining_payouts) > projected_emissions
+10. Enforce minimum weights based on challenge period status:
+    - CHALLENGE/PLAGIARISM/UNKNOWN: 1x dust
+    - PROBATION: 2x dust
+    - MAINCOMP: 3x dust
+11. Normalize weights
 
 Aggressive Payout Strategy:
 - Day 1-20: Target completion in 4 days (aggressive, creates urgency)
@@ -45,6 +50,7 @@ from calendar import monthrange
 from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.vali_config import ValiConfig
 
 
 class DebtBasedScoring:
@@ -93,7 +99,8 @@ class DebtBasedScoring:
         7. Project total ALPHA available from now until day 25
         8. Set weights proportional to remaining_payout
         9. Warn if sum(remaining_payouts) > projected_emissions
-        10. Normalize weights so they sum to 1.0
+        10. Enforce minimum weights based on challenge period status
+        11. Normalize weights so they sum to 1.0
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
@@ -301,9 +308,17 @@ class DebtBasedScoring:
             except Exception as e:
                 bt.logging.error(f"Failed to estimate emission projections: {e}. Continuing with weights calculation.")
 
-        # Step 10: Normalize weights
+        # Step 10: Enforce minimum weights based on challenge period status
+        # All miners get minimum "dust" weights based on their current status
+        miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
+            ledger_dict=ledger_dict,
+            miner_remaining_payouts=miner_remaining_payouts,
+            verbose=verbose
+        )
+
+        # Step 11: Normalize weights
         # Weights are proportional to remaining_payout (sum to 1.0)
-        normalized_weights = DebtBasedScoring._normalize_scores(miner_remaining_payouts)
+        normalized_weights = DebtBasedScoring._normalize_scores(miner_weights_with_minimums)
 
         # Convert to sorted list
         result = sorted(normalized_weights.items(), key=lambda x: x[1], reverse=True)
@@ -392,6 +407,70 @@ class DebtBasedScoring:
         except Exception as e:
             bt.logging.error(f"Error estimating ALPHA emissions: {e}")
             raise
+
+    @staticmethod
+    def _apply_minimum_weights(
+        ledger_dict: dict[str, DebtLedger],
+        miner_remaining_payouts: dict[str, float],
+        verbose: bool = False
+    ) -> dict[str, float]:
+        """
+        Enforce minimum weights based on challenge period status.
+
+        All miners receive minimum "dust" weights based on their current status:
+        - CHALLENGE/PLAGIARISM/UNKNOWN: 1x dust = CHALLENGE_PERIOD_MIN_WEIGHT
+        - PROBATION: 2x dust = 2 * CHALLENGE_PERIOD_MIN_WEIGHT
+        - MAINCOMP: 3x dust = 3 * CHALLENGE_PERIOD_MIN_WEIGHT
+
+        Args:
+            ledger_dict: Dict of {hotkey: DebtLedger}
+            miner_remaining_payouts: Dict of {hotkey: remaining_payout}
+            verbose: Enable detailed logging
+
+        Returns:
+            Dict of {hotkey: weight} with minimums applied
+        """
+        DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Define minimum weights based on status
+        status_to_minimum_weight = {
+            MinerBucket.CHALLENGE.value: 1 * DUST,
+            MinerBucket.PLAGIARISM.value: 1 * DUST,
+            MinerBucket.UNKNOWN.value: 1 * DUST,
+            MinerBucket.PROBATION.value: 2 * DUST,
+            MinerBucket.MAINCOMP.value: 3 * DUST,
+        }
+
+        miner_weights_with_minimums = {}
+
+        for hotkey, debt_ledger in ledger_dict.items():
+            # Get debt-based weight (from remaining payout)
+            debt_weight = miner_remaining_payouts.get(hotkey, 0.0)
+
+            # Get current status from latest checkpoint
+            current_status = MinerBucket.UNKNOWN.value
+            if debt_ledger.checkpoints:
+                latest_checkpoint = debt_ledger.checkpoints[-1]
+                current_status = latest_checkpoint.challenge_period_status
+
+            # Get minimum weight for this status
+            minimum_weight = status_to_minimum_weight.get(current_status, 1 * DUST)
+
+            # Apply max(debt_weight, minimum_weight)
+            final_weight = max(debt_weight, minimum_weight)
+
+            miner_weights_with_minimums[hotkey] = final_weight
+
+            if verbose:
+                bt.logging.debug(
+                    f"{hotkey[:16]}...{hotkey[-8:]}: "
+                    f"status={current_status}, "
+                    f"debt_weight={debt_weight:.8f}, "
+                    f"minimum={minimum_weight:.8f}, "
+                    f"final={final_weight:.8f}"
+                )
+
+        return miner_weights_with_minimums
 
     @staticmethod
     def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
