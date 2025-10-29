@@ -1746,27 +1746,31 @@ class EmissionsLedgerManager:
 
     def build_delta_update(self, lag_time_ms: Optional[int] = None) -> int:
         """
-        Build ONLY new chunks since last checkpoint (delta update).
+        Build emissions ledgers from scratch (full rebuild).
+
+        This method rebuilds ALL emissions ledgers from scratch to ensure they reflect
+        any changes in performance ledgers. This is necessary because performance ledgers
+        can change, and emissions calculations depend on them.
 
         This method:
-        1. Computes the time range for new chunks
-        2. Calls build_all_emissions_ledgers_optimized (which works in-place and saves incrementally)
+        1. Checks if there are new chunks to compute
+        2. Clears existing emissions ledgers
+        3. Rebuilds from scratch using the full lookback period
 
         Args:
             lag_time_ms: Stay this far behind current time (default: 12 hours)
 
         Returns:
-            Number of new chunks added
+            Number of chunks built
         """
         if lag_time_ms is None:
             lag_time_ms = self.DEFAULT_LAG_TIME_MS
 
         start_time = time.time()
 
-        # Get checkpoint info from existing ledgers
+        # Get checkpoint info from existing ledgers to check if update is needed
         checkpoint_info = self.get_checkpoint_info()
         last_computed_chunk_end_ms = checkpoint_info["last_computed_chunk_end_ms"]
-        chunks_before = checkpoint_info["total_checkpoints"]
 
         # Calculate new time range
         current_time_ms = int(time.time() * 1000)
@@ -1786,13 +1790,21 @@ class EmissionsLedgerManager:
             )
             return 0
 
-        # Build ONLY new chunks (works in-place on self.emissions_ledgers and saves incrementally)
-        start_time_ms = last_computed_chunk_end_ms
+        # CRITICAL: Clear existing ledgers before rebuilding from scratch
+        # This ensures emissions reflect any changes in performance ledgers
+        bt.logging.info("Clearing existing emissions ledgers for full rebuild (perf ledgers may have changed)")
+        self.emissions_ledgers.clear()
+
+        # Calculate start time from lookback period (rebuild from scratch)
+        current_time = datetime.now(timezone.utc)
+        start_time_dt = current_time - timedelta(days=self.DEFAULT_START_TIME_OFFSET_DAYS)
+        start_time_ms = int(start_time_dt.timestamp() * 1000)
 
         bt.logging.info(
-            f"Delta update: computing chunks from "
+            f"Rebuilding ALL emissions ledgers from scratch: "
             f"{TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
-            f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)}"
+            f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)} "
+            f"({self.DEFAULT_START_TIME_OFFSET_DAYS} day lookback)"
         )
 
         self.build_all_emissions_ledgers_optimized(
@@ -1800,17 +1812,16 @@ class EmissionsLedgerManager:
             end_time_ms=end_time_ms
         )
 
-        # Calculate chunks added
-        chunks_after = self.get_checkpoint_info()["total_checkpoints"]
-        chunks_added = chunks_after - chunks_before
+        # Calculate total chunks built
+        total_chunks = sum(len(ledger.checkpoints) for ledger in self.emissions_ledgers.values())
 
         elapsed = time.time() - start_time
         bt.logging.info(
-            f"Delta update completed in {elapsed:.2f}s - "
-            f"added {chunks_added} chunks"
+            f"Full rebuild completed in {elapsed:.2f}s - "
+            f"built {total_chunks} total chunks"
         )
 
-        return chunks_added
+        return total_chunks
 
     def _build_full(self, end_time_ms: int, lookback_days: int = DEFAULT_START_TIME_OFFSET_DAYS) -> int:
         """
