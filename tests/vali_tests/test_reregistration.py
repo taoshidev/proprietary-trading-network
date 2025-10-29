@@ -489,10 +489,14 @@ class TestReregistration(TestBase):
             import json
             data = json.load(f)
 
-        # Verify structure
+        # Verify structure - should be a dict with metadata
         self.assertIn(DEPARTED_HOTKEYS_KEY, data)
-        self.assertIsInstance(data[DEPARTED_HOTKEYS_KEY], list)
+        self.assertIsInstance(data[DEPARTED_HOTKEYS_KEY], dict)
         self.assertIn(self.DEREGISTERED_MINER, data[DEPARTED_HOTKEYS_KEY])
+        # Verify metadata is present
+        metadata = data[DEPARTED_HOTKEYS_KEY][self.DEREGISTERED_MINER]
+        self.assertIn("detected_ms", metadata)
+        self.assertIn("block", metadata)
 
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
@@ -508,9 +512,9 @@ class TestReregistration(TestBase):
         self.elimination_manager.process_eliminations(self.position_locks)
         self.elimination_manager.process_eliminations(self.position_locks)
 
-        # Should only appear once
-        departed_count = self.elimination_manager.departed_hotkeys.count(self.DEREGISTERED_MINER)
-        self.assertEqual(departed_count, 1)
+        # Should only appear once (dict keys are unique by definition)
+        self.assertIn(self.DEREGISTERED_MINER, self.elimination_manager.departed_hotkeys)
+        self.assertEqual(len(self.elimination_manager.departed_hotkeys), 1)
 
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
