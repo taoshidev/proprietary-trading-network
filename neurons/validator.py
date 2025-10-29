@@ -952,6 +952,15 @@ class Validator:
             synapse.error_message = msg
             return True
 
+        # don't process re-registered miners
+        if self.elimination_manager.is_hotkey_re_registered(synapse.dendrite.hotkey):
+            msg = (f"This miner hotkey {synapse.dendrite.hotkey} was previously de-registered and is not allowed to re-register. "
+                   f"Re-registration is not permitted on this subnet.")
+            bt.logging.warning(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
+
         order_uuid = synapse.miner_order_uuid
         tp = self.parse_trade_pair_from_signal(signal)
         if order_uuid and self.uuid_tracker.exists(order_uuid):

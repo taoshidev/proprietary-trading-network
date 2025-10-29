@@ -120,6 +120,30 @@ class EnhancedMockMetagraph(BaseMockMetagraph):
             self.uid_to_hotkey = {i: hk for i, hk in enumerate(self.hotkeys)}
             self.hotkey_to_uid = {hk: i for i, hk in enumerate(self.hotkeys)}
 
+    def add_hotkey(self, hotkey: str):
+        """Add a hotkey to the metagraph (simulate re-registration)"""
+        if hotkey not in self.hotkeys:
+            self.hotkeys.append(hotkey)
+            self.n = len(self.hotkeys)
+
+            # Add to all lists with default values
+            new_uid = len(self.uids)
+            self.uids.append(new_uid)
+            self.stakes.append(100.0)
+            self.trust.append(1.0)
+            self.consensus.append(1.0)
+            self.incentive.append(1.0)
+            self.dividends.append(0.0)
+            self.active.append(1)
+            self.last_update.append(self.block)
+            self.validator_permit.append(True)
+            self.block_at_registration.append(self.block)
+
+            # Update mappings
+            self.uid_to_hotkey[new_uid] = hotkey
+            self.hotkey_to_uid[hotkey] = new_uid
+            self.uid_to_block[new_uid] = self.block
+
 
 class EnhancedMockChallengePeriodManager(BaseMockChallengePeriodManager):
     """Enhanced mock challenge period manager with full bucket support"""
