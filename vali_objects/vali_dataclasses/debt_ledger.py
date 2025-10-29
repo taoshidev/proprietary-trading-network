@@ -56,6 +56,7 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager, EmissionsLedger
 from vali_objects.vali_dataclasses.penalty_ledger import PenaltyLedgerManager, PenaltyLedger
 from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+from vali_objects.utils.miner_bucket_enum import MinerBucket
 
 
 @dataclass
@@ -99,6 +100,7 @@ class DebtCheckpoint:
         min_collateral_penalty: Minimum collateral penalty multiplier
         risk_adjusted_performance_penalty: Risk-adjusted performance penalty multiplier
         total_penalty: Combined penalty multiplier (product of all penalties)
+        challenge_period_status: Challenge period status (MAINCOMP/CHALLENGE/PROBATION/PLAGIARISM/UNKNOWN)
 
         # Derived/Computed Fields
         net_pnl: Net PnL (gain + loss)
@@ -136,9 +138,14 @@ class DebtCheckpoint:
     min_collateral_penalty: float = 1.0
     risk_adjusted_performance_penalty: float = 1.0
     total_penalty: float = 1.0
+    challenge_period_status: str = None
 
     def __post_init__(self):
         """Calculate derived fields after initialization"""
+        # Set default for challenge_period_status if not provided
+        if self.challenge_period_status is None:
+            self.challenge_period_status = MinerBucket.UNKNOWN.value
+        # Calculate derived financial fields
         self.net_pnl = self.pnl_gain + self.pnl_loss
         self.total_fees = self.spread_fee_loss + self.carry_fee_loss
         self.return_after_fees = self.portfolio_return
@@ -193,6 +200,7 @@ class DebtCheckpoint:
                 'min_collateral': self.min_collateral_penalty,
                 'risk_adjusted_performance': self.risk_adjusted_performance_penalty,
                 'cumulative': self.total_penalty,
+                'challenge_period_status': self.challenge_period_status,
             },
 
             # Derived
@@ -450,6 +458,7 @@ class DebtLedger:
                     min_collateral_penalty=penalties.get('min_collateral', 1.0),
                     risk_adjusted_performance_penalty=penalties.get('risk_adjusted_performance', 1.0),
                     total_penalty=penalties.get('cumulative', 1.0),
+                    challenge_period_status=penalties.get('challenge_period_status', MinerBucket.UNKNOWN.value),
                 )
             else:
                 # Flat format (backward compatibility or alternative format)
@@ -477,6 +486,7 @@ class DebtLedger:
                     min_collateral_penalty=cp_dict.get('min_collateral_penalty', 1.0),
                     risk_adjusted_performance_penalty=cp_dict.get('risk_adjusted_performance_penalty', 1.0),
                     total_penalty=cp_dict.get('total_penalty', 1.0),
+                    challenge_period_status=cp_dict.get('challenge_period_status', MinerBucket.UNKNOWN.value),
                 )
 
             checkpoints.append(checkpoint)
@@ -1011,6 +1021,7 @@ class DebtLedgerManager:
                     min_collateral_penalty=penalty_checkpoint.min_collateral_penalty,
                     risk_adjusted_performance_penalty=penalty_checkpoint.risk_adjusted_performance_penalty,
                     total_penalty=penalty_checkpoint.total_penalty,
+                    challenge_period_status=penalty_checkpoint.challenge_period_status,
                 )
 
                 # Add checkpoint to ledger (validates strict contiguity)
