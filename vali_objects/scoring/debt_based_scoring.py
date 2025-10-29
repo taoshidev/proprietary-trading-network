@@ -51,6 +51,7 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import ValiConfig
+from vali_objects.scoring.scoring import Scoring
 
 
 class DebtBasedScoring:
@@ -318,7 +319,7 @@ class DebtBasedScoring:
 
         # Step 11: Normalize weights
         # Weights are proportional to remaining_payout (sum to 1.0)
-        normalized_weights = DebtBasedScoring._normalize_scores(miner_weights_with_minimums)
+        normalized_weights = Scoring.normalize_scores(miner_weights_with_minimums)
 
         # Convert to sorted list
         result = sorted(normalized_weights.items(), key=lambda x: x[1], reverse=True)
@@ -471,33 +472,3 @@ class DebtBasedScoring:
                 )
 
         return miner_weights_with_minimums
-
-    @staticmethod
-    def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
-        """
-        Normalize scores so they sum to 1.0 (weights must sum to 1.0).
-
-        Args:
-            scores: Dict of {hotkey: score}
-
-        Returns:
-            Dict of {hotkey: normalized_weight}
-        """
-        if not scores:
-            bt.logging.info("No scores to normalize, returning empty dict")
-            return {}
-
-        sum_scores = sum(scores.values())
-
-        if sum_scores == 0:
-            bt.logging.info("Sum of scores is 0, returning equal weights")
-            # Return equal weights for all miners
-            equal_weight = 1.0 / len(scores)
-            return {hotkey: equal_weight for hotkey in scores.keys()}
-
-        # Normalize
-        normalized_scores = {
-            hotkey: (score / sum_scores) for hotkey, score in scores.items()
-        }
-
-        return normalized_scores
