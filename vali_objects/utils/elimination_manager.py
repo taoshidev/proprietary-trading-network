@@ -11,6 +11,7 @@ from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
+from shared_objects.metagraph_utils import is_anomalous_hotkey_loss
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
@@ -27,8 +28,6 @@ class EliminationReason(Enum):
 
 # Constants for departed hotkeys tracking
 DEPARTED_HOTKEYS_KEY = "departed_hotkeys"
-ANOMALY_DETECTION_MIN_LOST = 10  # Minimum number of lost hotkeys to trigger anomaly detection
-ANOMALY_DETECTION_PERCENT_THRESHOLD = 25  # Percentage threshold for anomaly detection
 
 class EliminationManager(CacheController):
     """"
@@ -364,7 +363,7 @@ class EliminationManager(CacheController):
     def _is_anomalous_metagraph_change(self, lost_hotkeys: set, total_hotkeys_before: int) -> bool:
         """
         Detect anomalous drops in miner counts to avoid false positives.
-        Uses the same logic as metagraph_updater's failsafe condition.
+        Uses shared anomaly detection logic from metagraph_utils.
 
         Args:
             lost_hotkeys: Set of hotkeys that were lost
@@ -373,14 +372,8 @@ class EliminationManager(CacheController):
         Returns:
             True if the change is anomalous (likely a network issue), False otherwise
         """
-        if not lost_hotkeys or total_hotkeys_before == 0:
-            return False
-
-        num_lost = len(lost_hotkeys)
-        percent_lost = 100 * num_lost / total_hotkeys_before
-
-        # Anomaly if we lost more than 10 hotkeys AND >= 25% of total
-        return num_lost > ANOMALY_DETECTION_MIN_LOST and percent_lost >= ANOMALY_DETECTION_PERCENT_THRESHOLD
+        is_anomalous, _ = is_anomalous_hotkey_loss(lost_hotkeys, total_hotkeys_before)
+        return is_anomalous
 
     def _update_departed_hotkeys(self):
         """
