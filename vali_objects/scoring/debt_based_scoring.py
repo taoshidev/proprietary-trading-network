@@ -26,7 +26,9 @@ Algorithm Flow:
     - CHALLENGE/PLAGIARISM/UNKNOWN: 1x dust
     - PROBATION: 2x dust
     - MAINCOMP: 3x dust
-11. Normalize weights
+11. Normalize weights with burn address logic:
+    - If sum < 1.0: assign (1.0 - sum) to burn address (uid 229)
+    - If sum >= 1.0: normalize to 1.0, burn address gets 0
 
 Aggressive Payout Strategy:
 - Day 1-20: Target completion in 4 days (aggressive, creates urgency)
@@ -35,8 +37,9 @@ Aggressive Payout Strategy:
 - This front-loads emissions early in the month while respecting the hard deadline
 
 Important Notes:
-- Debt-based scoring only activates starting November 2025
-- Before November 2025, all miners get zero weights
+- Debt-based scoring activates December 2025 (nominal payouts begin Dec 1)
+- Before December 2025, miners only receive minimum dust weights
+- Excess weight (when sum < 1.0) goes to burn address (uid 229)
 - Hard deadline: day 25 of each month
 - Checkpoints are 12-hour intervals (2 per day)
 - Uses real-time subtensor queries for emission rate estimation
@@ -62,9 +65,9 @@ class DebtBasedScoring:
     Uses real-time subtensor queries to estimate emission rates and project available ALPHA.
     """
 
-    # Activation date: November 2025
+    # Activation date: December 2025 (nominal payouts begin Dec 1)
     ACTIVATION_YEAR = 2025
-    ACTIVATION_MONTH = 11
+    ACTIVATION_MONTH = 12
 
     # Target payout completion by day 25
     PAYOUT_TARGET_DAY = 25
@@ -78,6 +81,9 @@ class DebtBasedScoring:
     BLOCKS_PER_DAY_FALLBACK = 7200  # ~12 seconds per block
     RAO_PER_TOKEN = 1e9
 
+    # Burn address UID (receives excess weight when sum < 1.0)
+    BURN_UID = 229
+
     @staticmethod
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
@@ -85,13 +91,14 @@ class DebtBasedScoring:
         netuid: int,
         emissions_ledger_manager: 'EmissionsLedgerManager',
         current_time_ms: int = None,
-        verbose: bool = False
+        verbose: bool = False,
+        metagraph: 'bt.metagraph' = None
     ) -> List[Tuple[str, float]]:
         """
         Compute miner weights based on debt ledger information with real-time emission projections.
 
         The algorithm works as follows:
-        1. Check if we're in activation period (>= November 2025)
+        1. Check if we're in activation period (>= December 2025)
         2. For each miner, calculate their "needed payout" from previous month's performance
         3. Calculate "actual payout" given so far in current month
         4. Calculate "remaining payout" to be distributed
@@ -101,7 +108,7 @@ class DebtBasedScoring:
         8. Set weights proportional to remaining_payout
         9. Warn if sum(remaining_payouts) > projected_emissions
         10. Enforce minimum weights based on challenge period status
-        11. Normalize weights so they sum to 1.0
+        11. Normalize weights with burn address logic (sum < 1.0 → burn gets excess)
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
@@ -110,9 +117,11 @@ class DebtBasedScoring:
             emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
+            metagraph: Optional metagraph instance (if not provided, will query from subtensor)
 
         Returns:
             List of (hotkey, weight) tuples sorted by weight (descending)
+            Includes burn address (uid 229) if sum of weights < 1.0
         """
         if current_time_ms is None:
             current_time_ms = TimeUtil.now_in_millis()
@@ -157,9 +166,16 @@ class DebtBasedScoring:
             bt.logging.info(
                 f"Previous month ({prev_year}-{prev_month:02d}) is before activation "
                 f"({DebtBasedScoring.ACTIVATION_YEAR}-{DebtBasedScoring.ACTIVATION_MONTH:02d}). "
-                f"Returning zero weights for all miners."
+                f"Applying only minimum dust weights, excess goes to burn address."
             )
-            return [(hotkey, 0.0) for hotkey in ledger_dict.keys()]
+            # Before activation: apply minimum dust weights only, burn the rest
+            return DebtBasedScoring._apply_pre_activation_weights(
+                ledger_dict=ledger_dict,
+                subtensor=subtensor,
+                netuid=netuid,
+                metagraph=metagraph,
+                verbose=verbose
+            )
 
         # Step 3: Calculate month boundaries
         # Previous month: full month
@@ -317,12 +333,16 @@ class DebtBasedScoring:
             verbose=verbose
         )
 
-        # Step 11: Normalize weights
-        # Weights are proportional to remaining_payout (sum to 1.0)
-        normalized_weights = Scoring.normalize_scores(miner_weights_with_minimums)
-
-        # Convert to sorted list
-        result = sorted(normalized_weights.items(), key=lambda x: x[1], reverse=True)
+        # Step 11: Normalize weights with special burn address logic
+        # If sum < 1.0: assign remaining weight to burn address (uid 229)
+        # If sum >= 1.0: normalize to 1.0, burn address gets 0
+        result = DebtBasedScoring._normalize_with_burn_address(
+            weights=miner_weights_with_minimums,
+            subtensor=subtensor,
+            netuid=netuid,
+            metagraph=metagraph,
+            verbose=verbose
+        )
 
         if verbose:
             bt.logging.info(f"Debt-based weights computed for {len(result)} miners")
@@ -472,3 +492,147 @@ class DebtBasedScoring:
                 )
 
         return miner_weights_with_minimums
+
+    @staticmethod
+    def _get_burn_address_hotkey(
+        subtensor: 'bt.subtensor',
+        netuid: int,
+        metagraph: 'bt.metagraph' = None
+    ) -> str:
+        """
+        Get the hotkey for the burn address (uid 229).
+
+        Args:
+            subtensor: Bittensor subtensor instance
+            netuid: Network UID
+            metagraph: Optional metagraph instance (if not provided, will query)
+
+        Returns:
+            Hotkey string for uid 229
+        """
+        if metagraph is None:
+            metagraph = subtensor.metagraph(netuid)
+
+        # Get hotkey for uid 229
+        if DebtBasedScoring.BURN_UID < len(metagraph.hotkeys):
+            return metagraph.hotkeys[DebtBasedScoring.BURN_UID]
+        else:
+            bt.logging.warning(
+                f"Burn UID {DebtBasedScoring.BURN_UID} not found in metagraph "
+                f"(only {len(metagraph.hotkeys)} UIDs). Using placeholder."
+            )
+            return f"burn_uid_{DebtBasedScoring.BURN_UID}"
+
+    @staticmethod
+    def _normalize_with_burn_address(
+        weights: dict[str, float],
+        subtensor: 'bt.subtensor',
+        netuid: int,
+        metagraph: 'bt.metagraph' = None,
+        verbose: bool = False
+    ) -> List[Tuple[str, float]]:
+        """
+        Normalize weights with special burn address logic.
+
+        If sum of weights < 1.0:
+            - Assign remaining weight (1.0 - sum) to burn address (uid 229)
+        If sum of weights >= 1.0:
+            - Normalize all weights to sum to 1.0
+            - Burn address gets 0 (not included)
+
+        Args:
+            weights: Dict of {hotkey: weight}
+            subtensor: Bittensor subtensor instance
+            netuid: Network UID
+            metagraph: Optional metagraph instance
+            verbose: Enable detailed logging
+
+        Returns:
+            List of (hotkey, weight) tuples sorted by weight (descending)
+        """
+        if not weights:
+            bt.logging.info("No weights to normalize, returning empty list")
+            return []
+
+        sum_weights = sum(weights.values())
+
+        if verbose:
+            bt.logging.info(f"Sum of weights before normalization: {sum_weights:.6f}")
+
+        if sum_weights < 1.0:
+            # Excess weight goes to burn address
+            burn_weight = 1.0 - sum_weights
+            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(subtensor, netuid, metagraph)
+
+            bt.logging.info(
+                f"Sum of weights ({sum_weights:.6f}) < 1.0. "
+                f"Assigning {burn_weight:.6f} to burn address (uid {DebtBasedScoring.BURN_UID})"
+            )
+
+            # Create result with original weights + burn address
+            result = [(hotkey, weight) for hotkey, weight in weights.items()]
+            result.append((burn_hotkey, burn_weight))
+
+        else:
+            # Sum >= 1.0: normalize to exactly 1.0
+            bt.logging.info(
+                f"Sum of weights ({sum_weights:.6f}) >= 1.0. "
+                f"Normalizing to 1.0, burn address gets 0."
+            )
+
+            # Use standard normalization
+            normalized_weights = Scoring.normalize_scores(weights)
+            result = [(hotkey, weight) for hotkey, weight in normalized_weights.items()]
+
+        # Sort by weight descending
+        result = sorted(result, key=lambda x: x[1], reverse=True)
+
+        return result
+
+    @staticmethod
+    def _apply_pre_activation_weights(
+        ledger_dict: dict[str, DebtLedger],
+        subtensor: 'bt.subtensor',
+        netuid: int,
+        metagraph: 'bt.metagraph' = None,
+        verbose: bool = False
+    ) -> List[Tuple[str, float]]:
+        """
+        Apply weights for pre-activation period (before Dec 2025).
+
+        During pre-activation, miners only receive minimum dust weights based on
+        their challenge period status. Excess weight goes to burn address.
+
+        Args:
+            ledger_dict: Dict of {hotkey: DebtLedger}
+            subtensor: Bittensor subtensor instance
+            netuid: Network UID
+            metagraph: Optional metagraph instance
+            verbose: Enable detailed logging
+
+        Returns:
+            List of (hotkey, weight) tuples with dust weights + burn address
+        """
+        # Apply minimum dust weights only (no debt-based earnings)
+        miner_dust_weights = DebtBasedScoring._apply_minimum_weights(
+            ledger_dict=ledger_dict,
+            miner_remaining_payouts={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
+            verbose=verbose
+        )
+
+        # Apply burn address normalization
+        result = DebtBasedScoring._normalize_with_burn_address(
+            weights=miner_dust_weights,
+            subtensor=subtensor,
+            netuid=netuid,
+            metagraph=metagraph,
+            verbose=verbose
+        )
+
+        if verbose:
+            bt.logging.info(
+                f"Pre-activation weights: {len(ledger_dict)} miners with dust weights, "
+                f"excess to burn address"
+            )
+
+        return result
