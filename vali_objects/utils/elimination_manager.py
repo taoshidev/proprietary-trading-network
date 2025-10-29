@@ -54,10 +54,10 @@ class EliminationManager(CacheController):
 
         if ipc_manager:
             self.eliminations = ipc_manager.list()
-            self.departed_hotkeys = ipc_manager.list()
+            self.departed_hotkeys = ipc_manager.dict()
         else:
             self.eliminations = []
-            self.departed_hotkeys = []
+            self.departed_hotkeys = {}
         self.eliminations.extend(self.get_eliminations_from_disk())
         if len(self.eliminations) == 0:
             ValiBkpUtils.write_file(
@@ -66,7 +66,7 @@ class EliminationManager(CacheController):
             )
 
         # Initialize departed hotkeys tracking
-        self.departed_hotkeys.extend(self._get_departed_hotkeys_from_disk())
+        self.departed_hotkeys.update(self._get_departed_hotkeys_from_disk())
         if len(self.departed_hotkeys) == 0:
             self._save_departed_hotkeys()
 
@@ -402,8 +402,8 @@ class EliminationManager(CacheController):
             bt.logging.debug(f"Metagraph gained hotkeys: {gained_hotkeys}")
 
         # Check for re-registered hotkeys
-        departed_set = set(self.departed_hotkeys)
-        re_registered_hotkeys = gained_hotkeys & departed_set
+        departed_hotkeys_set = set(self.departed_hotkeys.keys())
+        re_registered_hotkeys = gained_hotkeys & departed_hotkeys_set
         if re_registered_hotkeys:
             bt.logging.warning(
                 f"Detected {len(re_registered_hotkeys)} re-registered miners: {re_registered_hotkeys}. "
@@ -414,10 +414,14 @@ class EliminationManager(CacheController):
         # Only track legitimate departures (not anomalous drops)
         if lost_hotkeys and not self._is_anomalous_metagraph_change(lost_hotkeys, len(self.previous_metagraph_hotkeys)):
             # Add lost hotkeys to departed tracking
-            new_departures = lost_hotkeys - departed_set
+            new_departures = lost_hotkeys - departed_hotkeys_set
             if new_departures:
+                current_time_ms = TimeUtil.now_in_millis()
                 for hotkey in new_departures:
-                    self.departed_hotkeys.append(hotkey)
+                    self.departed_hotkeys[hotkey] = {
+                        "detected_ms": current_time_ms,
+                        "block": self.metagraph.block if hasattr(self.metagraph, 'block') else None
+                    }
                 self._save_departed_hotkeys()
                 bt.logging.info(
                     f"Tracked {len(new_departures)} newly departed hotkeys: {new_departures}. "
@@ -441,35 +445,42 @@ class EliminationManager(CacheController):
             hotkey: The hotkey to check
 
         Returns:
-            True if the hotkey is in the metagraph AND in the departed_hotkeys list, False otherwise
+            True if the hotkey is in the metagraph AND in the departed_hotkeys dict, False otherwise
         """
         if not hotkey:
             return False
 
         current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph.hotkeys else set()
-        departed_set = set(self.departed_hotkeys)
 
-        # Re-registered if currently in metagraph AND previously departed
-        return hotkey in current_hotkeys and hotkey in departed_set
+        # Re-registered if currently in metagraph AND previously departed (O(1) dict lookup)
+        return hotkey in current_hotkeys and hotkey in self.departed_hotkeys
 
-    def _get_departed_hotkeys_from_disk(self) -> list:
-        """Load departed hotkeys from disk."""
+    def _get_departed_hotkeys_from_disk(self) -> dict:
+        """Load departed hotkeys from disk.
+
+        Returns:
+            Dict mapping hotkey -> metadata dict with keys: detected_ms, block
+        """
         location = ValiBkpUtils.get_departed_hotkeys_dir(running_unit_tests=self.running_unit_tests)
         try:
             departed_data = ValiUtils.get_vali_json_file(location, DEPARTED_HOTKEYS_KEY)
             if departed_data is None:
-                departed_data = []
+                departed_data = {}
+            # Handle legacy list format for backwards compatibility
+            if isinstance(departed_data, list):
+                bt.logging.info(f"Converting legacy departed hotkeys list to dict format")
+                departed_data = {hotkey: {"detected_ms": 0, "block": None} for hotkey in departed_data}
             bt.logging.trace(f"Loaded {len(departed_data)} departed hotkeys from disk. Dir: {location}")
             return departed_data
         except Exception as e:
-            bt.logging.warning(f"Could not load departed hotkeys from disk: {e}. Starting with empty list.")
-            return []
+            bt.logging.warning(f"Could not load departed hotkeys from disk: {e}. Starting with empty dict.")
+            return {}
 
     def _save_departed_hotkeys(self):
         """Save departed hotkeys to disk."""
         if not self.is_backtesting:
-            departed_list = list(self.departed_hotkeys)  # Convert proxy list to regular list
-            departed_data = {DEPARTED_HOTKEYS_KEY: departed_list}
-            bt.logging.trace(f"Writing {len(departed_list)} departed hotkeys to disk")
+            departed_dict = dict(self.departed_hotkeys)  # Convert proxy dict to regular dict
+            departed_data = {DEPARTED_HOTKEYS_KEY: departed_dict}
+            bt.logging.trace(f"Writing {len(departed_dict)} departed hotkeys to disk")
             output_location = ValiBkpUtils.get_departed_hotkeys_dir(running_unit_tests=self.running_unit_tests)
             ValiBkpUtils.write_file(output_location, departed_data)
