@@ -1806,7 +1806,7 @@ class EmissionsLedgerManager:
         # Calculate chunks built in this delta
         checkpoint_info_after = self.get_checkpoint_info()
         chunks_built = checkpoint_info_after["last_computed_chunk_end_ms"] - last_computed_chunk_end_ms
-        chunks_built = chunks_built // ValiConfig.EMISSIONS_LEDGER_CHUNK_DURATION_MS if chunks_built > 0 else 0
+        chunks_built = chunks_built // ValiConfig.TARGET_CHECKPOINT_DURATION_MS if chunks_built > 0 else 0
 
         elapsed = time.time() - start_time
         bt.logging.info(
