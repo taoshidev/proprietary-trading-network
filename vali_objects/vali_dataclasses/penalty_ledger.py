@@ -529,6 +529,25 @@ class PenaltyLedgerManager:
 
         time.sleep(120) # Initial delay to stagger large ipc reads
 
+        # FIRST-BOOT OPTIMIZATION: If no ledgers exist, build immediately instead of waiting up to 12 hours
+        if len(self.penalty_ledgers) == 0:
+            bt.logging.warning(
+                "[PENALTY_LEDGER] No existing penalty ledgers found! "
+                "Performing initial build immediately (not waiting for UTC alignment)"
+            )
+            try:
+                start_time = time.time()
+                self.build_penalty_ledgers(verbose=verbose, delta_update=False)
+                elapsed = time.time() - start_time
+                bt.logging.info(
+                    f"[PENALTY_LEDGER] Initial build completed in {elapsed:.2f}s. "
+                    f"Built {len(self.penalty_ledgers)} ledgers."
+                )
+            except Exception as e:
+                bt.logging.error(f"[PENALTY_LEDGER] Initial build failed: {e}", exc_info=True)
+                # Don't exit - will retry on next cycle with backoff
+                consecutive_failures = 1
+
         # Main loop
         while self.running:
             try:

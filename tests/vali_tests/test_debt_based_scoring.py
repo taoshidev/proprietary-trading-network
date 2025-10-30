@@ -178,7 +178,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         self.assertGreater(weights_dict["hotkey2"], weights_dict["hotkey1"])
 
     def test_minimum_weights_by_status(self):
-        """Test that minimum weights are enforced based on challenge period status"""
+        """Test that minimum weights are enforced based on challenge period status when sum < 1.0"""
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
@@ -187,12 +187,14 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
-        # Create miners with different statuses and minimal performance
+        # Create miners with different statuses and ZERO/NEGATIVE performance
+        # This ensures remaining_payout = 0, so minimum weights dominate
+        # Sum of weights will be 1*dust + 2*dust + 3*dust = 6*dust << 1.0
         ledger_challenge = DebtLedger(hotkey="challenge_miner", checkpoints=[])
         ledger_challenge.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
-            pnl_gain=1.0,
-            pnl_loss=-0.5,  # Very small net_pnl
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative PnL -> 0 remaining payout
             total_penalty=1.0,
             challenge_period_status=MinerBucket.CHALLENGE.value
         ))
@@ -200,8 +202,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         ledger_probation = DebtLedger(hotkey="probation_miner", checkpoints=[])
         ledger_probation.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
-            pnl_gain=1.0,
-            pnl_loss=-0.5,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative PnL -> 0 remaining payout
             total_penalty=1.0,
             challenge_period_status=MinerBucket.PROBATION.value
         ))
@@ -209,8 +211,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         ledger_maincomp = DebtLedger(hotkey="maincomp_miner", checkpoints=[])
         ledger_maincomp.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
-            pnl_gain=1.0,
-            pnl_loss=-0.5,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative PnL -> 0 remaining payout
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
@@ -232,43 +234,60 @@ class TestDebtBasedScoring(unittest.TestCase):
             verbose=True
         )
 
+        # Should have 4 entries: 3 miners + burn address (since sum < 1.0)
+        self.assertEqual(len(result), 4)
+
         weights_dict = dict(result)
 
-        # Verify minimum weights are enforced
-        # (actual weights might be slightly higher after normalization, but should maintain ratios)
+        # Verify minimum weights are enforced (guaranteed when sum < 1.0)
         weight_challenge = weights_dict.get("challenge_miner", 0)
         weight_probation = weights_dict.get("probation_miner", 0)
         weight_maincomp = weights_dict.get("maincomp_miner", 0)
 
-        # Check that weights are at least the minimum
-        self.assertGreaterEqual(weight_challenge, dust)
-        self.assertGreaterEqual(weight_probation, 2 * dust)
-        self.assertGreaterEqual(weight_maincomp, 3 * dust)
+        # Check that weights are exactly the minimum (since remaining_payout = 0)
+        self.assertAlmostEqual(weight_challenge, dust, places=10)
+        self.assertAlmostEqual(weight_probation, 2 * dust, places=10)
+        self.assertAlmostEqual(weight_maincomp, 3 * dust, places=10)
 
-        # Check ratio (probation should be ~2x challenge, maincomp ~3x challenge)
-        self.assertAlmostEqual(weight_probation / weight_challenge, 2.0, places=1)
-        self.assertAlmostEqual(weight_maincomp / weight_challenge, 3.0, places=1)
+        # Check ratio (probation should be exactly 2x challenge, maincomp exactly 3x challenge)
+        self.assertAlmostEqual(weight_probation / weight_challenge, 2.0, places=5)
+        self.assertAlmostEqual(weight_maincomp / weight_challenge, 3.0, places=5)
+
+        # Burn address should get most of the weight (1.0 - 6*dust)
+        burn_hotkey = "burn_address_mainnet"
+        self.assertIn(burn_hotkey, weights_dict)
+        self.assertGreater(weights_dict[burn_hotkey], 0.99)  # Should be ~0.9999+
 
     def test_burn_address_mainnet(self):
-        """Test burn address receives excess weight on mainnet"""
+        """Test burn address receives excess weight on mainnet when sum < 1.0"""
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
         prev_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
         prev_checkpoint_ms = int(prev_checkpoint.timestamp() * 1000)
 
-        # Create one miner with minimal weight (will cause sum < 1.0)
-        ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
-        ledger.checkpoints.append(DebtCheckpoint(
+        # Create TWO miners with minimal weight (need 2+ to avoid single-miner bypass)
+        # Very small performance will cause sum < 1.0
+        ledger1 = DebtLedger(hotkey="test_hotkey_1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_checkpoint_ms,
-            pnl_gain=1.0,
-            pnl_loss=0.0,  # Very small performance
+            pnl_gain=0.0001,
+            pnl_loss=0.0,  # net_pnl = 0.0001 (tiny)
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger2 = DebtLedger(hotkey="test_hotkey_2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_checkpoint_ms,
+            pnl_gain=0.00005,
+            pnl_loss=0.0,  # net_pnl = 0.00005 (tiny)
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
         result = DebtBasedScoring.compute_results(
-            {"test_hotkey": ledger},
+            {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
             self.mock_subtensor,
             self.netuid,
             self.mock_emissions_mgr,
@@ -277,8 +296,8 @@ class TestDebtBasedScoring(unittest.TestCase):
             is_testnet=False
         )
 
-        # Should have 2 entries: miner + burn address
-        self.assertEqual(len(result), 2)
+        # Should have 3 entries: 2 miners + burn address
+        self.assertEqual(len(result), 3)
 
         weights_dict = dict(result)
 
@@ -290,26 +309,39 @@ class TestDebtBasedScoring(unittest.TestCase):
         total_weight = sum(weight for _, weight in result)
         self.assertAlmostEqual(total_weight, 1.0, places=10)
 
+        # Burn address should have non-zero weight (excess)
+        self.assertGreater(weights_dict[burn_hotkey], 0.0)
+
     def test_burn_address_testnet(self):
-        """Test burn address receives excess weight on testnet with correct UID"""
+        """Test burn address receives excess weight on testnet with correct UID when sum < 1.0"""
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
         prev_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
         prev_checkpoint_ms = int(prev_checkpoint.timestamp() * 1000)
 
-        # Create one miner with minimal weight
-        ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
-        ledger.checkpoints.append(DebtCheckpoint(
+        # Create TWO miners with minimal weight (need 2+ to avoid single-miner bypass)
+        # Very small performance will cause sum < 1.0
+        ledger1 = DebtLedger(hotkey="test_hotkey_1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_checkpoint_ms,
-            pnl_gain=1.0,
-            pnl_loss=0.0,
+            pnl_gain=0.0001,
+            pnl_loss=0.0,  # net_pnl = 0.0001 (tiny)
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger2 = DebtLedger(hotkey="test_hotkey_2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_checkpoint_ms,
+            pnl_gain=0.00005,
+            pnl_loss=0.0,  # net_pnl = 0.00005 (tiny)
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
         result = DebtBasedScoring.compute_results(
-            {"test_hotkey": ledger},
+            {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
             self.mock_subtensor,
             self.netuid,
             self.mock_emissions_mgr,
@@ -328,30 +360,35 @@ class TestDebtBasedScoring(unittest.TestCase):
         total_weight = sum(weight for _, weight in result)
         self.assertAlmostEqual(total_weight, 1.0, places=10)
 
+        # Burn address should have non-zero weight (excess)
+        self.assertGreater(weights_dict[burn_hotkey], 0.0)
+
     def test_negative_performance_gets_minimum_weight(self):
-        """Test that miners with negative performance get minimum dust weight"""
+        """Test that miners with negative performance get minimum dust weight when sum < 1.0"""
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
         prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        # Miner with negative performance
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Miner with negative performance (gets minimum dust weight)
         ledger_negative = DebtLedger(hotkey="negative_miner", checkpoints=[])
         ledger_negative.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
             pnl_gain=1000.0,
-            pnl_loss=-5000.0,  # net_pnl = -4000 (negative)
+            pnl_loss=-5000.0,  # net_pnl = -4000 (negative) -> 0 remaining payout
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
-        # Miner with positive performance
+        # Miner with small positive performance (keep sum < 1.0)
         ledger_positive = DebtLedger(hotkey="positive_miner", checkpoints=[])
         ledger_positive.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
-            pnl_gain=5000.0,
-            pnl_loss=-1000.0,  # net_pnl = 4000 (positive)
+            pnl_gain=0.001,
+            pnl_loss=-0.0005,  # net_pnl = 0.0005 (very small positive)
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
@@ -369,15 +406,26 @@ class TestDebtBasedScoring(unittest.TestCase):
             verbose=True
         )
 
-        weights_dict = dict(result)
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        # Should have 3 entries: 2 miners + burn address (sum < 1.0)
+        self.assertEqual(len(result), 3)
 
-        # Negative miner should get only minimum dust weight (3x for MAINCOMP)
-        # Positive miner should get much higher weight
+        weights_dict = dict(result)
+
+        # Negative miner should get minimum dust weight (3x for MAINCOMP)
+        # Positive miner should get higher weight based on remaining payout
         self.assertGreater(weights_dict["positive_miner"], weights_dict["negative_miner"])
 
-        # Negative miner gets at least minimum
-        self.assertGreaterEqual(weights_dict["negative_miner"], 3 * dust)
+        # Negative miner gets exactly minimum (since remaining_payout = 0)
+        self.assertAlmostEqual(weights_dict["negative_miner"], 3 * dust, places=10)
+
+        # Positive miner gets max(remaining_payout, 3*dust) = max(0.0005, 3*dust) = 0.0005
+        self.assertAlmostEqual(weights_dict["positive_miner"], 0.0005, places=10)
+
+        # Burn address gets the rest (1.0 - 0.0005 - 3*dust)
+        burn_hotkey = "burn_address_mainnet"
+        self.assertIn(burn_hotkey, weights_dict)
+        expected_burn = 1.0 - 0.0005 - (3 * dust)
+        self.assertAlmostEqual(weights_dict[burn_hotkey], expected_burn, places=5)
 
     def test_penalty_reduces_needed_payout(self):
         """Test that penalties reduce the needed payout"""
@@ -551,6 +599,265 @@ class TestDebtBasedScoring(unittest.TestCase):
         self.assertEqual(len(result), 1)
         # With only one miner, weight should be 1.0
         self.assertEqual(result[0][1], 1.0)
+
+    def test_iterative_payouts_approach_target_by_day_25(self):
+        """Test that iterative weight setting causes payouts to approach required payout by day 25"""
+        # Setup: 3 miners with different needed payouts from previous month
+        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        # Miner 1: Needs 50000 ALPHA payout
+        ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=50000.0,
+            pnl_loss=0.0,  # net_pnl = 50000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 2: Needs 100000 ALPHA payout (2x miner1)
+        ledger2 = DebtLedger(hotkey="miner2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=100000.0,
+            pnl_loss=0.0,  # net_pnl = 100000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 3: Needs 75000 ALPHA payout (1.5x miner1)
+        ledger3 = DebtLedger(hotkey="miner3", checkpoints=[])
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=75000.0,
+            pnl_loss=0.0,  # net_pnl = 75000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {
+            "miner1": ledger1,
+            "miner2": ledger2,
+            "miner3": ledger3
+        }
+
+        # Total needed payout: 225,000 ALPHA
+        # Aggressive 4-day projection: 144K/day * 4 = 576,000 ALPHA (enough to cover needed payout)
+        # Available emissions over 25 days: 144K/day * 25 = 3,600,000 ALPHA
+        total_needed_payout = 225000.0
+
+        # Simulate emissions per day (based on mocked emission rate)
+        # metagraph.emission = [360] * 10 = 3600 TAO per tempo for subnet
+        # 3600 / 360 = 10 TAO per block
+        # 10 TAO/block * 7200 blocks/day = 72000 TAO/day
+        # 72000 TAO / 0.5 (alpha_to_tao_rate) = 144000 ALPHA/day
+        alpha_per_day = 144000.0
+
+        # Track cumulative payouts for each miner
+        cumulative_payouts = {
+            "miner1": 0.0,
+            "miner2": 0.0,
+            "miner3": 0.0
+        }
+
+        # Track weights over time for verification
+        weights_over_time = []
+
+        # Simulate days 1-25 of January 2026
+        for day in range(1, 26):
+            current_time = datetime(2026, 1, day, 12, 0, 0, tzinfo=timezone.utc)
+            current_time_ms = int(current_time.timestamp() * 1000)
+
+            # Compute weights for this day
+            result = DebtBasedScoring.compute_results(
+                ledgers,
+                self.mock_subtensor,
+                self.netuid,
+                self.mock_emissions_mgr,
+                current_time_ms=current_time_ms,
+                metagraph=self.mock_metagraph,
+                is_testnet=False,
+                verbose=False
+            )
+
+            weights_dict = dict(result)
+
+            # Record weights
+            weights_over_time.append({
+                "day": day,
+                "miner1": weights_dict.get("miner1", 0.0),
+                "miner2": weights_dict.get("miner2", 0.0),
+                "miner3": weights_dict.get("miner3", 0.0)
+            })
+
+            # Simulate daily emissions distributed according to weights
+            for hotkey in ["miner1", "miner2", "miner3"]:
+                daily_payout = alpha_per_day * weights_dict.get(hotkey, 0.0)
+                cumulative_payouts[hotkey] += daily_payout
+
+                # Add checkpoint to ledger for cumulative emissions
+                current_month_checkpoint_ms = int(datetime(2026, 1, day + 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+                ledgers[hotkey].checkpoints.append(DebtCheckpoint(
+                    timestamp_ms=current_month_checkpoint_ms,
+                    chunk_emissions_alpha=cumulative_payouts[hotkey],
+                    challenge_period_status=MinerBucket.MAINCOMP.value
+                ))
+
+        # Assertions
+
+        # 1. Verify proportional distribution (2:1.5:1 ratio) - THIS IS CRITICAL
+        # The algorithm should maintain proportional distribution regardless of exact amounts
+        ratio_2_to_1 = cumulative_payouts["miner2"] / cumulative_payouts["miner1"]
+        ratio_3_to_1 = cumulative_payouts["miner3"] / cumulative_payouts["miner1"]
+        self.assertAlmostEqual(ratio_2_to_1, 2.0, delta=0.05)  # Should be exactly 2.0
+        self.assertAlmostEqual(ratio_3_to_1, 1.5, delta=0.05)  # Should be exactly 1.5
+
+        # 2. Verify all miners received payouts (positive emissions)
+        # Aggressive strategy may overpay, but amounts should be in right ballpark (within 50%)
+        self.assertGreater(cumulative_payouts["miner1"], 25000.0)  # At least 50% of needed
+        self.assertLess(cumulative_payouts["miner1"], 100000.0)  # At most 2x needed
+        self.assertGreater(cumulative_payouts["miner2"], 50000.0)
+        self.assertLess(cumulative_payouts["miner2"], 200000.0)
+        self.assertGreater(cumulative_payouts["miner3"], 37500.0)
+        self.assertLess(cumulative_payouts["miner3"], 150000.0)
+
+        # 3. Verify weights decrease over time
+        # Weights should be highest at day 1 and decrease as payouts are fulfilled
+        day_1_sum = weights_over_time[0]["miner1"] + weights_over_time[0]["miner2"] + weights_over_time[0]["miner3"]
+        day_10_sum = weights_over_time[9]["miner1"] + weights_over_time[9]["miner2"] + weights_over_time[9]["miner3"]
+        day_20_sum = weights_over_time[19]["miner1"] + weights_over_time[19]["miner2"] + weights_over_time[19]["miner3"]
+        day_25_sum = weights_over_time[24]["miner1"] + weights_over_time[24]["miner2"] + weights_over_time[24]["miner3"]
+
+        # Weights should decrease monotonically (or stay at minimum dust)
+        self.assertGreaterEqual(day_1_sum, day_10_sum)
+        self.assertGreaterEqual(day_10_sum, day_20_sum)
+        self.assertGreaterEqual(day_20_sum, day_25_sum)
+
+        # 4. Verify weights approach zero (or minimum dust) by day 25
+        # By day 25, remaining payouts should be close to zero, so weights should be minimal
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        expected_minimum_sum = 3 * (3 * dust)  # 3 miners * 3x dust (MAINCOMP)
+
+        # Day 25 weights should be close to minimum (within 10%)
+        self.assertLess(day_25_sum, expected_minimum_sum * 1.1)
+
+        # 5. Verify early aggressive payout (more weight early on)
+        # Days 1-10 should receive more total emissions than days 11-20
+        early_payout_sum = sum(
+            weights_over_time[i]["miner1"] + weights_over_time[i]["miner2"] + weights_over_time[i]["miner3"]
+            for i in range(0, 10)
+        )
+        mid_payout_sum = sum(
+            weights_over_time[i]["miner1"] + weights_over_time[i]["miner2"] + weights_over_time[i]["miner3"]
+            for i in range(10, 20)
+        )
+
+        # Early period should have higher total weights (aggressive payout)
+        self.assertGreater(early_payout_sum, mid_payout_sum)
+
+    def test_high_payouts_normalize_without_burn(self):
+        """Test that when payouts exceed network capacity (sum >= 1.0), we normalize without burn address"""
+        current_time = datetime(2026, 1, 25, 12, 0, 0, tzinfo=timezone.utc)  # Late in month
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        current_month_checkpoint = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        current_month_checkpoint_ms = int(current_month_checkpoint.timestamp() * 1000)
+
+        # Create 3 miners with high performance (high remaining payouts)
+        # With high payouts and few days remaining, sum will exceed 1.0
+        ledger1 = DebtLedger(hotkey="high_performer_1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=50000.0,
+            pnl_loss=-10000.0,  # net_pnl = 40000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=current_month_checkpoint_ms,
+            chunk_emissions_alpha=1000.0,  # Received some emissions
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger2 = DebtLedger(hotkey="high_performer_2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=60000.0,
+            pnl_loss=-10000.0,  # net_pnl = 50000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=current_month_checkpoint_ms,
+            chunk_emissions_alpha=1200.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger3 = DebtLedger(hotkey="high_performer_3", checkpoints=[])
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=40000.0,
+            pnl_loss=-10000.0,  # net_pnl = 30000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=current_month_checkpoint_ms,
+            chunk_emissions_alpha=800.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {
+            "high_performer_1": ledger1,
+            "high_performer_2": ledger2,
+            "high_performer_3": ledger3
+        }
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_subtensor,
+            self.netuid,
+            self.mock_emissions_mgr,
+            current_time_ms=current_time_ms,
+            metagraph=self.mock_metagraph,
+            is_testnet=False,
+            verbose=True
+        )
+
+        # Should have exactly 3 entries (NO burn address)
+        self.assertEqual(len(result), 3)
+
+        weights_dict = dict(result)
+
+        # Verify NO burn address is present
+        self.assertNotIn("burn_address_mainnet", weights_dict)
+        self.assertNotIn("burn_address_testnet", weights_dict)
+
+        # Verify all 3 miners are present
+        self.assertIn("high_performer_1", weights_dict)
+        self.assertIn("high_performer_2", weights_dict)
+        self.assertIn("high_performer_3", weights_dict)
+
+        # Total should sum to exactly 1.0 (normalized)
+        total_weight = sum(weight for _, weight in result)
+        self.assertAlmostEqual(total_weight, 1.0, places=10)
+
+        # Verify proportional distribution is maintained
+        # high_performer_2 has highest PnL (50000), should have highest weight
+        # high_performer_1 has medium PnL (40000), should have medium weight
+        # high_performer_3 has lowest PnL (30000), should have lowest weight
+        self.assertGreater(weights_dict["high_performer_2"], weights_dict["high_performer_1"])
+        self.assertGreater(weights_dict["high_performer_1"], weights_dict["high_performer_3"])
+
+        # Check approximate ratio (should be 5:4:3 based on net PnL)
+        ratio_2_to_3 = weights_dict["high_performer_2"] / weights_dict["high_performer_3"]
+        ratio_1_to_3 = weights_dict["high_performer_1"] / weights_dict["high_performer_3"]
+        self.assertAlmostEqual(ratio_2_to_3, 50000.0 / 30000.0, places=1)  # ~1.67
+        self.assertAlmostEqual(ratio_1_to_3, 40000.0 / 30000.0, places=1)  # ~1.33
 
 
 if __name__ == '__main__':
