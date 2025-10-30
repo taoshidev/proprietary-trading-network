@@ -190,25 +190,34 @@ class SubtensorWeightSetter(CacheController):
         setproctitle(f"vali_{self.__class__.__name__}")
         bt.logging.enable_info()
         bt.logging.info("Starting weight setter update loop (fire-and-forget IPC mode)")
-        
+
         while not self.shutdown_dict:
             try:
                 if self.refresh_allowed(ValiConfig.SET_WEIGHT_REFRESH_TIME_MS):
                     bt.logging.info("Computing weights for IPC request")
                     current_time = TimeUtil.now_in_millis()
-                    
+
                     # Compute weights (existing logic)
                     checkpoint_results, transformed_list = self.compute_weights_default(current_time)
                     self.checkpoint_results = checkpoint_results
                     self.transformed_list = transformed_list
-                    
+
                     if transformed_list and self.weight_request_queue:
                         # Send weight setting request (fire-and-forget)
                         self._send_weight_request(transformed_list)
                         self.set_last_update_time()
                     else:
-                        bt.logging.debug("No weights to set or IPC not available")
-                        
+                        # No weights computed - likely debt_ledger_manager not ready yet
+                        # Sleep for 5 minutes to avoid busy looping
+                        if not self.debt_ledger_manager:
+                            bt.logging.warning(
+                                "debt_ledger_manager not available. "
+                                "Waiting 5 minutes before retry..."
+                            )
+                            time.sleep(300)  # 5 minutes
+                        else:
+                            bt.logging.debug("No weights to set or IPC not available")
+
             except Exception as e:
                 bt.logging.error(f"Error in weight setter update loop: {e}")
                 bt.logging.error(traceback.format_exc())
@@ -225,9 +234,9 @@ class SubtensorWeightSetter(CacheController):
                         level="error"
                     )
                 time.sleep(30)
-                
+
             time.sleep(1)
-        
+
         bt.logging.info("Weight setter update loop shutting down")
     
     def _send_weight_request(self, transformed_list):
