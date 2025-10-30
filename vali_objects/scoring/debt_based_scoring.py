@@ -101,12 +101,10 @@ class DebtBasedScoring:
     @staticmethod
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
-        subtensor: 'bt.subtensor',
-        netuid: int,
+        metagraph_updater: 'MetagraphUpdater',
         emissions_ledger_manager: 'EmissionsLedgerManager',
         current_time_ms: int = None,
         verbose: bool = False,
-        metagraph: 'bt.metagraph' = None,
         is_testnet: bool = False
     ) -> List[Tuple[str, float]]:
         """
@@ -127,12 +125,10 @@ class DebtBasedScoring:
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
-            subtensor: Bittensor subtensor instance for querying emission rates
-            netuid: Network UID for this subnet
+            metagraph_updater: MetagraphUpdater for IPC-safe subtensor and metagraph access
             emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
-            metagraph: Optional metagraph instance (if not provided, will query from subtensor)
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
 
         Returns:
@@ -187,9 +183,7 @@ class DebtBasedScoring:
             # Before activation: apply minimum dust weights only, burn the rest
             return DebtBasedScoring._apply_pre_activation_weights(
                 ledger_dict=ledger_dict,
-                subtensor=subtensor,
-                netuid=netuid,
-                metagraph=metagraph,
+                metagraph_updater=metagraph_updater,
                 is_testnet=is_testnet,
                 verbose=verbose
             )
@@ -313,8 +307,7 @@ class DebtBasedScoring:
             # Query current emission rate and project availability
             try:
                 projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
-                    subtensor=subtensor,
-                    netuid=netuid,
+                    metagraph_updater=metagraph_updater,
                     emissions_ledger_manager=emissions_ledger_manager,
                     days_until_target=days_until_target,
                     verbose=verbose
@@ -355,9 +348,7 @@ class DebtBasedScoring:
         # If sum >= 1.0: normalize to 1.0, burn address gets 0
         result = DebtBasedScoring._normalize_with_burn_address(
             weights=miner_weights_with_minimums,
-            subtensor=subtensor,
-            netuid=netuid,
-            metagraph=metagraph,
+            metagraph_updater=metagraph_updater,
             is_testnet=is_testnet,
             verbose=verbose
         )
@@ -374,8 +365,7 @@ class DebtBasedScoring:
 
     @staticmethod
     def _estimate_alpha_emissions_until_target(
-        subtensor: 'bt.subtensor',
-        netuid: int,
+        metagraph_updater: 'MetagraphUpdater',
         emissions_ledger_manager: 'EmissionsLedgerManager',
         days_until_target: int,
         verbose: bool = False
@@ -383,12 +373,11 @@ class DebtBasedScoring:
         """
         Estimate total ALPHA emissions available from now until target day.
 
-        Uses real-time subtensor queries to get current TAO emission rate,
+        Uses real-time metagraph data to get current TAO emission rate,
         then converts to ALPHA using current conversion rate.
 
         Args:
-            subtensor: Bittensor subtensor instance
-            netuid: Network UID for this subnet
+            metagraph_updater: MetagraphUpdater for IPC-safe subtensor and metagraph access
             emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
             days_until_target: Number of days until target payout day
             verbose: Enable detailed logging
@@ -397,8 +386,8 @@ class DebtBasedScoring:
             Estimated total ALPHA emissions available (float)
         """
         try:
-            # Query current metagraph to get emission rates
-            metagraph = subtensor.metagraph(netuid)
+            # Get current metagraph to read emission rates (IPC-safe)
+            metagraph = metagraph_updater.get_metagraph()
 
             # Get total TAO emission per block for the subnet (sum across all miners)
             # metagraph.emission is already in TAO (not RAO), but per tempo (360 blocks)
@@ -424,7 +413,7 @@ class DebtBasedScoring:
 
             # Query current ALPHA-to-TAO conversion rate
             # Use the latest block for most recent rate
-            current_block = subtensor.get_current_block()
+            current_block = metagraph_updater.get_current_block()
             alpha_to_tao_rate = emissions_ledger_manager.query_alpha_to_tao_rate(current_block)
 
             if verbose:
@@ -513,27 +502,23 @@ class DebtBasedScoring:
 
     @staticmethod
     def _get_burn_address_hotkey(
-        subtensor: 'bt.subtensor',
-        netuid: int,
-        metagraph: 'bt.metagraph' = None,
+        metagraph_updater: 'MetagraphUpdater',
         is_testnet: bool = False
     ) -> str:
         """
         Get the hotkey for the burn address.
 
         Args:
-            subtensor: Bittensor subtensor instance
-            netuid: Network UID
-            metagraph: Optional metagraph instance (if not provided, will query)
+            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
 
         Returns:
             Hotkey string for burn address (uid 229 mainnet / uid 5 testnet)
         """
-        if metagraph is None:
-            metagraph = subtensor.metagraph(netuid)
-
         burn_uid = DebtBasedScoring.get_burn_uid(is_testnet)
+
+        # Get hotkey for burn UID (IPC-safe)
+        metagraph = metagraph_updater.get_metagraph()
 
         # Get hotkey for burn UID
         if burn_uid < len(metagraph.hotkeys):
@@ -548,9 +533,7 @@ class DebtBasedScoring:
     @staticmethod
     def _normalize_with_burn_address(
         weights: dict[str, float],
-        subtensor: 'bt.subtensor',
-        netuid: int,
-        metagraph: 'bt.metagraph' = None,
+        metagraph_updater: 'MetagraphUpdater',
         is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
@@ -565,9 +548,7 @@ class DebtBasedScoring:
 
         Args:
             weights: Dict of {hotkey: weight}
-            subtensor: Bittensor subtensor instance
-            netuid: Network UID
-            metagraph: Optional metagraph instance
+            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
@@ -588,7 +569,9 @@ class DebtBasedScoring:
         if sum_weights < 1.0:
             # Excess weight goes to burn address
             burn_weight = 1.0 - sum_weights
-            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(subtensor, netuid, metagraph, is_testnet)
+
+            # Get burn address hotkey (IPC-safe)
+            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(metagraph_updater, is_testnet)
 
             bt.logging.info(
                 f"Sum of weights ({sum_weights:.6f}) < 1.0. "
@@ -618,9 +601,7 @@ class DebtBasedScoring:
     @staticmethod
     def _apply_pre_activation_weights(
         ledger_dict: dict[str, DebtLedger],
-        subtensor: 'bt.subtensor',
-        netuid: int,
-        metagraph: 'bt.metagraph' = None,
+        metagraph_updater: 'MetagraphUpdater',
         is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
@@ -632,9 +613,7 @@ class DebtBasedScoring:
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
-            subtensor: Bittensor subtensor instance
-            netuid: Network UID
-            metagraph: Optional metagraph instance
+            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
@@ -651,9 +630,7 @@ class DebtBasedScoring:
         # Apply burn address normalization
         result = DebtBasedScoring._normalize_with_burn_address(
             weights=miner_dust_weights,
-            subtensor=subtensor,
-            netuid=netuid,
-            metagraph=metagraph,
+            metagraph_updater=metagraph_updater,
             is_testnet=is_testnet,
             verbose=verbose
         )

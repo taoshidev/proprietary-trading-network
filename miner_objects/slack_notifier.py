@@ -573,3 +573,16 @@ class SlackNotifier:
             self._save_lifetime_metrics()
         except Exception as e:
             bt.logging.error(f"Error during shutdown: {e}")
+
+    def __getstate__(self):
+        """Prepare object for pickling - exclude unpicklable threading.Lock"""
+        state = self.__dict__.copy()
+        # Remove the unpicklable lock
+        state.pop('daily_summary_lock', None)
+        return state
+
+    def __setstate__(self, state):
+        """Restore object after unpickling - recreate threading.Lock"""
+        self.__dict__.update(state)
+        # Recreate the lock in the new process
+        self.daily_summary_lock = threading.Lock()
