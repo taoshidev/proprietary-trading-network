@@ -266,11 +266,6 @@ class ValiConfig:
 
     PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
 
-    # Minimum thresholds for risk-adjusted metrics to stay in maincomp
-    MINIMUM_SHARPE_THRESHOLD = 1.0
-    MINIMUM_SORTINO_THRESHOLD = 1.5
-    MINIMUM_CALMAR_THRESHOLD = 1.5
-
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
     MINER_COPYING_WEIGHT = 0.01

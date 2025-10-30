@@ -432,8 +432,6 @@ class ChallengePeriodManager(CacheController):
             for hotkey, score in miner_scores.items():
                 weighted_scores[asset_class][hotkey] += weight * score
 
-        miners_below_threshold = ChallengePeriodManager.get_miners_below_risk_threshold(combined_scores_dict)
-
         maincomp_hotkeys = set()
         promotion_threshold_rank = ValiConfig.PROMOTION_THRESHOLD_RANK
         for asset_scores in weighted_scores.values():
@@ -443,8 +441,6 @@ class ChallengePeriodManager(CacheController):
                 threshold_score = sorted_scores[promotion_threshold_rank-1]
 
             for hotkey, score in asset_scores.items():
-                if hotkey in miners_below_threshold:
-                    continue
                 if score >= threshold_score and score > 0:
                     maincomp_hotkeys.add(hotkey)
 
@@ -460,31 +456,6 @@ class ChallengePeriodManager(CacheController):
         demote_hotkeys = set(success_hotkeys) - maincomp_hotkeys
 
         return list(promote_hotkeys), list(demote_hotkeys)
-
-    @staticmethod
-    def get_miners_below_risk_threshold(combined_scores_dict):
-        metric_thresholds = {
-            'sharpe': ValiConfig.MINIMUM_SHARPE_THRESHOLD,
-            'sortino': ValiConfig.MINIMUM_SORTINO_THRESHOLD,
-            'calmar': ValiConfig.MINIMUM_CALMAR_THRESHOLD,
-        }
-
-        miners_below_threshold = set()
-
-        for _, asset_data in combined_scores_dict.items():
-            metrics = asset_data.get('metrics', {})
-
-            # Check each metric's scores
-            for metric_name, threshold in metric_thresholds.items():
-                metric_data = metrics.get(metric_name, {})
-                scores = metric_data.get('scores', [])
-
-                # Check each miner's score for this metric
-                for hotkey, score in scores:
-                    if score < threshold:
-                        miners_below_threshold.add(hotkey)
-
-        return miners_below_threshold
 
     @staticmethod
     def screen_minimum_interaction(ledger_element) -> bool:
