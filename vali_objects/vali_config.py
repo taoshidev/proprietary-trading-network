@@ -316,7 +316,7 @@ class ValiConfig:
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
     # Account Size
-    COST_PER_THETA = 175  # Account size USD value per theta of collateral
+    COST_PER_THETA = 500  # Account size USD value per theta of collateral
     MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
     MIN_CAPITAL = 5_000   # USD minimum capital account size
     DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital

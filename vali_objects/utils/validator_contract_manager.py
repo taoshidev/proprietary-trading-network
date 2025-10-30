@@ -14,7 +14,7 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
-TARGET_MS = 1759817759000
+TARGET_MS = 1761951599000
 GRACE_PERIOD_MS = 1763168399000
 
 class CollateralRecord:
@@ -124,6 +124,7 @@ class ValidatorContractManager:
     def setup(self):
         """
         reinstate wrongfully eliminated miner deposits
+        update all miner account sizes when COST_PER_THETA changes
         """
         if not self.is_mothership:
             return
@@ -132,9 +133,20 @@ class ValidatorContractManager:
         if now_ms > TARGET_MS:
             return
 
-        miners_to_reinstate = {}
-        for miner, amount in miners_to_reinstate.items():
-            self.force_deposit(amount, miner)
+        # miners_to_reinstate = {}
+        # for miner, amount in miners_to_reinstate.items():
+        #     self.force_deposit(amount, miner)
+
+        # update of all miner account sizes when COST_PER_THETA changes
+        bt.logging.info(f"Starting COST_PER_THETA update for all miners at {now_ms}...")
+        migration_count = 0
+        for hotkey in list(self.miner_account_sizes.keys()):
+            try:
+                self.set_miner_account_size(hotkey, TARGET_MS)
+                migration_count += 1
+            except Exception as e:
+                bt.logging.error(f"Failed to update account size for {hotkey}: {e}")
+        bt.logging.info(f"COST_PER_THETA update completed for {migration_count} miners")
 
     def load_contract_owner(self):
         """
@@ -196,12 +208,7 @@ class ValidatorContractManager:
                 parsed_records = []
                 for record_data in records_data:
                     if isinstance(record_data, dict) and all(key in record_data for key in ["account_size", "update_time_ms"]):
-                        ## TODO: populates account_size_theta for all existing records. safe to remove
-                        if record_data.get("account_size_theta") is None:
-                            account_size_theta = record_data["account_size"] / ValiConfig.COST_PER_THETA
-                        else:
-                            account_size_theta = record_data["account_size_theta"]
-                        record = CollateralRecord(record_data["account_size"], account_size_theta, record_data["update_time_ms"])
+                        record = CollateralRecord(record_data["account_size"], record_data["account_size_theta"], record_data["update_time_ms"])
                         parsed_records.append(record)
 
                 if parsed_records:  # Only add if we have valid records
@@ -733,6 +740,14 @@ class ValidatorContractManager:
 
         account_size = collateral_balance * ValiConfig.COST_PER_THETA
         collateral_record = CollateralRecord(account_size, collateral_balance, timestamp_ms)
+
+        # Check if the new record matches the last existing record
+        if hotkey in self.miner_account_sizes and self.miner_account_sizes[hotkey]:
+            last_record = self.miner_account_sizes[hotkey][-1]
+            if (last_record.account_size == collateral_record.account_size and
+                last_record.account_size_theta == collateral_record.account_size_theta):
+                bt.logging.debug(f"Skipping save for {hotkey} - new record matches last record")
+                return
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
