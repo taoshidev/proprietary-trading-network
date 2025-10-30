@@ -491,7 +491,11 @@ class Validator:
                 config=self.config,
                 hotkey=self.wallet.hotkey.ss58_address,
                 contract_manager=self.contract_manager,
-                debt_ledger_manager=self.debt_ledger_manager
+                debt_ledger_manager=self.debt_ledger_manager,
+                subtensor=self.metagraph_updater.get_subtensor(),
+                netuid=self.config.netuid,
+                emissions_ledger_manager=self.debt_ledger_manager.emissions_ledger_manager,
+                is_mainnet=self.is_mainnet
             )
             return self.weight_setter
         run_init_step_with_monitoring(4, "Initializing SubtensorWeightSetter", step4)
