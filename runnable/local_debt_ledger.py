@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """
-Local Debt Ledger Builder
+Local Debt Ledger Builder & Visualizer
 
-Builds debt ledgers for miners based on their performance ledgers and positions.
-Penalties include drawdown threshold, risk profile, and minimum collateral penalties.
+Builds debt ledgers for miners based on their performance ledgers, penalties, and emissions.
+Provides comprehensive visualization of debt-based scoring metrics.
 
-This script loads positions from the database and builds penalty checkpoints.
-In single hotkey mode, it can also generate matplotlib plots of penalties over time.
+This script loads positions from the database and builds complete debt checkpoints.
+In single hotkey mode, it generates matplotlib plots showing:
+- Penalties over time (drawdown, risk profile, min collateral, total)
+- PnL performance (gain, loss, net PnL)
+- Emissions received (ALPHA, TAO, USD)
+- Portfolio metrics (return, max drawdown)
+
+Usage:
+    1. Set TEST_SINGLE_HOTKEY to a miner's hotkey (or None for all miners)
+    2. Set SHOULD_PLOT = True to generate visualizations (requires single hotkey)
+    3. Run: python runnable/local_debt_ledger.py
 """
 
 import bittensor as bt
@@ -22,7 +31,8 @@ from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.validator_contract_manager import ValidatorContractManager
-from vali_objects.vali_dataclasses.penalty_ledger import DebtLedger
+from vali_objects.vali_dataclasses.debt_ledger import DebtLedgerManager
+from vali_objects.utils.asset_selection_manager import AssetSelectionManager
 
 
 # ============================================================================
@@ -43,6 +53,246 @@ VERBOSE = False
 
 # Whether to use database for positions (True recommended)
 USE_DATABASE_POSITIONS = True
+
+# ============================================================================
+# PLOTTING FUNCTIONS
+# ============================================================================
+
+def plot_penalties(debt_checkpoints, hotkey):
+    """Plot penalty analysis over time"""
+    if not debt_checkpoints:
+        bt.logging.warning(f"No debt checkpoints found for {hotkey}")
+        return
+
+    bt.logging.info(f"Plotting penalties for {hotkey}")
+
+    # Extract data for plotting
+    timestamps = [datetime.fromtimestamp(cp.timestamp_ms / 1000, tz=timezone.utc)
+                 for cp in debt_checkpoints]
+    drawdown_penalties = [cp.drawdown_penalty for cp in debt_checkpoints]
+    risk_profile_penalties = [cp.risk_profile_penalty for cp in debt_checkpoints]
+    min_collateral_penalties = [cp.min_collateral_penalty for cp in debt_checkpoints]
+    risk_adjusted_penalties = [cp.risk_adjusted_performance_penalty for cp in debt_checkpoints]
+    total_penalties = [cp.total_penalty for cp in debt_checkpoints]
+
+    # Get time range for title
+    start_date = timestamps[0].strftime('%Y-%m-%d')
+    end_date = timestamps[-1].strftime('%Y-%m-%d')
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(16, 8))
+
+    # Calculate min/max for legend labels
+    dd_min, dd_max = min(drawdown_penalties), max(drawdown_penalties)
+    rp_min, rp_max = min(risk_profile_penalties), max(risk_profile_penalties)
+    mc_min, mc_max = min(min_collateral_penalties), max(min_collateral_penalties)
+    ra_min, ra_max = min(risk_adjusted_penalties), max(risk_adjusted_penalties)
+    total_min, total_max = min(total_penalties), max(total_penalties)
+
+    # Plot all penalties
+    ax.plot(timestamps, drawdown_penalties, 'b-', linewidth=2,
+           label=f'Drawdown Threshold (min: {dd_min:.4f}, max: {dd_max:.4f})')
+    ax.plot(timestamps, risk_profile_penalties, 'r-', linewidth=2,
+           label=f'Risk Profile (min: {rp_min:.4f}, max: {rp_max:.4f})')
+    ax.plot(timestamps, min_collateral_penalties, 'g-', linewidth=2,
+           label=f'Min Collateral (min: {mc_min:.4f}, max: {mc_max:.4f})')
+    ax.plot(timestamps, risk_adjusted_penalties, 'orange', linewidth=2,
+           label=f'Risk Adjusted Performance (min: {ra_min:.4f}, max: {ra_max:.4f})')
+    ax.plot(timestamps, total_penalties, color='purple', linewidth=2.5,
+           label=f'Total Penalty (min: {total_min:.4f}, max: {total_max:.4f})')
+
+    # Set title
+    ax.set_title(f'Penalty Analysis for {hotkey}\n({start_date} to {end_date})',
+                fontsize=14, pad=15)
+
+    # Labels and grid
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Penalty Multiplier', fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Format x-axis dates
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Add legend
+    ax.legend(loc='best', fontsize=10, framealpha=0.9)
+
+    plt.tight_layout()
+
+    # Save plot
+    plot_filename = f'runnable/debt_ledger_penalties_{hotkey}.png'
+    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    bt.logging.info(f"Penalties plot saved to: {plot_filename}")
+
+
+def plot_pnl_performance(debt_checkpoints, hotkey):
+    """Plot PnL performance over time"""
+    if not debt_checkpoints:
+        return
+
+    bt.logging.info(f"Plotting PnL performance for {hotkey}")
+
+    # Extract data
+    timestamps = [datetime.fromtimestamp(cp.timestamp_ms / 1000, tz=timezone.utc)
+                 for cp in debt_checkpoints]
+    pnl_gains = [cp.pnl_gain for cp in debt_checkpoints]
+    pnl_losses = [cp.pnl_loss for cp in debt_checkpoints]
+    net_pnls = [cp.net_pnl for cp in debt_checkpoints]
+
+    # Get time range
+    start_date = timestamps[0].strftime('%Y-%m-%d')
+    end_date = timestamps[-1].strftime('%Y-%m-%d')
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(16, 8))
+
+    # Plot PnL components
+    ax.plot(timestamps, pnl_gains, 'g-', linewidth=2, label=f'PnL Gain (total: {sum(pnl_gains):.2f})')
+    ax.plot(timestamps, pnl_losses, 'r-', linewidth=2, label=f'PnL Loss (total: {sum(pnl_losses):.2f})')
+    ax.plot(timestamps, net_pnls, 'b-', linewidth=2.5, label=f'Net PnL (total: {sum(net_pnls):.2f})')
+
+    # Add zero line
+    ax.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.3)
+
+    # Set title
+    ax.set_title(f'PnL Performance for {hotkey}\n({start_date} to {end_date})',
+                fontsize=14, pad=15)
+
+    # Labels and grid
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('PnL (ALPHA)', fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Format x-axis dates
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Add legend
+    ax.legend(loc='best', fontsize=11, framealpha=0.9)
+
+    plt.tight_layout()
+
+    # Save plot
+    plot_filename = f'runnable/debt_ledger_pnl_{hotkey}.png'
+    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    bt.logging.info(f"PnL plot saved to: {plot_filename}")
+
+
+def plot_emissions(debt_checkpoints, hotkey):
+    """Plot emissions received over time"""
+    if not debt_checkpoints:
+        return
+
+    bt.logging.info(f"Plotting emissions for {hotkey}")
+
+    # Extract data
+    timestamps = [datetime.fromtimestamp(cp.timestamp_ms / 1000, tz=timezone.utc)
+                 for cp in debt_checkpoints]
+    chunk_alpha = [cp.chunk_emissions_alpha for cp in debt_checkpoints]
+    chunk_tao = [cp.chunk_emissions_tao for cp in debt_checkpoints]
+    chunk_usd = [cp.chunk_emissions_usd for cp in debt_checkpoints]
+
+    # Get time range
+    start_date = timestamps[0].strftime('%Y-%m-%d')
+    end_date = timestamps[-1].strftime('%Y-%m-%d')
+
+    # Create plot with dual y-axes
+    fig, ax1 = plt.subplots(figsize=(16, 8))
+    ax2 = ax1.twinx()
+
+    # Plot emissions
+    total_alpha = sum(chunk_alpha)
+    total_tao = sum(chunk_tao)
+    total_usd = sum(chunk_usd)
+
+    ax1.plot(timestamps, chunk_alpha, 'b-', linewidth=2, label=f'ALPHA (total: {total_alpha:.2f})')
+    ax1.plot(timestamps, chunk_tao, 'g-', linewidth=2, label=f'TAO (total: {total_tao:.4f})')
+    ax2.plot(timestamps, chunk_usd, 'r-', linewidth=2, label=f'USD (total: ${total_usd:.2f})')
+
+    # Set title
+    ax1.set_title(f'Emissions Received for {hotkey}\n({start_date} to {end_date})',
+                 fontsize=14, pad=15)
+
+    # Labels and grid
+    ax1.set_xlabel('Date', fontsize=12)
+    ax1.set_ylabel('ALPHA / TAO', fontsize=12, color='b')
+    ax2.set_ylabel('USD', fontsize=12, color='r')
+    ax1.grid(True, alpha=0.3)
+
+    # Format x-axis dates
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Add legends
+    ax1.legend(loc='upper left', fontsize=11, framealpha=0.9)
+    ax2.legend(loc='upper right', fontsize=11, framealpha=0.9)
+
+    plt.tight_layout()
+
+    # Save plot
+    plot_filename = f'runnable/debt_ledger_emissions_{hotkey}.png'
+    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    bt.logging.info(f"Emissions plot saved to: {plot_filename}")
+
+
+def plot_portfolio_metrics(debt_checkpoints, hotkey):
+    """Plot portfolio return and max drawdown over time"""
+    if not debt_checkpoints:
+        return
+
+    bt.logging.info(f"Plotting portfolio metrics for {hotkey}")
+
+    # Extract data
+    timestamps = [datetime.fromtimestamp(cp.timestamp_ms / 1000, tz=timezone.utc)
+                 for cp in debt_checkpoints]
+    portfolio_returns = [cp.portfolio_return for cp in debt_checkpoints]
+    max_drawdowns = [cp.max_drawdown for cp in debt_checkpoints]
+
+    # Get time range
+    start_date = timestamps[0].strftime('%Y-%m-%d')
+    end_date = timestamps[-1].strftime('%Y-%m-%d')
+
+    # Create plot with dual y-axes
+    fig, ax1 = plt.subplots(figsize=(16, 8))
+    ax2 = ax1.twinx()
+
+    # Plot metrics
+    final_return = portfolio_returns[-1] if portfolio_returns else 1.0
+    worst_dd = min(max_drawdowns) if max_drawdowns else 0.0
+
+    ax1.plot(timestamps, portfolio_returns, 'g-', linewidth=2.5,
+            label=f'Portfolio Return (final: {final_return:.4f})')
+    ax2.plot(timestamps, max_drawdowns, 'r-', linewidth=2.5,
+            label=f'Max Drawdown (worst: {worst_dd:.4f})')
+
+    # Add reference lines
+    ax1.axhline(y=1.0, color='green', linestyle='--', linewidth=1, alpha=0.5, label='Break-even')
+
+    # Set title
+    ax1.set_title(f'Portfolio Metrics for {hotkey}\n({start_date} to {end_date})',
+                 fontsize=14, pad=15)
+
+    # Labels and grid
+    ax1.set_xlabel('Date', fontsize=12)
+    ax1.set_ylabel('Portfolio Return (multiplier)', fontsize=12, color='g')
+    ax2.set_ylabel('Max Drawdown', fontsize=12, color='r')
+    ax1.grid(True, alpha=0.3)
+
+    # Format x-axis dates
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Add legends
+    ax1.legend(loc='upper left', fontsize=11, framealpha=0.9)
+    ax2.legend(loc='upper right', fontsize=11, framealpha=0.9)
+
+    plt.tight_layout()
+
+    # Save plot
+    plot_filename = f'runnable/debt_ledger_portfolio_{hotkey}.png'
+    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    bt.logging.info(f"Portfolio metrics plot saved to: {plot_filename}")
+
 
 # ============================================================================
 # MAIN SCRIPT
@@ -136,89 +386,57 @@ if __name__ == "__main__":
         running_unit_tests=False
     )
 
-    # Create DebtLedger
-    bt.logging.info("Creating DebtLedger...")
-    debt_ledger = DebtLedger(
-        position_manager=position_manager,
-        perf_ledger_manager=perf_ledger_manager,
-        contract_manager=contract_manager
+    # Create AssetSelectionManager
+    bt.logging.info("Creating AssetSelectionManager...")
+    asset_selection_manager = AssetSelectionManager(
+        config=None,
+        metagraph=mmg,
+        ipc_manager=None
     )
 
-    # Build penalty ledgers
-    bt.logging.info("Building penalty ledgers...")
-    debt_ledger.build_penalty_ledgers(verbose=VERBOSE)
+    # Create DebtLedgerManager
+    bt.logging.info("Creating DebtLedgerManager...")
+    debt_ledger_manager = DebtLedgerManager(
+        perf_ledger_manager=perf_ledger_manager,
+        position_manager=position_manager,
+        contract_manager=contract_manager,
+        asset_selection_manager=asset_selection_manager,
+        challengeperiod_manager=position_manager.challengeperiod_manager,
+        slack_webhook_url=None,
+        start_daemon=False,  # Don't start daemon for local debugging
+        ipc_manager=None,
+        running_unit_tests=False,
+        validator_hotkey=None
+    )
+
+    # Build debt ledgers manually (since daemon is not running)
+    bt.logging.info("Building debt ledgers...")
+    debt_ledger_manager.build_debt_ledgers(verbose=VERBOSE)
 
     # Print summary
     bt.logging.info("\n" + "="*60)
     bt.logging.info("Debt Ledger Summary")
     bt.logging.info("="*60)
-    for hotkey, penalty_checkpoints in debt_ledger.penalty_ledgers.items():
-        bt.logging.info(f"Miner {hotkey[:12]}...: {len(penalty_checkpoints)} penalty checkpoints")
+    for hotkey, ledger in debt_ledger_manager.debt_ledgers.items():
+        num_checkpoints = len(ledger.checkpoints) if ledger.checkpoints else 0
+        bt.logging.info(f"Miner {hotkey[:12]}...: {num_checkpoints} debt checkpoints")
 
-    # Plot if requested and single hotkey mode
+    # Generate plots if requested and in single hotkey mode
     if SHOULD_PLOT and TEST_SINGLE_HOTKEY:
-        penalty_checkpoints = debt_ledger.get_penalty_ledger(TEST_SINGLE_HOTKEY)
+        ledger = debt_ledger_manager.debt_ledgers.get(TEST_SINGLE_HOTKEY)
 
-        if not penalty_checkpoints:
-            bt.logging.warning(f"No penalty checkpoints found for {TEST_SINGLE_HOTKEY}")
+        if not ledger or not ledger.checkpoints:
+            bt.logging.warning(f"No debt ledger found for {TEST_SINGLE_HOTKEY}")
         else:
-            bt.logging.info(f"Plotting penalties for {TEST_SINGLE_HOTKEY}")
+            bt.logging.info(f"\nGenerating visualizations for {TEST_SINGLE_HOTKEY}")
+            bt.logging.info(f"Total checkpoints: {len(ledger.checkpoints)}")
 
-            # Extract data for plotting
-            timestamps = [datetime.fromtimestamp(cp.last_processed_ms / 1000, tz=timezone.utc)
-                         for cp in penalty_checkpoints]
-            drawdown_penalties = [cp.drawdown_penalty for cp in penalty_checkpoints]
-            risk_profile_penalties = [cp.risk_profile_penalty for cp in penalty_checkpoints]
-            min_collateral_penalties = [cp.min_collateral_penalty for cp in penalty_checkpoints]
-            cumulative_penalties = [cp.total_penalty for cp in penalty_checkpoints]
+            # Generate all plots
+            plot_penalties(ledger.checkpoints, TEST_SINGLE_HOTKEY)
+            plot_pnl_performance(ledger.checkpoints, TEST_SINGLE_HOTKEY)
+            plot_emissions(ledger.checkpoints, TEST_SINGLE_HOTKEY)
+            plot_portfolio_metrics(ledger.checkpoints, TEST_SINGLE_HOTKEY)
 
-            # Get time range for title
-            start_date = timestamps[0].strftime('%Y-%m-%d')
-            end_date = timestamps[-1].strftime('%Y-%m-%d')
-
-            # Create single plot with all penalties overlaid
-            fig, ax = plt.subplots(figsize=(16, 8))
-
-            # Calculate min/max for legend labels
-            dd_min, dd_max = min(drawdown_penalties), max(drawdown_penalties)
-            rp_min, rp_max = min(risk_profile_penalties), max(risk_profile_penalties)
-            mc_min, mc_max = min(min_collateral_penalties), max(min_collateral_penalties)
-            cum_min, cum_max = min(cumulative_penalties), max(cumulative_penalties)
-
-            # Plot all penalties on the same axis with min/max in labels
-            ax.plot(timestamps, drawdown_penalties, 'b-', linewidth=2,
-                   label=f'Drawdown Threshold (min: {dd_min:.4f}, max: {dd_max:.4f})')
-            ax.plot(timestamps, risk_profile_penalties, 'r-', linewidth=2,
-                   label=f'Risk Profile (min: {rp_min:.4f}, max: {rp_max:.4f})')
-            ax.plot(timestamps, min_collateral_penalties, 'g-', linewidth=2,
-                   label=f'Min Collateral (min: {mc_min:.4f}, max: {mc_max:.4f})')
-            ax.plot(timestamps, cumulative_penalties, color='purple', linewidth=2.5,
-                   label=f'Cumulative (min: {cum_min:.4f}, max: {cum_max:.4f})')
-
-            # Set title with full hotkey and time range
-            ax.set_title(f'Penalty Analysis for {TEST_SINGLE_HOTKEY}\n({start_date} to {end_date})',
-                        fontsize=14, pad=15)
-
-            # Labels and grid
-            ax.set_xlabel('Date', fontsize=12)
-            ax.set_ylabel('Penalty Value', fontsize=12)
-            ax.grid(True, alpha=0.3)
-
-            # Format x-axis dates
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-
-            # Add legend
-            ax.legend(loc='best', fontsize=11, framealpha=0.9)
-
-            plt.tight_layout()
-
-            # Save plot
-            plot_filename = f'debt_ledger_{TEST_SINGLE_HOTKEY}.png'
-            plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
-            bt.logging.info(f"Plot saved to: {plot_filename}")
-
-            # Show plot
-            plt.show()
+            bt.logging.info("\nAll plots generated successfully!")
 
     bt.logging.info("\nDebtLedger processing complete!")

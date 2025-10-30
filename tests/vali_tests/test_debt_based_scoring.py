@@ -36,6 +36,9 @@ class TestDebtBasedScoring(unittest.TestCase):
         self.mock_metagraph.tao_reserve_rao = mock_tao_reserve
         self.mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
 
+        # Mock TAO/USD price (set by MetagraphUpdater via live_price_fetcher)
+        self.mock_metagraph.tao_to_usd_rate = 500.0  # $500/TAO
+
         # Mock challengeperiod_manager
         self.mock_challengeperiod_manager = Mock()
         # Default to MAINCOMP for all miners
@@ -618,32 +621,32 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        # Miner 1: Needs 50000 ALPHA payout
+        # Miner 1: Needs $50000 USD payout (net_pnl in USD)
         ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
         ledger1.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
             pnl_gain=50000.0,
-            pnl_loss=0.0,  # net_pnl = 50000
+            pnl_loss=0.0,  # net_pnl = $50000 USD
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
-        # Miner 2: Needs 100000 ALPHA payout (2x miner1)
+        # Miner 2: Needs $100000 USD payout (2x miner1)
         ledger2 = DebtLedger(hotkey="miner2", checkpoints=[])
         ledger2.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
             pnl_gain=100000.0,
-            pnl_loss=0.0,  # net_pnl = 100000
+            pnl_loss=0.0,  # net_pnl = $100000 USD
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
-        # Miner 3: Needs 75000 ALPHA payout (1.5x miner1)
+        # Miner 3: Needs $75000 USD payout (1.5x miner1)
         ledger3 = DebtLedger(hotkey="miner3", checkpoints=[])
         ledger3.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,
             pnl_gain=75000.0,
-            pnl_loss=0.0,  # net_pnl = 75000
+            pnl_loss=0.0,  # net_pnl = $75000 USD
             total_penalty=1.0,
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
@@ -654,10 +657,11 @@ class TestDebtBasedScoring(unittest.TestCase):
             "miner3": ledger3
         }
 
-        # Total needed payout: 225,000 ALPHA
-        # Aggressive 4-day projection: 144K/day * 4 = 576,000 ALPHA (enough to cover needed payout)
-        # Available emissions over 25 days: 144K/day * 25 = 3,600,000 ALPHA
-        total_needed_payout = 225000.0
+        # Total needed payout: $225,000 USD
+        # Emissions in ALPHA, converted to USD via: ALPHA * 250 = USD
+        # Aggressive 4-day projection: 144K ALPHA/day = $36M USD/day (enough to cover needed payout)
+        # Available emissions over 25 days: 144K ALPHA/day * 25 = 3.6M ALPHA = $900M USD
+        total_needed_payout = 225000.0  # USD
 
         # Simulate emissions per day (based on mocked emission rate)
         # metagraph.emission = [360] * 10 = 3600 TAO per tempo for subnet
@@ -707,10 +711,16 @@ class TestDebtBasedScoring(unittest.TestCase):
                 cumulative_payouts[hotkey] += daily_payout
 
                 # Add checkpoint to ledger for cumulative emissions
+                # Convert ALPHA to USD using mocked conversion rates:
+                # ALPHA → TAO: 0.5 (1M TAO / 2M ALPHA)
+                # TAO → USD: 500.0 (fallback)
+                # Total: ALPHA → USD = ALPHA * 250
+                alpha_to_usd_rate = 250.0
                 current_month_checkpoint_ms = int(datetime(2026, 1, day + 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
                 ledgers[hotkey].checkpoints.append(DebtCheckpoint(
                     timestamp_ms=current_month_checkpoint_ms,
                     chunk_emissions_alpha=cumulative_payouts[hotkey],
+                    chunk_emissions_usd=cumulative_payouts[hotkey] * alpha_to_usd_rate,
                     challenge_period_status=MinerBucket.MAINCOMP.value
                 ))
 

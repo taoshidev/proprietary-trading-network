@@ -7,10 +7,11 @@ import threading
 import queue
 from setproctitle import setproctitle
 
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from shared_objects.error_utils import ErrorUtils
 from shared_objects.subtensor_lock import get_subtensor_lock
+from time_util.time_util import TimeUtil
 
 import bittensor as bt
 
@@ -113,10 +114,11 @@ class WeightFailureTracker:
 
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None,
-                 shutdown_dict=None, slack_notifier=None, weight_request_queue=None):
+                 shutdown_dict=None, slack_notifier=None, weight_request_queue=None, live_price_fetcher=None):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=self.config)
+        self.live_price_fetcher = live_price_fetcher  # For TAO/USD price queries (validators only)
         # Parse out the arg for subtensor.network. If it is "finney" or "subvortex", we will roundrobin on metagraph failure
         self.round_robin_networks = ['finney', 'subvortex']
         self.round_robin_enabled = False
@@ -666,6 +668,69 @@ class MetagraphUpdater(CacheController):
             f"({alpha_reserve_rao:.0f} RAO)"
         )
 
+    def refresh_tao_usd_price(self):
+        """
+        Refresh TAO/USD price using live_price_fetcher and store in shared metagraph.
+        Uses current timestamp to get latest available price.
+
+        Non-blocking: If price refresh fails, logs error but continues metagraph update.
+        Better to use a slightly stale TAO/USD price than block metagraph updates.
+
+        Returns:
+            bool: True if price was successfully updated, False otherwise
+        """
+        try:
+            if not self.live_price_fetcher:
+                bt.logging.warning(
+                    "live_price_fetcher not available - cannot query TAO/USD price. "
+                    "Using existing price from metagraph (may be stale)."
+                )
+                return False
+
+            # Get current timestamp for price query
+            current_time_ms = TimeUtil.now_in_millis()
+
+            # Query TAO/USD price at current time
+            price_source = self.live_price_fetcher.get_close_at_date(
+                TradePair.TAOUSD,
+                current_time_ms
+            )
+
+            if not price_source or not hasattr(price_source, 'close') or price_source.close is None:
+                bt.logging.warning(
+                    f"TAO/USD price unavailable at timestamp {current_time_ms}. "
+                    f"Using existing price from metagraph (may be stale). "
+                    f"price_source={price_source}"
+                )
+                return False
+
+            tao_to_usd_rate = float(price_source.close)
+
+            # Validate price is reasonable
+            if tao_to_usd_rate <= 0:
+                bt.logging.warning(
+                    f"Invalid TAO/USD price: ${tao_to_usd_rate}. "
+                    f"Using existing price from metagraph (may be stale)."
+                )
+                return False
+
+            # Update shared metagraph (accessible from all processes via IPC)
+            self.metagraph.tao_to_usd_rate = tao_to_usd_rate
+
+            bt.logging.info(
+                f"Updated TAO/USD price: ${tao_to_usd_rate:.2f}/TAO "
+                f"(timestamp: {current_time_ms})"
+            )
+            return True
+
+        except Exception as e:
+            bt.logging.error(
+                f"Error refreshing TAO/USD price: {e}. "
+                f"Using existing price from metagraph (may be stale)."
+            )
+            bt.logging.error(traceback.format_exc())
+            return False
+
     def update_metagraph(self):
         if not self.refresh_allowed(self.interval_wait_time_ms):
             return
@@ -737,8 +802,10 @@ class MetagraphUpdater(CacheController):
         self.sync_lists(self.metagraph.emission, metagraph_clone.emission, brute_force=True)
 
         # Refresh reserve data (TAO and ALPHA) from metagraph.pool for debt-based scoring
+        # Also refresh TAO/USD price for USD-based payout calculations
         if not self.is_miner:  # Only validators need this for weight calculation
             self.refresh_substrate_reserves(metagraph_clone)
+            self.refresh_tao_usd_price()
 
         # self.log_metagraph_state()
         self.set_last_update_time()

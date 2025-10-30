@@ -178,7 +178,8 @@ class Validator:
             False, position_manager=None,
             shutdown_dict=shutdown_dict,
             slack_notifier=self.slack_notifier,
-            weight_request_queue=weight_request_queue
+            weight_request_queue=weight_request_queue,
+            live_price_fetcher=self.live_price_fetcher
         )
         self.subtensor = self.metagraph_updater.subtensor
         bt.logging.info(f"Subtensor: {self.subtensor}")
