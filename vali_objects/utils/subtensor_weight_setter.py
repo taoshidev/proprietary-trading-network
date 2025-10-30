@@ -24,7 +24,7 @@ class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
                  running_unit_tests=False, is_backtesting=False, use_slack_notifier=False,
                  shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None, contract_manager=None,
-                 debt_ledger_manager=None, is_mainnet=True):
+                 debt_ledgers_dict=None, is_mainnet=True):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -39,7 +39,9 @@ class SubtensorWeightSetter(CacheController):
         self.contract_manager = contract_manager
 
         # Debt-based scoring dependencies
-        self.debt_ledger_manager = debt_ledger_manager
+        # IMPORTANT: debt_ledgers_dict is an IPC-managed dict passed directly (not wrapped in manager)
+        # This ensures proper IPC access from subprocesses
+        self.debt_ledgers_dict = debt_ledgers_dict
         self.is_mainnet = is_mainnet
 
         # IPC setup
@@ -117,15 +119,16 @@ class SubtensorWeightSetter(CacheController):
         bt.logging.info(f"Calculating new subtensor weights for {miner_group} using debt-based scoring...")
 
         # Get debt ledgers for the specified miners
-        if self.debt_ledger_manager:
+        # IMPORTANT: debt_ledgers_dict is the IPC-shared dict, not wrapped in manager
+        if self.debt_ledgers_dict is not None:
             # Filter debt ledgers to only include specified hotkeys
             filtered_debt_ledgers = {
                 hotkey: ledger
-                for hotkey, ledger in self.debt_ledger_manager.debt_ledgers.items()
+                for hotkey, ledger in self.debt_ledgers_dict.items()
                 if hotkey in hotkeys_to_compute_weights_for
             }
         else:
-            bt.logging.warning("debt_ledger_manager not available for scoring")
+            bt.logging.warning("debt_ledgers_dict not available for scoring")
             return [], []
 
         if len(filtered_debt_ledgers) == 0:
@@ -133,13 +136,13 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.warning(
                 f"No debt ledgers found for {miner_group}. "
                 f"Requested {len(hotkeys_to_compute_weights_for)} hotkeys, "
-                f"debt_ledger_manager has {len(self.debt_ledger_manager.debt_ledgers)} ledgers loaded."
+                f"debt_ledgers_dict has {len(self.debt_ledgers_dict)} ledgers loaded."
             )
-            if hotkeys_to_compute_weights_for and self.debt_ledger_manager.debt_ledgers:
+            if hotkeys_to_compute_weights_for and self.debt_ledgers_dict:
                 bt.logging.debug(
                     f"Sample requested hotkey: {hotkeys_to_compute_weights_for[0][:16]}..."
                 )
-                sample_available = list(self.debt_ledger_manager.debt_ledgers.keys())[0]
+                sample_available = list(self.debt_ledgers_dict.keys())[0]
                 bt.logging.debug(f"Sample available hotkey: {sample_available[:16]}...")
             return [], []
 
@@ -213,11 +216,11 @@ class SubtensorWeightSetter(CacheController):
                         self._send_weight_request(transformed_list)
                         self.set_last_update_time()
                     else:
-                        # No weights computed - likely debt_ledger_manager not ready yet
+                        # No weights computed - likely debt_ledgers_dict not ready yet
                         # Sleep for 5 minutes to avoid busy looping and log spam
-                        if not self.debt_ledger_manager:
+                        if self.debt_ledgers_dict is None:
                             bt.logging.warning(
-                                "debt_ledger_manager not available. "
+                                "debt_ledgers_dict not available. "
                                 "Waiting 5 minutes before retry..."
                             )
                         elif not transformed_list:
