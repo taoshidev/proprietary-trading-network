@@ -160,6 +160,7 @@ class SubtensorWeightSetter(CacheController):
         checkpoint_results = DebtBasedScoring.compute_results(
             ledger_dict=filtered_debt_ledgers,
             metagraph=self.metagraph,  # Shared metagraph with substrate reserves
+            challengeperiod_manager=self.position_manager.challengeperiod_manager,
             current_time_ms=current_time,
             verbose=True,
             is_testnet=not self.is_mainnet

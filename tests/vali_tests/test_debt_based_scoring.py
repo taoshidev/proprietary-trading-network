@@ -16,8 +16,7 @@ class TestDebtBasedScoring(unittest.TestCase):
 
     def setUp(self):
         """Set up mock dependencies"""
-        # Mock subtensor
-        self.mock_subtensor = Mock()
+        # Mock metagraph
         self.mock_metagraph = Mock()
         # metagraph.emission is in TAO per tempo (360 blocks)
         # To get 10 TAO/block total, we need 10 * 360 = 3600 TAO per tempo
@@ -26,23 +25,32 @@ class TestDebtBasedScoring(unittest.TestCase):
         self.mock_metagraph.hotkeys = [f"hotkey_{i}" for i in range(256)]
         self.mock_metagraph.hotkeys[229] = "burn_address_mainnet"
         self.mock_metagraph.hotkeys[5] = "burn_address_testnet"
-        self.mock_subtensor.metagraph = Mock(return_value=self.mock_metagraph)
-        self.mock_subtensor.get_current_block = Mock(return_value=1000000)
 
-        # Mock emissions ledger manager
-        self.mock_emissions_mgr = Mock()
-        self.mock_emissions_mgr.query_alpha_to_tao_rate = Mock(return_value=0.5)  # 1 ALPHA = 0.5 TAO
+        # Mock substrate reserves (IPC manager.Value objects)
+        # Using Mock objects that have .value attribute
+        # Set reserves to achieve 2.0 ALPHA/TAO conversion rate for testing
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9  # 1M TAO in RAO
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9  # 2M ALPHA in RAO (2.0 ALPHA per TAO)
+        self.mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        self.mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
 
-        self.netuid = 8
+        # Mock challengeperiod_manager
+        self.mock_challengeperiod_manager = Mock()
+        # Default to MAINCOMP for all miners
+        def mock_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.MAINCOMP.value
+            return mock_bucket
+        self.mock_challengeperiod_manager.get_miner_bucket = Mock(side_effect=mock_get_miner_bucket)
 
     def test_empty_ledgers(self):
         """Test with no ledgers"""
         result = DebtBasedScoring.compute_results(
             {},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            metagraph=self.mock_metagraph,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
             is_testnet=False
         )
         self.assertEqual(result, [])
@@ -52,10 +60,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
         result = DebtBasedScoring.compute_results(
             {"test_hotkey": ledger},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            metagraph=self.mock_metagraph,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
             is_testnet=False
         )
         self.assertEqual(len(result), 1)
@@ -85,14 +91,25 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"hotkey1": ledger1, "hotkey2": ledger2}
 
+        # Create custom mock challengeperiod_manager for this test
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            if hotkey == "hotkey1":
+                mock_bucket.value = MinerBucket.MAINCOMP.value
+            elif hotkey == "hotkey2":
+                mock_bucket.value = MinerBucket.CHALLENGE.value
+            else:
+                mock_bucket.value = MinerBucket.UNKNOWN.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False
+            self.mock_metagraph,
+            mock_cpm,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False
         )
 
         # Should have 3 entries: 2 miners + burn address
@@ -161,12 +178,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False
         )
 
         # Check that weights sum to 1.0
@@ -223,14 +238,27 @@ class TestDebtBasedScoring(unittest.TestCase):
             "maincomp_miner": ledger_maincomp
         }
 
+        # Create custom mock challengeperiod_manager for this test
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            if hotkey == "challenge_miner":
+                mock_bucket.value = MinerBucket.CHALLENGE.value
+            elif hotkey == "probation_miner":
+                mock_bucket.value = MinerBucket.PROBATION.value
+            elif hotkey == "maincomp_miner":
+                mock_bucket.value = MinerBucket.MAINCOMP.value
+            else:
+                mock_bucket.value = MinerBucket.UNKNOWN.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            mock_cpm,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False,
             verbose=True
         )
 
@@ -288,12 +316,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False
         )
 
         # Should have 3 entries: 2 miners + burn address
@@ -342,12 +368,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=True  # TESTNET
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=True  # TESTNET
         )
 
         weights_dict = dict(result)
@@ -397,12 +421,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False,
             verbose=True
         )
 
@@ -459,12 +481,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False
         )
 
         # Miner with no penalty should get higher weight
@@ -481,9 +501,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         days_until_target = 10
 
         projected_alpha = DebtBasedScoring._estimate_alpha_emissions_until_target(
-            subtensor=self.mock_subtensor,
-            netuid=self.netuid,
-            emissions_ledger_manager=self.mock_emissions_mgr,
+            metagraph=self.mock_metagraph,
             days_until_target=days_until_target,
             verbose=True
         )
@@ -519,12 +537,10 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Run compute_results and check projection uses 4-day window
         result = DebtBasedScoring.compute_results(
             {"test_hotkey": ledger},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms_day1,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms_day1,
+                        is_testnet=False,
             verbose=True
         )
 
@@ -538,12 +554,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             {"test_hotkey": ledger},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms_day23,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms_day23,
+                        is_testnet=False,
             verbose=True
         )
 
@@ -585,12 +599,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             {"test_hotkey": ledger},
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False,
             verbose=True
         )
 
@@ -672,12 +684,10 @@ class TestDebtBasedScoring(unittest.TestCase):
             # Compute weights for this day
             result = DebtBasedScoring.compute_results(
                 ledgers,
-                self.mock_subtensor,
-                self.netuid,
-                self.mock_emissions_mgr,
-                current_time_ms=current_time_ms,
-                metagraph=self.mock_metagraph,
-                is_testnet=False,
+                self.mock_metagraph,
+                self.mock_challengeperiod_manager,
+                                current_time_ms=current_time_ms,
+                                is_testnet=False,
                 verbose=False
             )
 
@@ -819,12 +829,10 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         result = DebtBasedScoring.compute_results(
             ledgers,
-            self.mock_subtensor,
-            self.netuid,
-            self.mock_emissions_mgr,
-            current_time_ms=current_time_ms,
-            metagraph=self.mock_metagraph,
-            is_testnet=False,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        is_testnet=False,
             verbose=True
         )
 

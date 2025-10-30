@@ -102,6 +102,7 @@ class DebtBasedScoring:
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
+        challengeperiod_manager: 'ChallengePeriodManager',
         current_time_ms: int = None,
         verbose: bool = False,
         is_testnet: bool = False
@@ -125,6 +126,7 @@ class DebtBasedScoring:
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
             metagraph: Shared IPC metagraph with emission data and substrate reserves
+            challengeperiod_manager: Manager for querying current challenge period status (required)
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
@@ -182,6 +184,7 @@ class DebtBasedScoring:
             return DebtBasedScoring._apply_pre_activation_weights(
                 ledger_dict=ledger_dict,
                 metagraph=metagraph,
+                challengeperiod_manager=challengeperiod_manager,
                 is_testnet=is_testnet,
                 verbose=verbose
             )
@@ -337,6 +340,7 @@ class DebtBasedScoring:
         miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
             miner_remaining_payouts=miner_remaining_payouts,
+            challengeperiod_manager=challengeperiod_manager,
             verbose=verbose
         )
 
@@ -452,6 +456,7 @@ class DebtBasedScoring:
     def _apply_minimum_weights(
         ledger_dict: dict[str, DebtLedger],
         miner_remaining_payouts: dict[str, float],
+        challengeperiod_manager: 'ChallengePeriodManager',
         verbose: bool = False
     ) -> dict[str, float]:
         """
@@ -465,6 +470,7 @@ class DebtBasedScoring:
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts: Dict of {hotkey: remaining_payout}
+            challengeperiod_manager: Manager for querying current challenge period status (required)
             verbose: Enable detailed logging
 
         Returns:
@@ -481,17 +487,20 @@ class DebtBasedScoring:
             MinerBucket.MAINCOMP.value: 3 * DUST,
         }
 
+        # Batch read all statuses in one IPC call to minimize overhead
+        miner_statuses = {
+            hotkey: challengeperiod_manager.get_miner_bucket(hotkey).value
+            for hotkey in ledger_dict.keys()
+        }
+
         miner_weights_with_minimums = {}
 
         for hotkey, debt_ledger in ledger_dict.items():
             # Get debt-based weight (from remaining payout)
             debt_weight = miner_remaining_payouts.get(hotkey, 0.0)
 
-            # Get current status from latest checkpoint
-            current_status = MinerBucket.UNKNOWN.value
-            if debt_ledger.checkpoints:
-                latest_checkpoint = debt_ledger.checkpoints[-1]
-                current_status = latest_checkpoint.challenge_period_status
+            # Get current status from batch-loaded statuses
+            current_status = miner_statuses.get(hotkey, MinerBucket.UNKNOWN.value)
 
             # Get minimum weight for this status
             minimum_weight = status_to_minimum_weight.get(current_status, 1 * DUST)
@@ -611,6 +620,7 @@ class DebtBasedScoring:
     def _apply_pre_activation_weights(
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
+        challengeperiod_manager: 'ChallengePeriodManager',
         is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
@@ -623,6 +633,7 @@ class DebtBasedScoring:
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             metagraph: Bittensor metagraph for accessing hotkeys
+            challengeperiod_manager: Manager for querying current challenge period status (required)
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
@@ -633,6 +644,7 @@ class DebtBasedScoring:
         miner_dust_weights = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
             miner_remaining_payouts={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
+            challengeperiod_manager=challengeperiod_manager,
             verbose=verbose
         )
 
