@@ -319,7 +319,7 @@ class ValiConfig:
     COST_PER_THETA = 500  # Account size USD value per theta of collateral
     MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $150k
     MIN_CAPITAL = 5_000   # USD minimum capital account size
-    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    DEFAULT_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     # Percent of collateral deposit at risk of slashing based on drawdown. 100%
     DRAWDOWN_SLASH_PROPORTION = 1.0
