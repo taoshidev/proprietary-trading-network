@@ -138,7 +138,7 @@ class ChallengePeriodManager(CacheController):
         for hotkey in self.get_testing_miners().keys():
             start_time_ms = self.active_miners[hotkey][1]
             if hotkey not in hk_to_first_order_time_ms:
-                bt.logging.warning(f"Hotkey {hotkey} in challenge period has no first order time. Skipping for now.")
+                #bt.logging.warning(f"Hotkey {hotkey} in challenge period has no first order time. Skipping for now.")
                 continue
             first_order_time_ms = hk_to_first_order_time_ms[hotkey]
 
