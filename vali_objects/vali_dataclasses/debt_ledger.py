@@ -873,18 +873,42 @@ class DebtLedgerManager:
         target_cp_duration_ms = reference_portfolio_ledger.target_cp_duration_ms
 
         # Determine which checkpoints to process based on delta update mode
-        # Find the minimum last processed timestamp across ALL debt ledgers
+        # Find the ledger with the MOST checkpoints (longest history) to use as reference
+        # This prevents truncating history when new miners register with few checkpoints
         last_processed_ms = 0
         if delta_update and candidate_ledgers:
+            reference_ledger = None
+            max_checkpoint_count = 0
+            max_last_processed_ms = 0
+
+            # Find ledger with most checkpoints
             for ledger in candidate_ledgers.values():
                 if ledger.checkpoints:
+                    checkpoint_count = len(ledger.checkpoints)
                     ledger_last_ms = ledger.checkpoints[-1].timestamp_ms
-                    if last_processed_ms == 0 or ledger_last_ms < last_processed_ms:
+
+                    if checkpoint_count > max_checkpoint_count:
+                        max_checkpoint_count = checkpoint_count
+                        reference_ledger = ledger
                         last_processed_ms = ledger_last_ms
 
+                    # Track maximum timestamp for sanity check
+                    if ledger_last_ms > max_last_processed_ms:
+                        max_last_processed_ms = ledger_last_ms
+
             if last_processed_ms > 0:
+                # Sanity check: reference ledger (most checkpoints) should have the maximum timestamp
+                # This validates that the longest-running miner is up-to-date
+                assert last_processed_ms == max_last_processed_ms, (
+                    f"Reference ledger (most checkpoints: {max_checkpoint_count}) has timestamp "
+                    f"{TimeUtil.millis_to_formatted_date_str(last_processed_ms)}, but max timestamp across "
+                    f"all ledgers is {TimeUtil.millis_to_formatted_date_str(max_last_processed_ms)}. "
+                    f"This indicates the reference ledger is behind, which would cause history truncation."
+                )
+
                 bt.logging.info(
-                    f"Delta update mode: resuming from {TimeUtil.millis_to_formatted_date_str(last_processed_ms)}"
+                    f"Delta update mode: resuming from {TimeUtil.millis_to_formatted_date_str(last_processed_ms)} "
+                    f"(reference ledger with {max_checkpoint_count} checkpoints)"
                 )
 
         # Filter checkpoints to process
