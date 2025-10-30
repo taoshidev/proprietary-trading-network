@@ -771,9 +771,9 @@ class PTNRestServer(APIKeyMixin):
                 bt.logging.error(f"Error processing collateral deposit: {e}")
                 return jsonify({'error': 'Internal server error processing deposit'}), 500
                 
-        @self.app.route("/collateral/withdraw", methods=["POST"])
-        def withdraw_collateral():
-            """Process collateral withdrawal request."""
+        @self.app.route("/collateral/query-withdraw", methods=["POST"])
+        def query_withdraw_collateral():
+            """Query collateral withdrawal request for potential slashed amount"""
             # Check if contract manager is available
             if not self.contract_manager:
                 return jsonify({'error': 'Collateral operations not available'}), 503
@@ -787,6 +787,41 @@ class PTNRestServer(APIKeyMixin):
                 if not data:
                     return jsonify({'error': 'Invalid JSON body'}), 400
                     
+                # Validate required fields for signed withdrawal
+                required_fields = ['amount', 'miner_hotkey']
+                for field in required_fields:
+                    if field not in data:
+                        return jsonify({'error': f'Missing required field: {field}'}), 400
+
+                # Process the withdrawal using verified data
+                result = self.contract_manager.query_withdrawal_request(
+                    amount=data['amount'],
+                    miner_hotkey=data['miner_hotkey']
+                )
+
+                # Return response
+                return jsonify(result)
+                
+            except Exception as e:
+                bt.logging.error(f"Error processing collateral withdrawal query: {e}")
+                return jsonify({'error': 'Internal server error processing withdrawal query'}), 500
+
+        @self.app.route("/collateral/withdraw", methods=["POST"])
+        def withdraw_collateral():
+            """Process collateral withdrawal request."""
+            # Check if contract manager is available
+            if not self.contract_manager:
+                return jsonify({'error': 'Collateral operations not available'}), 503
+
+            try:
+                # Parse JSON request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+
                 # Validate required fields for signed withdrawal
                 required_fields = ['amount', 'miner_coldkey', 'miner_hotkey', 'nonce', 'timestamp', 'signature']
                 for field in required_fields:
@@ -830,7 +865,7 @@ class PTNRestServer(APIKeyMixin):
 
                 # Return response
                 return jsonify(result)
-                
+
             except Exception as e:
                 bt.logging.error(f"Error processing collateral withdrawal: {e}")
                 return jsonify({'error': 'Internal server error processing withdrawal'}), 500
