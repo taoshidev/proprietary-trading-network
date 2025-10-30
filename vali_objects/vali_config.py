@@ -321,11 +321,8 @@ class ValiConfig:
     MIN_CAPITAL = 5_000   # USD minimum capital account size
     DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
 
-    # Miner will get a base of 50% collateral returned upon elimination
-    BASE_COLLATERAL_RETURNED = 0.5
-    # 50% of drawdown proportion is slashed
-    SLASH_PROPORTION = 0.5
-    CHALLENGEPERIOD_SLASH_PROPORTION = 0.1  # 10% slashed upon challenge period elimination
+    # Percent of collateral deposit at risk of slashing based on drawdown. 100%
+    DRAWDOWN_SLASH_PROPORTION = 1.0
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
