@@ -751,7 +751,7 @@ class ValidatorContractManager:
             bt.logging.warning(f"Could not retrieve collateral balance for {hotkey}")
             return
 
-        account_size = collateral_balance * ValiConfig.COST_PER_THETA
+        account_size = min(ValiConfig.MAX_COLLATERAL_BALANCE_THETA, collateral_balance) * ValiConfig.COST_PER_THETA
         collateral_record = CollateralRecord(account_size, collateral_balance, timestamp_ms)
 
         # Check if the new record matches the last existing record
