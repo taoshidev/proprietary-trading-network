@@ -322,7 +322,7 @@ class PenaltyLedgerManager:
         )
         daemon_process.daemon = True
         daemon_process.start()
-        bt.logging.info("Started PenaltyLedgerManager daemon process")
+        bt.logging.info("[PENALTY_LEDGER] Started PenaltyLedgerManager daemon process")
 
     def get_positions_at_date(self, cutoff_date_ms: int, positions: List[Position]) -> List[Position]:
         """
@@ -365,7 +365,7 @@ class PenaltyLedgerManager:
             create_backup: Whether to create timestamped backup before overwrite
         """
         if not self.penalty_ledgers:
-            bt.logging.warning("No penalty ledgers to save")
+            bt.logging.warning("[PENALTY_LEDGER] No penalty ledgers to save")
             return
 
         ledger_path = self._get_ledger_path()
@@ -383,7 +383,7 @@ class PenaltyLedgerManager:
         # Atomic write: temp file -> move
         self._write_compressed(ledger_path, data)
 
-        bt.logging.info(f"Saved {len(self.penalty_ledgers)} penalty ledgers to {ledger_path}")
+        bt.logging.info(f"[PENALTY_LEDGER] Saved {len(self.penalty_ledgers)} penalty ledgers to {ledger_path}")
 
     def load_from_disk(self) -> int:
         """
@@ -395,7 +395,7 @@ class PenaltyLedgerManager:
         ledger_path = self._get_ledger_path()
 
         if not os.path.exists(ledger_path):
-            bt.logging.info("No existing penalty ledger file found")
+            bt.logging.info("[PENALTY_LEDGER] No existing penalty ledger file found")
             return 0
 
         # Load data
@@ -413,7 +413,7 @@ class PenaltyLedgerManager:
             self.penalty_ledgers[hotkey] = ledger
 
         bt.logging.info(
-            f"Loaded {len(self.penalty_ledgers)} penalty ledgers, "
+            f"[PENALTY_LEDGER] Loaded {len(self.penalty_ledgers)} penalty ledgers, "
             f"metadata: {metadata}, "
             f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}"
         )
@@ -513,13 +513,13 @@ class PenaltyLedgerManager:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        bt.logging.info("=" * 80)
-        bt.logging.info("Penalty Ledger Manager - Daemon Mode (UTC-Aligned)")
-        bt.logging.info("=" * 80)
-        bt.logging.info("Refresh Schedule: 00:00 UTC and 12:00 UTC (12-hour intervals)")
-        bt.logging.info(f"Delta Update Mode: Enabled (resumes from last checkpoint)")
-        bt.logging.info(f"Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
-        bt.logging.info("=" * 80)
+        bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
+        bt.logging.info("[PENALTY_LEDGER] Penalty Ledger Manager - Daemon Mode (UTC-Aligned)")
+        bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
+        bt.logging.info("[PENALTY_LEDGER] Refresh Schedule: 00:00 UTC and 12:00 UTC (12-hour intervals)")
+        bt.logging.info(f"[PENALTY_LEDGER] Delta Update Mode: Enabled (resumes from last checkpoint)")
+        bt.logging.info(f"[PENALTY_LEDGER] Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
+        bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
 
         # Track consecutive failures for exponential backoff
         consecutive_failures = 0
@@ -532,18 +532,18 @@ class PenaltyLedgerManager:
         # Main loop
         while self.running:
             try:
-                bt.logging.info("Starting penalty ledger delta update...")
+                bt.logging.info("[PENALTY_LEDGER] Starting penalty ledger delta update...")
                 start_time = time.time()
 
                 # Perform delta update (only new checkpoints)
                 self.build_penalty_ledgers(verbose=verbose, delta_update=True)
 
                 elapsed = time.time() - start_time
-                bt.logging.info(f"Delta update completed in {elapsed:.2f}s")
+                bt.logging.info(f"[PENALTY_LEDGER] Delta update completed in {elapsed:.2f}s")
 
                 # Success - reset failure counter
                 if consecutive_failures > 0:
-                    bt.logging.info(f"Recovered after {consecutive_failures} failure(s)")
+                    bt.logging.info(f"[PENALTY_LEDGER] Recovered after {consecutive_failures} failure(s)")
                     # Send recovery alert with VM/git/hotkey context
                     self.slack_notifier.send_ledger_recovery_alert("Penalty Ledger", consecutive_failures)
 
@@ -596,7 +596,7 @@ class PenaltyLedgerManager:
                     next_check_str = datetime.fromtimestamp(next_check_time, tz=timezone.utc).strftime(
                         '%Y-%m-%d %H:%M:%S UTC')
                     time_until_next = next_check_time - time.time()
-                    bt.logging.info(f"Next check at: {next_check_str} (in {time_until_next / 3600:.2f} hours)")
+                    bt.logging.info(f"[PENALTY_LEDGER] Next check at: {next_check_str} (in {time_until_next / 3600:.2f} hours)")
 
                     # Sleep in smaller chunks (60s) and recalculate target time periodically
                     # This ensures we hit the UTC boundary as precisely as possible
@@ -610,12 +610,12 @@ class PenaltyLedgerManager:
 
                         # If we've reached or passed the boundary, break and run update
                         if time_remaining <= 0:
-                            bt.logging.info("Reached UTC boundary - triggering update")
+                            bt.logging.info("[PENALTY_LEDGER] Reached UTC boundary - triggering update")
                             break
 
                         # Log progress every hour
                         if current_time - last_log_time >= 3600:
-                            bt.logging.info(f"Time until next boundary: {time_remaining / 3600:.2f} hours")
+                            bt.logging.info(f"[PENALTY_LEDGER] Time until next boundary: {time_remaining / 3600:.2f} hours")
                             last_log_time = current_time
 
                         # Sleep for 60 seconds or remaining time, whichever is smaller
@@ -623,7 +623,7 @@ class PenaltyLedgerManager:
                         sleep_duration = min(60.0, time_remaining)
                         time.sleep(sleep_duration)
 
-        bt.logging.info("Penalty Ledger Manager daemon stopped")
+        bt.logging.info("[PENALTY_LEDGER] Penalty Ledger Manager daemon stopped")
 
     def _get_status_for_checkpoint(self, checkpoint_ms: int, bucket_data: tuple) -> str:
         """
@@ -699,7 +699,7 @@ class PenaltyLedgerManager:
         """
         if not delta_update:
             self.penalty_ledgers.clear()
-            bt.logging.info("Full rebuild mode: clearing existing penalty ledgers")
+            bt.logging.info("[PENALTY_LEDGER] Full rebuild mode: clearing existing penalty ledgers")
 
         # Read all perf ledgers from perf ledger manager
         all_perf_ledgers: Dict[str, Dict[str, PerfLedger]] = self.perf_ledger_manager.get_perf_ledgers(
@@ -723,7 +723,7 @@ class PenaltyLedgerManager:
             }
 
         bt.logging.info(
-            f"Building penalty ledgers for {len(all_perf_ledgers)} hotkeys "
+            f"[PENALTY_LEDGER] Building penalty ledgers for {len(all_perf_ledgers)} hotkeys "
             f"({'delta update' if delta_update else 'full rebuild'})"
         )
 
@@ -741,6 +741,7 @@ class PenaltyLedgerManager:
                 raise ValueError(f"No portfolio ledger found for miner {miner_hotkey}")
 
             # Get or create penalty ledger for this miner
+            is_first_time_seen = miner_hotkey not in self.penalty_ledgers
             if miner_hotkey in self.penalty_ledgers:
                 penalty_ledger = self.penalty_ledgers[miner_hotkey]
             else:
@@ -872,14 +873,15 @@ class PenaltyLedgerManager:
                         f"(total: {len(penalty_ledger.checkpoints)})"
                     )
 
-            # Progress log (one line per miner iteration)
-            bt.logging.info(
-                f"[{current_hotkey_index}/{total_hotkeys}] {miner_hotkey}: "
-                f"+{checkpoints_processed} new checkpoints (total: {len(penalty_ledger.checkpoints)})"
-            )
+            # Progress log (only for first time hotkey is seen)
+            if is_first_time_seen and checkpoints_processed > 0:
+                bt.logging.info(
+                    f"[PENALTY_LEDGER] [{current_hotkey_index}/{total_hotkeys}] {miner_hotkey}: "
+                    f"+{checkpoints_processed} new checkpoints (total: {len(penalty_ledger.checkpoints)})"
+                )
 
         bt.logging.info(
-            f"Built penalty ledgers: {hotkeys_processed} hotkeys processed, "
+            f"[PENALTY_LEDGER] Built penalty ledgers: {hotkeys_processed} hotkeys processed, "
             f"{total_checkpoints_added} new checkpoints added, "
             f"{len(self.penalty_ledgers)} total ledgers"
         )
