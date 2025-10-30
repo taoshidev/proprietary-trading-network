@@ -55,6 +55,7 @@ from vali_objects.vali_dataclasses.debt_ledger import DebtLedger
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import ValiConfig
 from vali_objects.scoring.scoring import Scoring
+from collections import defaultdict
 
 
 class DebtBasedScoring:
@@ -105,7 +106,8 @@ class DebtBasedScoring:
         challengeperiod_manager: 'ChallengePeriodManager',
         current_time_ms: int = None,
         verbose: bool = False,
-        is_testnet: bool = False
+        is_testnet: bool = False,
+        use_dynamic_dust: bool = False
     ) -> List[Tuple[str, float]]:
         """
         Compute miner weights based on debt ledger information with real-time emission projections.
@@ -130,6 +132,9 @@ class DebtBasedScoring:
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
+            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
+                             When True, miners get dust weights scaled by 30-day PnL:
+                             floor = original dust, ceiling = floor + 1 DUST
 
         Returns:
             List of (hotkey, weight) tuples sorted by weight (descending)
@@ -185,7 +190,9 @@ class DebtBasedScoring:
                 ledger_dict=ledger_dict,
                 metagraph=metagraph,
                 challengeperiod_manager=challengeperiod_manager,
+                current_time_ms=current_time_ms,
                 is_testnet=is_testnet,
+                use_dynamic_dust=use_dynamic_dust,
                 verbose=verbose
             )
 
@@ -337,10 +344,13 @@ class DebtBasedScoring:
 
         # Step 10: Enforce minimum weights based on challenge period status
         # All miners get minimum "dust" weights based on their current status
+        # If use_dynamic_dust=True, weights are scaled by 30-day performance
         miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
             miner_remaining_payouts=miner_remaining_payouts,
             challengeperiod_manager=challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            use_dynamic_dust=use_dynamic_dust,
             verbose=verbose
         )
 
@@ -453,10 +463,174 @@ class DebtBasedScoring:
             raise
 
     @staticmethod
+    def _calculate_penalty_adjusted_pnl(
+        ledger: DebtLedger,
+        start_time_ms: int,
+        end_time_ms: int,
+        earning_statuses: set[int] = None
+    ) -> float:
+        """
+        Calculate penalty-adjusted PnL for a time period.
+
+        This is the SINGLE SOURCE OF TRUTH for PnL calculations,
+        used by both main scoring and dynamic dust weight calculations.
+
+        Args:
+            ledger: Miner's debt ledger
+            start_time_ms: Period start (inclusive)
+            end_time_ms: Period end (inclusive)
+            earning_statuses: Set of statuses to include (default: MAINCOMP, PROBATION)
+
+        Returns:
+            Penalty-adjusted PnL for the period (net_pnl * total_penalty)
+        """
+        # Default to earning statuses
+        if earning_statuses is None:
+            earning_statuses = {
+                MinerBucket.MAINCOMP.value,
+                MinerBucket.PROBATION.value
+            }
+
+        if not ledger.checkpoints:
+            return 0.0
+
+        # Filter checkpoints within time range and matching statuses
+        relevant_checkpoints = [
+            cp for cp in ledger.checkpoints
+            if start_time_ms <= cp.timestamp_ms <= end_time_ms
+            and cp.challenge_period_status in earning_statuses
+        ]
+
+        if not relevant_checkpoints:
+            return 0.0
+
+        # Use the LAST checkpoint's cumulative values (not sum of chunks)
+        # This matches the logic in compute_results for calculating needed_payout
+        last_checkpoint = relevant_checkpoints[-1]
+        penalty_adjusted_pnl = last_checkpoint.net_pnl * last_checkpoint.total_penalty
+
+        return penalty_adjusted_pnl
+
+    @staticmethod
+    def _calculate_dynamic_dust_weights(
+        ledger_dict: dict[str, DebtLedger],
+        challengeperiod_manager: 'ChallengePeriodManager',
+        current_time_ms: int,
+        base_dust: float,
+        verbose: bool = False
+    ) -> dict[str, float]:
+        """
+        Calculate performance-scaled dust weights for all miners.
+
+        Process:
+        1. Group miners by bucket
+        2. For each bucket, calculate 30-day penalty-adjusted PnL for all miners
+        3. Normalize PnL within bucket to [0, 1] range
+        4. Scale to [floor, ceiling] where ceiling = floor + base_dust
+
+        This incentivizes recent performance while maintaining bucket hierarchy.
+
+        Args:
+            ledger_dict: All miner ledgers
+            challengeperiod_manager: Bucket status manager
+            current_time_ms: Current timestamp
+            base_dust: Base dust value (ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+            verbose: Enable detailed logging
+
+        Returns:
+            Dict mapping hotkey -> dynamic_dust_weight
+        """
+        # Original dust floor multipliers (respecting existing system)
+        BUCKET_DUST_FLOORS = {
+            MinerBucket.CHALLENGE.value: 1,      # 1x dust floor
+            MinerBucket.PROBATION.value: 2,      # 2x dust floor
+            MinerBucket.MAINCOMP.value: 3,       # 3x dust floor
+            MinerBucket.UNKNOWN.value: 1,        # 1x dust floor
+            MinerBucket.PLAGIARISM.value: 1,     # 1x dust floor
+        }
+
+        dynamic_weights = {}
+        thirty_days_ms = 30 * 24 * 60 * 60 * 1000
+        lookback_start = current_time_ms - thirty_days_ms
+
+        # Group miners by current bucket
+        bucket_groups = defaultdict(list)
+        for hotkey, ledger in ledger_dict.items():
+            bucket = challengeperiod_manager.get_miner_bucket(hotkey).value
+            bucket_groups[bucket].append((hotkey, ledger))
+
+        if verbose:
+            bt.logging.info(
+                f"Dynamic dust: Processing {len(ledger_dict)} miners across "
+                f"{len(bucket_groups)} buckets (30-day lookback)"
+            )
+
+        # Process each bucket independently
+        for bucket, miners in bucket_groups.items():
+            floor_multiplier = BUCKET_DUST_FLOORS.get(bucket, 1)
+            floor = floor_multiplier * base_dust
+            ceiling = floor + base_dust  # +1 DUST range above floor
+
+            if verbose:
+                bucket_name = MinerBucket(bucket).name if bucket in [b.value for b in MinerBucket] else "UNKNOWN"
+                bt.logging.debug(
+                    f"Dynamic dust bucket {bucket_name}: {len(miners)} miners, "
+                    f"floor={floor:.8f}, ceiling={ceiling:.8f}"
+                )
+
+            # Calculate 30-day PnL for all miners in bucket
+            # Use ALL statuses for lookback (not just earning statuses)
+            # This rewards miners who performed well even in CHALLENGE period
+            pnl_scores = {}
+            all_statuses = {b.value for b in MinerBucket}
+
+            for hotkey, ledger in miners:
+                pnl = DebtBasedScoring._calculate_penalty_adjusted_pnl(
+                    ledger,
+                    start_time_ms=lookback_start,
+                    end_time_ms=current_time_ms,
+                    earning_statuses=all_statuses  # Consider all recent performance
+                )
+                # Floor at 0 (negative PnL doesn't reduce dust below floor)
+                pnl_scores[hotkey] = max(0.0, pnl)
+
+            # Normalize within bucket [0, 1]
+            if pnl_scores:
+                max_pnl = max(pnl_scores.values())
+
+                if max_pnl > 0:
+                    # Scale each miner's PnL to [0, 1] then map to [floor, ceiling]
+                    for hotkey, pnl in pnl_scores.items():
+                        normalized = pnl / max_pnl
+                        # Scale to [floor, ceiling]
+                        dynamic_weights[hotkey] = floor + (normalized * (ceiling - floor))
+
+                        if verbose:
+                            bt.logging.debug(
+                                f"  {hotkey[:16]}...{hotkey[-8:]}: "
+                                f"pnl={pnl:.2f}, norm={normalized:.4f}, "
+                                f"weight={dynamic_weights[hotkey]:.8f}"
+                            )
+                else:
+                    # All miners have 0 PnL -> all get floor
+                    for hotkey in pnl_scores.keys():
+                        dynamic_weights[hotkey] = floor
+
+                    if verbose:
+                        bt.logging.debug(f"  All miners have 0 PnL, assigning floor={floor:.8f}")
+
+        if verbose:
+            bt.logging.info(f"Dynamic dust weights calculated for {len(dynamic_weights)} miners")
+
+        return dynamic_weights
+
+    @staticmethod
     def _apply_minimum_weights(
         ledger_dict: dict[str, DebtLedger],
         miner_remaining_payouts: dict[str, float],
         challengeperiod_manager: 'ChallengePeriodManager',
+        current_time_ms: int = None,
+        use_dynamic_dust: bool = False,
         verbose: bool = False
     ) -> dict[str, float]:
         """
@@ -467,10 +641,15 @@ class DebtBasedScoring:
         - PROBATION: 2x dust = 2 * CHALLENGE_PERIOD_MIN_WEIGHT
         - MAINCOMP: 3x dust = 3 * CHALLENGE_PERIOD_MIN_WEIGHT
 
+        If use_dynamic_dust=True, miners are scaled within bucket based on 30-day
+        penalty-adjusted PnL, with range [floor, floor+1 DUST].
+
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts: Dict of {hotkey: remaining_payout}
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            current_time_ms: Current timestamp (required if use_dynamic_dust=True)
+            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
             verbose: Enable detailed logging
 
         Returns:
@@ -478,7 +657,32 @@ class DebtBasedScoring:
         """
         DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
-        # Define minimum weights based on status
+        # Calculate dynamic dust weights if enabled
+        if use_dynamic_dust:
+            if current_time_ms is None:
+                bt.logging.warning(
+                    "Dynamic dust enabled but current_time_ms not provided. "
+                    "Falling back to static dust weights."
+                )
+                dynamic_dust_weights = None
+            else:
+                try:
+                    dynamic_dust_weights = DebtBasedScoring._calculate_dynamic_dust_weights(
+                        ledger_dict=ledger_dict,
+                        challengeperiod_manager=challengeperiod_manager,
+                        current_time_ms=current_time_ms,
+                        base_dust=DUST,
+                        verbose=verbose
+                    )
+                    if verbose:
+                        bt.logging.info("Using dynamic dust weights (30-day performance scaling)")
+                except Exception as e:
+                    bt.logging.error(f"Error calculating dynamic dust weights: {e}. Falling back to static.")
+                    dynamic_dust_weights = None
+        else:
+            dynamic_dust_weights = None
+
+        # Static minimum weights (fallback)
         status_to_minimum_weight = {
             MinerBucket.CHALLENGE.value: 1 * DUST,
             MinerBucket.PLAGIARISM.value: 1 * DUST,
@@ -502,8 +706,12 @@ class DebtBasedScoring:
             # Get current status from batch-loaded statuses
             current_status = miner_statuses.get(hotkey, MinerBucket.UNKNOWN.value)
 
-            # Get minimum weight for this status
-            minimum_weight = status_to_minimum_weight.get(current_status, 1 * DUST)
+            # Get minimum weight (dynamic or static)
+            if dynamic_dust_weights is not None and hotkey in dynamic_dust_weights:
+                minimum_weight = dynamic_dust_weights[hotkey]
+            else:
+                # Fallback to static dust weight
+                minimum_weight = status_to_minimum_weight.get(current_status, 1 * DUST)
 
             # Apply max(debt_weight, minimum_weight)
             final_weight = max(debt_weight, minimum_weight)
@@ -621,7 +829,9 @@ class DebtBasedScoring:
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
         challengeperiod_manager: 'ChallengePeriodManager',
+        current_time_ms: int = None,
         is_testnet: bool = False,
+        use_dynamic_dust: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
@@ -634,7 +844,9 @@ class DebtBasedScoring:
             ledger_dict: Dict of {hotkey: DebtLedger}
             metagraph: Bittensor metagraph for accessing hotkeys
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            current_time_ms: Current timestamp (required if use_dynamic_dust=True)
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
+            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
             verbose: Enable detailed logging
 
         Returns:
@@ -645,6 +857,8 @@ class DebtBasedScoring:
             ledger_dict=ledger_dict,
             miner_remaining_payouts={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
             challengeperiod_manager=challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            use_dynamic_dust=use_dynamic_dust,
             verbose=verbose
         )
 

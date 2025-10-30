@@ -137,7 +137,7 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         # Create ledgers with some performance data
         # Previous month (December 2025) data
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         # Current month (January 2026) data
@@ -197,7 +197,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
@@ -392,7 +392,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
@@ -454,7 +454,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         # Miner 1: No penalty
@@ -522,7 +522,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time_ms_day1 = int(current_time_day1.timestamp() * 1000)
 
         # Create simple ledger with remaining payout
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
@@ -615,7 +615,7 @@ class TestDebtBasedScoring(unittest.TestCase):
     def test_iterative_payouts_approach_target_by_day_25(self):
         """Test that iterative weight setting causes payouts to approach required payout by day 25"""
         # Setup: 3 miners with different needed payouts from previous month
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         # Miner 1: Needs 50000 ALPHA payout
@@ -771,7 +771,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 25, 12, 0, 0, tzinfo=timezone.utc)  # Late in month
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        prev_month_checkpoint = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
         current_month_checkpoint = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -866,6 +866,546 @@ class TestDebtBasedScoring(unittest.TestCase):
         ratio_1_to_3 = weights_dict["high_performer_1"] / weights_dict["high_performer_3"]
         self.assertAlmostEqual(ratio_2_to_3, 50000.0 / 30000.0, places=1)  # ~1.67
         self.assertAlmostEqual(ratio_1_to_3, 40000.0 / 30000.0, places=1)  # ~1.33
+
+
+    # ========================================================================
+    # DYNAMIC DUST TESTS
+    # ========================================================================
+
+    def test_dynamic_dust_disabled_by_default(self):
+        """Test that dynamic dust is disabled by default (backward compatibility)"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Create miners with different PnL in MAINCOMP bucket
+        ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative PnL -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger2 = DebtLedger(hotkey="miner2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative PnL -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {"miner1": ledger1, "miner2": ledger2}
+
+        # Call WITHOUT use_dynamic_dust (should default to False)
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            # use_dynamic_dust NOT specified - defaults to False
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Both miners should get EXACTLY 3x dust (static, no variation)
+        self.assertAlmostEqual(weights_dict["miner1"], 3 * dust, places=10)
+        self.assertAlmostEqual(weights_dict["miner2"], 3 * dust, places=10)
+
+    def test_dynamic_dust_within_bucket_scaling(self):
+        """Test that dynamic dust properly scales weights within bucket based on 30-day PnL"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        # Create checkpoint within 30-day window (20 days ago)
+        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        # For main scoring: previous month checkpoint (OUTSIDE earning period)
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Create 3 miners in MAINCOMP bucket with different 30-day PnL
+        # Use a single checkpoint within 30-day window for clarity
+
+        # Miner 1: Best performer (10,000 PnL)
+        ledger1 = DebtLedger(hotkey="best_miner", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=10000.0,
+            pnl_loss=0.0,  # net_pnl = 10000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        # Prev month checkpoint for main scoring (negative to ensure 0 remaining payout)
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 2: Middle performer (5,000 PnL)
+        ledger2 = DebtLedger(hotkey="middle_miner", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=5000.0,
+            pnl_loss=0.0,  # net_pnl = 5000
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 3: Worst performer (0 PnL)
+        ledger3 = DebtLedger(hotkey="worst_miner", checkpoints=[])
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=0.0,
+            pnl_loss=0.0,  # net_pnl = 0
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {
+            "best_miner": ledger1,
+            "middle_miner": ledger2,
+            "worst_miner": ledger3
+        }
+
+        # Call WITH use_dynamic_dust=True
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,  # ENABLE DYNAMIC DUST
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # MAINCOMP floor = 3x dust, ceiling = 4x dust
+        floor = 3 * dust
+        ceiling = 4 * dust
+
+        # Verify scaling:
+        # - Best performer should get ceiling (4x dust)
+        # - Worst performer should get floor (3x dust)
+        # - Middle performer should get between floor and ceiling
+        self.assertAlmostEqual(weights_dict["best_miner"], ceiling, places=10)
+        self.assertAlmostEqual(weights_dict["worst_miner"], floor, places=10)
+
+        # Middle miner should be exactly halfway between floor and ceiling
+        expected_middle = floor + 0.5 * (ceiling - floor)
+        self.assertAlmostEqual(weights_dict["middle_miner"], expected_middle, places=10)
+
+        # Verify ordering
+        self.assertGreater(weights_dict["best_miner"], weights_dict["middle_miner"])
+        self.assertGreater(weights_dict["middle_miner"], weights_dict["worst_miner"])
+
+    def test_dynamic_dust_cross_bucket_hierarchy(self):
+        """Test that cross-bucket hierarchy is maintained with dynamic dust"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Create worst MAINCOMP (0 PnL) and best PROBATION (high PnL)
+        # Worst MAINCOMP should still get >= best PROBATION due to bucket floors
+
+        # Worst MAINCOMP miner (0 PnL)
+        ledger_maincomp = DebtLedger(hotkey="worst_maincomp", checkpoints=[])
+        ledger_maincomp.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=0.0,
+            pnl_loss=0.0,  # net_pnl = 0
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger_maincomp.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Best PROBATION miner (10,000 PnL)
+        ledger_probation = DebtLedger(hotkey="best_probation", checkpoints=[])
+        ledger_probation.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=10000.0,
+            pnl_loss=0.0,  # net_pnl = 10000 (excellent)
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.PROBATION.value
+        ))
+        ledger_probation.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.PROBATION.value
+        ))
+
+        ledgers = {
+            "worst_maincomp": ledger_maincomp,
+            "best_probation": ledger_probation
+        }
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            if hotkey == "worst_maincomp":
+                mock_bucket.value = MinerBucket.MAINCOMP.value
+            elif hotkey == "best_probation":
+                mock_bucket.value = MinerBucket.PROBATION.value
+            else:
+                mock_bucket.value = MinerBucket.UNKNOWN.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Verify:
+        # - Worst MAINCOMP gets floor = 3x dust
+        # - Best PROBATION gets ceiling = 3x dust
+        # - They should be EQUAL (bucket floors/ceilings align)
+        maincomp_floor = 3 * dust
+        probation_ceiling = 3 * dust  # 2x + 1x = 3x
+
+        self.assertAlmostEqual(weights_dict["worst_maincomp"], maincomp_floor, places=10)
+        self.assertAlmostEqual(weights_dict["best_probation"], probation_ceiling, places=10)
+
+        # Verify they're equal (hierarchy preserved at boundaries)
+        self.assertAlmostEqual(
+            weights_dict["worst_maincomp"],
+            weights_dict["best_probation"],
+            places=10
+        )
+
+    def test_dynamic_dust_all_miners_zero_pnl(self):
+        """Test that all miners with 0 PnL get floor weight"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Create 3 miners with all 0 PnL
+        ledgers = {}
+        for i in range(3):
+            ledger = DebtLedger(hotkey=f"miner{i}", checkpoints=[])
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=0.0,
+                pnl_loss=0.0,  # net_pnl = 0
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.MAINCOMP.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,  # Negative -> 0 remaining payout
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.MAINCOMP.value
+            ))
+            ledgers[f"miner{i}"] = ledger
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # All miners should get exactly floor weight (3x dust for MAINCOMP)
+        floor = 3 * dust
+        for i in range(3):
+            self.assertAlmostEqual(weights_dict[f"miner{i}"], floor, places=10)
+
+    def test_dynamic_dust_negative_pnl_floored_at_zero(self):
+        """Test that negative PnL is floored at 0 for dust calculation"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Create 2 miners: one with negative PnL, one with 0 PnL
+        ledger_negative = DebtLedger(hotkey="negative_miner", checkpoints=[])
+        ledger_negative.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=1000.0,
+            pnl_loss=-5000.0,  # net_pnl = -4000 (negative)
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger_negative.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledger_zero = DebtLedger(hotkey="zero_miner", checkpoints=[])
+        ledger_zero.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=0.0,
+            pnl_loss=0.0,  # net_pnl = 0
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger_zero.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {"negative_miner": ledger_negative, "zero_miner": ledger_zero}
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Both should get floor weight (negative PnL floored at 0)
+        floor = 3 * dust
+        self.assertAlmostEqual(weights_dict["negative_miner"], floor, places=10)
+        self.assertAlmostEqual(weights_dict["zero_miner"], floor, places=10)
+
+    def test_dynamic_dust_30_day_lookback_window(self):
+        """Test that only checkpoints within 30-day window are considered"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        # 31 days ago (OUTSIDE 30-day window)
+        old_checkpoint = datetime(2025, 12, 15, 12, 0, 0, tzinfo=timezone.utc)
+        old_checkpoint_ms = int(old_checkpoint.timestamp() * 1000)
+
+        # 20 days ago (INSIDE 30-day window)
+        recent_checkpoint = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        recent_checkpoint_ms = int(recent_checkpoint.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Miner 1: Has old checkpoint with high PnL (should be IGNORED)
+        ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=old_checkpoint_ms,
+            pnl_gain=10000.0,  # High PnL but too old
+            pnl_loss=0.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 2: Has recent checkpoint with high PnL (should be USED)
+        ledger2 = DebtLedger(hotkey="miner2", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=recent_checkpoint_ms,
+            pnl_gain=10000.0,  # High PnL within window
+            pnl_loss=0.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,  # Negative -> 0 remaining payout
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {"miner1": ledger1, "miner2": ledger2}
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Miner 1 should get floor (old checkpoint ignored)
+        # Miner 2 should get ceiling (recent checkpoint used)
+        floor = 3 * dust
+        ceiling = 4 * dust
+
+        self.assertAlmostEqual(weights_dict["miner1"], floor, places=10)
+        self.assertAlmostEqual(weights_dict["miner2"], ceiling, places=10)
+
+    def test_dynamic_dust_penalty_applied_to_pnl(self):
+        """Test that penalties are applied to PnL in dynamic dust calculation"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Miner 1: 10,000 PnL with no penalty
+        ledger1 = DebtLedger(hotkey="no_penalty", checkpoints=[])
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=10000.0,
+            pnl_loss=0.0,  # net_pnl = 10000
+            total_penalty=1.0,  # No penalty
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger1.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 2: 10,000 PnL with 50% penalty (effective PnL = 5000)
+        ledger2 = DebtLedger(hotkey="with_penalty", checkpoints=[])
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=10000.0,
+            pnl_loss=0.0,  # net_pnl = 10000
+            total_penalty=0.5,  # 50% penalty -> effective PnL = 5000
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger2.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        # Miner 3: 5,000 PnL with no penalty (for comparison)
+        ledger3 = DebtLedger(hotkey="half_pnl", checkpoints=[])
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=5000.0,
+            pnl_loss=0.0,  # net_pnl = 5000
+            total_penalty=1.0,  # No penalty
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+        ledger3.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.MAINCOMP.value
+        ))
+
+        ledgers = {
+            "no_penalty": ledger1,
+            "with_penalty": ledger2,
+            "half_pnl": ledger3
+        }
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            self.mock_challengeperiod_manager,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            use_dynamic_dust=True,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Miner with penalty should have SAME weight as miner with half the PnL
+        # (10000 * 0.5 = 5000 effective PnL)
+        self.assertAlmostEqual(
+            weights_dict["with_penalty"],
+            weights_dict["half_pnl"],
+            places=10
+        )
+
+        # Miner with no penalty should have higher weight
+        self.assertGreater(weights_dict["no_penalty"], weights_dict["with_penalty"])
 
 
 if __name__ == '__main__':
