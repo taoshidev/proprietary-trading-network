@@ -630,34 +630,28 @@ class MetagraphUpdater(CacheController):
         """
         return self.metagraph
 
-    def refresh_substrate_reserves(self):
+    def refresh_substrate_reserves(self, metagraph_clone):
         """
-        Refresh TAO and ALPHA reserve balances from substrate and store in shared metagraph.
-        Uses the same query pattern as emissions_ledger.py::query_alpha_to_tao_rate.
+        Refresh TAO and ALPHA reserve balances from metagraph.pool and store in shared metagraph.
+        Uses built-in metagraph.pool data (verified to be identical to direct substrate queries).
         Fails fast - exceptions propagate to slack alert mechanism.
+
+        Args:
+            metagraph_clone: Freshly synced metagraph with pool data
         """
-        # Query TAO reserve (SubnetTAO)
-        tao_reserve_query = self.subtensor.substrate.query(
-            module='SubtensorModule',
-            storage_function='SubnetTAO',
-            params=[self.config.netuid]
-        )
+        # Extract reserve data from metagraph.pool
+        if not hasattr(metagraph_clone, 'pool') or not metagraph_clone.pool:
+            raise ValueError("metagraph.pool not available - cannot get reserve data")
 
-        # Query ALPHA reserve (SubnetAlphaIn)
-        alpha_reserve_query = self.subtensor.substrate.query(
-            module='SubtensorModule',
-            storage_function='SubnetAlphaIn',
-            params=[self.config.netuid]
-        )
+        # Get reserves from pool (in tokens, need to convert to RAO)
+        tao_reserve_tokens = metagraph_clone.pool.tao_in
+        alpha_reserve_tokens = metagraph_clone.pool.alpha_in
 
-        if tao_reserve_query is None or alpha_reserve_query is None:
-            raise ValueError("Pool reserve data not available from substrate")
+        # Convert to RAO (1 token = 1e9 RAO)
+        tao_reserve_rao = float(tao_reserve_tokens * 1e9)
+        alpha_reserve_rao = float(alpha_reserve_tokens * 1e9)
 
-        # Extract values (stored in RAO)
-        tao_reserve_rao = float(tao_reserve_query.value if hasattr(tao_reserve_query, 'value') else tao_reserve_query)
-        alpha_reserve_rao = float(alpha_reserve_query.value if hasattr(alpha_reserve_query, 'value') else alpha_reserve_query)
-
-        # Validate reserves (consistent with emissions_ledger.py::query_alpha_to_tao_rate)
+        # Validate reserves
         if alpha_reserve_rao == 0:
             raise ValueError("Alpha reserve is zero - cannot calculate conversion rate")
 
@@ -667,7 +661,7 @@ class MetagraphUpdater(CacheController):
         self.metagraph.alpha_reserve_rao.value = alpha_reserve_rao
 
         bt.logging.info(
-            f"Updated substrate reserves: TAO={tao_reserve_rao / 1e9:.2f} TAO "
+            f"Updated reserves from metagraph.pool: TAO={tao_reserve_rao / 1e9:.2f} TAO "
             f"({tao_reserve_rao:.0f} RAO), ALPHA={alpha_reserve_rao / 1e9:.2f} ALPHA "
             f"({alpha_reserve_rao:.0f} RAO)"
         )
@@ -742,9 +736,9 @@ class MetagraphUpdater(CacheController):
         # Update shared emission data (TAO per tempo for each UID)
         self.sync_lists(self.metagraph.emission, metagraph_clone.emission, brute_force=True)
 
-        # Refresh substrate reserves (TAO and ALPHA) for debt-based scoring
+        # Refresh reserve data (TAO and ALPHA) from metagraph.pool for debt-based scoring
         if not self.is_miner:  # Only validators need this for weight calculation
-            self.refresh_substrate_reserves()
+            self.refresh_substrate_reserves(metagraph_clone)
 
         # self.log_metagraph_state()
         self.set_last_update_time()
