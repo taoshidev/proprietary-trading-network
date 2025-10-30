@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from datetime import datetime, timezone
 import time
+import multiprocessing
 import signal
 import gzip
 import json
@@ -314,7 +315,6 @@ class PenaltyLedgerManager:
 
     def _start_daemon_process(self):
         """Start the daemon process for continuous updates."""
-        import multiprocessing
         daemon_process = multiprocessing.Process(
             target=self.run_daemon_forever,
             args=(),
@@ -526,14 +526,22 @@ class PenaltyLedgerManager:
         initial_backoff_seconds = 300  # Start with 5 minutes
         max_backoff_seconds = 3600  # Max 1 hour
         backoff_multiplier = 2
-
-        time.sleep(120) # Initial delay to stagger large ipc reads
-
         # Main loop
         while self.running:
             try:
                 bt.logging.info("Starting penalty ledger delta update...")
                 start_time = time.time()
+
+                # On first boot, ensure challengeperiod_manager has data before building ledgers
+                if not self.penalty_ledgers and self.challengeperiod_manager:
+                    active_miners_count = len(dict(self.challengeperiod_manager.active_miners))
+                    if active_miners_count == 0:
+                        bt.logging.warning(
+                            "First boot: challengeperiod_manager.active_miners is empty. "
+                            "Waiting 5 minutes for it to populate before building penalty ledgers..."
+                        )
+                        time.sleep(300)  # Wait 5 minutes
+                        continue
 
                 # Perform delta update (only new checkpoints)
                 self.build_penalty_ledgers(verbose=verbose, delta_update=True)
