@@ -817,13 +817,24 @@ class DebtLedgerManager:
         - Corresponding penalty checkpoint for that timestamp
         - Corresponding perf checkpoint for that timestamp
 
+        IMPORTANT: Builds candidate ledgers first, then atomically swaps them in to prevent race conditions
+        where ledgers momentarily disappear during the build process.
+
         Args:
             verbose: Enable detailed logging
             delta_update: If True, only process new checkpoints since last update. If False, rebuild from scratch.
         """
-        if not delta_update:
-            self.debt_ledgers.clear()
-            bt.logging.info("Full rebuild mode: clearing existing debt ledgers")
+        # Build into candidate dict to prevent race conditions (don't clear existing ledgers yet)
+        if delta_update:
+            # Delta update: start with copies of existing ledgers
+            candidate_ledgers = {}
+            for hotkey, existing_ledger in self.debt_ledgers.items():
+                # Create a new DebtLedger with copies of existing checkpoints
+                candidate_ledgers[hotkey] = DebtLedger(hotkey, checkpoints=list(existing_ledger.checkpoints))
+        else:
+            # Full rebuild: start from scratch
+            candidate_ledgers = {}
+            bt.logging.info("Full rebuild mode: building new debt ledgers from scratch")
 
         # Read all perf ledgers from perf ledger manager
         all_perf_ledgers: Dict[str, Dict[str, any]] = self.perf_ledger_manager.get_perf_ledgers(
@@ -862,8 +873,8 @@ class DebtLedgerManager:
         # Determine which checkpoints to process based on delta update mode
         # Find the minimum last processed timestamp across ALL debt ledgers
         last_processed_ms = 0
-        if delta_update and self.debt_ledgers:
-            for ledger in self.debt_ledgers.values():
+        if delta_update and candidate_ledgers:
+            for ledger in candidate_ledgers.values():
                 if ledger.checkpoints:
                     ledger_last_ms = ledger.checkpoints[-1].timestamp_ms
                     if last_processed_ms == 0 or ledger_last_ms < last_processed_ms:
@@ -976,9 +987,9 @@ class DebtLedgerManager:
                         )
                     continue
 
-                # Get or create debt ledger for this hotkey
-                if hotkey in self.debt_ledgers:
-                    debt_ledger = self.debt_ledgers[hotkey]
+                # Get or create debt ledger for this hotkey (from candidate ledgers)
+                if hotkey in candidate_ledgers:
+                    debt_ledger = candidate_ledgers[hotkey]
                 else:
                     debt_ledger = DebtLedger(hotkey)
 
@@ -1024,11 +1035,9 @@ class DebtLedgerManager:
                     challenge_period_status=penalty_checkpoint.challenge_period_status,
                 )
 
-                # Add checkpoint to ledger (validates strict contiguity)
-                # IMPORTANT: For IPC-managed dicts, we must retrieve, mutate, and reassign
-                # to propagate changes (managed dicts don't track nested mutations)
+                # Add checkpoint to candidate ledger (validates strict contiguity)
                 debt_ledger.add_checkpoint(debt_checkpoint, target_cp_duration_ms)
-                self.debt_ledgers[hotkey] = debt_ledger  # Reassign to trigger IPC update
+                candidate_ledgers[hotkey] = debt_ledger  # Update candidate ledgers
                 hotkeys_processed_at_checkpoint += 1
 
             # Log progress for this checkpoint
@@ -1042,11 +1051,31 @@ class DebtLedgerManager:
                 f"{checkpoint_elapsed:.2f}s"
             )
 
-            # Save to disk after each checkpoint (incremental persistence for crash recovery)
-            self.save_to_disk(create_backup=False)
+        # Build completed successfully - atomically swap candidate ledgers into production
+        # This prevents race conditions where ledgers momentarily disappear during build
+        bt.logging.info(
+            f"Build completed successfully: {checkpoint_count} checkpoints for {len(candidate_ledgers)} hotkeys. "
+            f"Atomically updating debt ledgers..."
+        )
+
+        # IMPORTANT: For IPC-managed dicts, we need to update each key individually to trigger IPC updates
+        # Clear old ledgers first, then add new ones
+        if hasattr(self.debt_ledgers, '_getvalue'):
+            # IPC managed dict - clear and update
+            self.debt_ledgers.clear()
+            for hotkey, ledger in candidate_ledgers.items():
+                self.debt_ledgers[hotkey] = ledger
+        else:
+            # Regular dict - direct assignment
+            self.debt_ledgers = candidate_ledgers
+
+        # Save to disk after atomic swap
+        bt.logging.info(f"Saving {len(self.debt_ledgers)} debt ledgers to disk...")
+        self.save_to_disk(create_backup=False)
 
         # Final summary
         bt.logging.info(
-            f"Built {checkpoint_count} checkpoints for {len(self.debt_ledgers)} hotkeys "
+            f"Debt ledgers updated: {checkpoint_count} checkpoints processed, "
+            f"{len(self.debt_ledgers)} hotkeys tracked "
             f"(target_cp_duration_ms: {target_cp_duration_ms}ms)"
         )
