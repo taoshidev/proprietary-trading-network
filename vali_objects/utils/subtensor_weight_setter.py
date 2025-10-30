@@ -120,7 +120,7 @@ class SubtensorWeightSetter(CacheController):
         bt.logging.info(f"Calculating new subtensor weights for {miner_group} using debt-based scoring...")
 
         # Get debt ledgers for the specified miners
-        if self.debt_ledger_manager and self.debt_ledger_manager.debt_ledgers:
+        if self.debt_ledger_manager:
             # Filter debt ledgers to only include specified hotkeys
             filtered_debt_ledgers = {
                 hotkey: ledger
@@ -128,7 +128,7 @@ class SubtensorWeightSetter(CacheController):
                 if hotkey in hotkeys_to_compute_weights_for
             }
         else:
-            bt.logging.warning("No debt ledgers available for scoring")
+            bt.logging.warning("debt_ledger_manager not available for scoring")
             return [], []
 
         if len(filtered_debt_ledgers) == 0:

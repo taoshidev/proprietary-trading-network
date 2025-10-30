@@ -484,7 +484,7 @@ class EmissionsLedgerManager:
     SECONDS_PER_BLOCK = 12
 
     # Default offset in days from current time for emissions tracking
-    DEFAULT_START_TIME_OFFSET_DAYS = 60
+    DEFAULT_START_TIME_OFFSET_DAYS = 30
 
     def __init__(
         self,
