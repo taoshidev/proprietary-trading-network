@@ -1059,10 +1059,21 @@ class DebtLedgerManager:
         )
 
         # IMPORTANT: For IPC-managed dicts, we need to update each key individually to trigger IPC updates
-        # Clear old ledgers first, then add new ones
+        # To avoid race condition where dict is momentarily empty, we:
+        # 1. Delete obsolete keys first (keys in old but not in new)
+        # 2. Then add/update new keys
+        # This way the dict is never empty - it always has at least the keys being kept
         if hasattr(self.debt_ledgers, '_getvalue'):
-            # IPC managed dict - clear and update
-            self.debt_ledgers.clear()
+            # IPC managed dict - atomic update without clear()
+            old_hotkeys = set(self.debt_ledgers.keys())
+            new_hotkeys = set(candidate_ledgers.keys())
+
+            # Delete obsolete hotkeys first
+            hotkeys_to_delete = old_hotkeys - new_hotkeys
+            for hotkey in hotkeys_to_delete:
+                del self.debt_ledgers[hotkey]
+
+            # Then add/update all new hotkeys
             for hotkey, ledger in candidate_ledgers.items():
                 self.debt_ledgers[hotkey] = ledger
         else:
