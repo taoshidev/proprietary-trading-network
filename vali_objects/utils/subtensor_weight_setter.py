@@ -94,7 +94,7 @@ class SubtensorWeightSetter(CacheController):
         # Compute weights for all miners using debt-based scoring
         # subcategory_min_days parameter no longer needed for debt-based scoring
         checkpoint_netuid_weights, checkpoint_results = self._compute_miner_weights(
-            all_hotkeys, hotkey_to_idx, current_time, subcategory_min_days={}, scoring_challenge=False
+            all_hotkeys, hotkey_to_idx, current_time, scoring_challenge=False
         )
 
         if checkpoint_netuid_weights is None or len(checkpoint_netuid_weights) == 0:
@@ -109,7 +109,7 @@ class SubtensorWeightSetter(CacheController):
 
         return checkpoint_results, transformed_list
 
-    def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days, scoring_challenge: bool = False):
+    def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, scoring_challenge: bool = False):
         miner_group = "challenge period" if scoring_challenge else "main competition"
 
         if len(hotkeys_to_compute_weights_for) == 0:

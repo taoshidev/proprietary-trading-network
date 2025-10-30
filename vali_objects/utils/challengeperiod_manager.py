@@ -356,13 +356,13 @@ class ChallengePeriodManager(CacheController):
 
             valid_candidate_hotkeys.append(hotkey)
 
-        # Calculate dynamic minimum participation days for asset subcategories
+        # Calculate dynamic minimum participation days for asset classes
         maincomp_ledger = {hotkey: ledger_data for hotkey, ledger_data in ledger.items() if hotkey in [*success_hotkeys, *probation_hotkeys]}   # ledger of all miners in maincomp, including probation
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            maincomp_ledger, asset_subcategories
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        asset_class_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
+            maincomp_ledger, asset_classes
         )
-        bt.logging.info(f"challengeperiod_manager subcategory_min_days: {subcategory_min_days}")
+        bt.logging.info(f"challengeperiod_manager asset class minimum days: {asset_class_min_days}")
 
         all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=current_time)
 
@@ -374,7 +374,7 @@ class ChallengePeriodManager(CacheController):
             success_scores_dict = Scoring.score_miners(
                     ledger_dict=success_ledger,
                     positions=success_positions,
-                    subcategory_min_days=subcategory_min_days,
+                    asset_class_min_days=asset_class_min_days,
                     evaluation_time_ms=current_time,
                     weighting=True,
                     all_miner_account_sizes=all_miner_account_sizes)
@@ -386,7 +386,7 @@ class ChallengePeriodManager(CacheController):
             inspection_scores_dict = Scoring.score_miners(
                     ledger_dict=candidates_ledgers,
                     positions=candidates_positions,
-                    subcategory_min_days=subcategory_min_days,
+                    asset_class_min_days=asset_class_min_days,
                     evaluation_time_ms=current_time,
                     weighting=True,
                     all_miner_account_sizes=all_miner_account_sizes)
@@ -415,20 +415,19 @@ class ChallengePeriodManager(CacheController):
             ) -> tuple[list[str], list[str]]:
         # combine maincomp and challenge/probation miners into one scoring dict
         combined_scores_dict = copy.deepcopy(success_scores_dict)
-        for subcategory, candidate_scores_dict in inspection_scores_dict.items():
+        for asset_class, candidate_scores_dict in inspection_scores_dict.items():
             for metric_name, candidate_metric in candidate_scores_dict["metrics"].items():
-                combined_scores_dict[subcategory]['metrics'][metric_name]["scores"] += candidate_metric["scores"]
-            combined_scores_dict[subcategory]["penalties"].update(candidate_scores_dict["penalties"])
+                combined_scores_dict[asset_class]['metrics'][metric_name]["scores"] += candidate_metric["scores"]
+            combined_scores_dict[asset_class]["penalties"].update(candidate_scores_dict["penalties"])
 
-        # score them based on asset subcategory
+        # score them based on asset class
         asset_combined_scores = Scoring.combine_scores(combined_scores_dict)
         asset_softmaxed_scores = Scoring.softmax_by_asset(asset_combined_scores)
 
-        # combine asset subcategories
+        # combine asset
         weighted_scores = defaultdict(lambda: defaultdict(float))
-        for subcategory, miner_scores in asset_softmaxed_scores.items():
-            asset_class = ValiConfig.CATEGORY_LOOKUP[subcategory]
-            weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["subcategory_weights"][subcategory]
+        for asset_class, miner_scores in asset_softmaxed_scores.items():
+            weight = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class]["emission"]
 
             for hotkey, score in miner_scores.items():
                 weighted_scores[asset_class][hotkey] += weight * score

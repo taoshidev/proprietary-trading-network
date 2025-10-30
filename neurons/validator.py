@@ -979,6 +979,13 @@ class Validator:
                        f"Please try again with a different trade pair.")
                 synapse.error_message = msg
 
+            elif tp.is_blocked:
+                msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked"
+                       f"Please try again with a different trade pair.")
+                bt.logging.error(msg)
+                synapse.successfully_processed = False
+                synapse.error_message = msg
+
         synapse.successfully_processed = not bool(synapse.error_message)
         if synapse.error_message:
             bt.logging.error(synapse.error_message)
