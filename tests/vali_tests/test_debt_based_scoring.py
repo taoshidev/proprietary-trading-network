@@ -925,8 +925,9 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        # Create checkpoint within 30-day window (20 days ago)
-        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        # Create checkpoint within 30-day window (10 days ago, in CURRENT month)
+        # This ensures it's used for dynamic dust but NOT for previous month payout
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
         within_window_ms = int(within_window.timestamp() * 1000)
 
         # For main scoring: previous month checkpoint (OUTSIDE earning period)
@@ -1033,7 +1034,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        within_window = datetime(2025, 12, 26, 12, 0, 0, tzinfo=timezone.utc)
+        # Use CURRENT month for dynamic dust (not previous month)
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
         within_window_ms = int(within_window.timestamp() * 1000)
 
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
@@ -1245,8 +1247,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
-        # 31 days ago (OUTSIDE 30-day window)
-        old_checkpoint = datetime(2025, 12, 15, 12, 0, 0, tzinfo=timezone.utc)
+        # 2 months ago (OUTSIDE 30-day window AND outside previous month)
+        old_checkpoint = datetime(2025, 11, 15, 12, 0, 0, tzinfo=timezone.utc)
         old_checkpoint_ms = int(old_checkpoint.timestamp() * 1000)
 
         # 20 days ago (INSIDE 30-day window)
@@ -1275,14 +1277,15 @@ class TestDebtBasedScoring(unittest.TestCase):
             challenge_period_status=MinerBucket.MAINCOMP.value
         ))
 
-        # Miner 2: Has recent checkpoint with high PnL (should be USED)
+        # Miner 2: Has recent checkpoint with high PnL (should be USED for dynamic dust)
+        # Use CHALLENGE status so it doesn't count for previous month payout (only for dynamic dust)
         ledger2 = DebtLedger(hotkey="miner2", checkpoints=[])
         ledger2.checkpoints.append(DebtCheckpoint(
             timestamp_ms=recent_checkpoint_ms,
             pnl_gain=10000.0,  # High PnL within window
             pnl_loss=0.0,
             total_penalty=1.0,
-            challenge_period_status=MinerBucket.MAINCOMP.value
+            challenge_period_status=MinerBucket.CHALLENGE.value  # CHALLENGE = not earning status
         ))
         ledger2.checkpoints.append(DebtCheckpoint(
             timestamp_ms=prev_month_checkpoint_ms,

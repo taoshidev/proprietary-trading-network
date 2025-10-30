@@ -23,9 +23,10 @@ Algorithm Flow:
 8. Set weights proportional to remaining_payout
 9. Warn if sum(remaining_payouts) > projected_emissions
 10. Enforce minimum weights based on challenge period status:
-    - CHALLENGE/PLAGIARISM/UNKNOWN: 1x dust
+    - CHALLENGE/PLAGIARISM: 1x dust
     - PROBATION: 2x dust
     - MAINCOMP: 3x dust
+    - UNKNOWN: 0x dust (no weight)
 11. Normalize weights with burn address logic:
     - If sum < 1.0: assign (1.0 - sum) to burn address (uid 229 mainnet / uid 5 testnet)
     - If sum >= 1.0: normalize to 1.0, burn address gets 0
@@ -280,12 +281,13 @@ class DebtBasedScoring:
                 )
 
             # Step 4: Calculate needed payout from previous month
-            # "needed payout" = (net_pnl * total_penalty) from last checkpoint of previous month
+            # "needed payout" = sum of (net_pnl * total_penalty) across all prev month checkpoints
+            # NOTE: pnl_gain/pnl_loss are per-checkpoint values, NOT cumulative, so we must sum
             needed_payout = 0.0
             if prev_month_checkpoints:
-                # Use the LAST checkpoint's cumulative values (not sum of chunks)
-                last_prev_cp = prev_month_checkpoints[-1]
-                needed_payout = last_prev_cp.net_pnl * last_prev_cp.total_penalty
+                # Sum penalty-adjusted PnL across all checkpoints in the month
+                # Each checkpoint has its own PnL (for that 12-hour period) and its own penalty
+                needed_payout = sum(cp.net_pnl * cp.total_penalty for cp in prev_month_checkpoints)
 
             # Step 5: Calculate actual payout given so far in current month
             # "actual payout" = sum of chunk_emissions_alpha for current month
@@ -504,10 +506,10 @@ class DebtBasedScoring:
         if not relevant_checkpoints:
             return 0.0
 
-        # Use the LAST checkpoint's cumulative values (not sum of chunks)
-        # This matches the logic in compute_results for calculating needed_payout
-        last_checkpoint = relevant_checkpoints[-1]
-        penalty_adjusted_pnl = last_checkpoint.net_pnl * last_checkpoint.total_penalty
+        # Sum penalty-adjusted PnL across all checkpoints in the time range
+        # NOTE: pnl_gain/pnl_loss are per-checkpoint values (NOT cumulative), so we must sum
+        # Each checkpoint has its own PnL (for that 12-hour period) and its own penalty
+        penalty_adjusted_pnl = sum(cp.net_pnl * cp.total_penalty for cp in relevant_checkpoints)
 
         return penalty_adjusted_pnl
 
@@ -545,7 +547,7 @@ class DebtBasedScoring:
             MinerBucket.CHALLENGE.value: 1,      # 1x dust floor
             MinerBucket.PROBATION.value: 2,      # 2x dust floor
             MinerBucket.MAINCOMP.value: 3,       # 3x dust floor
-            MinerBucket.UNKNOWN.value: 1,        # 1x dust floor
+            MinerBucket.UNKNOWN.value: 0,        # 0x dust (no weight for unknown status)
             MinerBucket.PLAGIARISM.value: 1,     # 1x dust floor
         }
 
@@ -637,9 +639,10 @@ class DebtBasedScoring:
         Enforce minimum weights based on challenge period status.
 
         All miners receive minimum "dust" weights based on their current status:
-        - CHALLENGE/PLAGIARISM/UNKNOWN: 1x dust = CHALLENGE_PERIOD_MIN_WEIGHT
+        - CHALLENGE/PLAGIARISM: 1x dust = CHALLENGE_PERIOD_MIN_WEIGHT
         - PROBATION: 2x dust = 2 * CHALLENGE_PERIOD_MIN_WEIGHT
         - MAINCOMP: 3x dust = 3 * CHALLENGE_PERIOD_MIN_WEIGHT
+        - UNKNOWN: 0x dust (no weight)
 
         If use_dynamic_dust=True, miners are scaled within bucket based on 30-day
         penalty-adjusted PnL, with range [floor, floor+1 DUST].
@@ -686,7 +689,7 @@ class DebtBasedScoring:
         status_to_minimum_weight = {
             MinerBucket.CHALLENGE.value: 1 * DUST,
             MinerBucket.PLAGIARISM.value: 1 * DUST,
-            MinerBucket.UNKNOWN.value: 1 * DUST,
+            MinerBucket.UNKNOWN.value: 0 * DUST,  # 0x dust (no weight for unknown status)
             MinerBucket.PROBATION.value: 2 * DUST,
             MinerBucket.MAINCOMP.value: 3 * DUST,
         }

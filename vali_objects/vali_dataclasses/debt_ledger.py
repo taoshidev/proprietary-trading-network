@@ -84,15 +84,15 @@ class DebtCheckpoint:
         # Note: Sourced from PerfCheckpoint attributes - some have different names:
         #   portfolio_return <- gain, max_drawdown <- mdd, max_portfolio_value <- mpv
         portfolio_return: Current portfolio return multiplier (1.0 = break-even)
-        pnl_gain: Cumulative PnL gain
-        pnl_loss: Cumulative PnL loss (negative value)
-        spread_fee_loss: Cumulative spread fee losses
-        carry_fee_loss: Cumulative carry fee losses
-        max_drawdown: Maximum drawdown (worst loss from peak)
-        max_portfolio_value: Maximum portfolio value achieved
-        open_ms: Total time with open positions (milliseconds)
-        accum_ms: Total accumulated time (milliseconds)
-        n_updates: Number of performance updates
+        pnl_gain: PnL gain during this checkpoint period (NOT cumulative across checkpoints)
+        pnl_loss: PnL loss during this checkpoint period (NOT cumulative across checkpoints)
+        spread_fee_loss: Spread fee losses during this checkpoint period (NOT cumulative)
+        carry_fee_loss: Carry fee losses during this checkpoint period (NOT cumulative)
+        max_drawdown: Maximum drawdown (worst loss from peak, cumulative)
+        max_portfolio_value: Maximum portfolio value achieved (cumulative)
+        open_ms: Time with open positions during this checkpoint (milliseconds)
+        accum_ms: Time duration of this checkpoint (milliseconds)
+        n_updates: Number of performance updates during this checkpoint
 
         # Penalty Data (from PenaltyLedger)
         drawdown_penalty: Drawdown threshold penalty multiplier
@@ -1019,10 +1019,10 @@ class DebtLedgerManager:
                     alpha_balance_snapshot=emissions_checkpoint.alpha_balance_snapshot,
                     # Performance data - access attributes directly from PerfCheckpoint
                     portfolio_return=perf_checkpoint.gain,  # Current portfolio multiplier
-                    pnl_gain=perf_checkpoint.pnl_gain,  # Cumulative PnL gain
-                    pnl_loss=perf_checkpoint.pnl_loss,  # Cumulative PnL loss (negative value)
-                    spread_fee_loss=perf_checkpoint.spread_fee_loss,  # Cumulative spread fees
-                    carry_fee_loss=perf_checkpoint.carry_fee_loss,  # Cumulative carry fees
+                    pnl_gain=perf_checkpoint.pnl_gain,  # PnL gain during this checkpoint period
+                    pnl_loss=perf_checkpoint.pnl_loss,  # PnL loss during this checkpoint period
+                    spread_fee_loss=perf_checkpoint.spread_fee_loss,  # Spread fees during this checkpoint
+                    carry_fee_loss=perf_checkpoint.carry_fee_loss,  # Carry fees during this checkpoint
                     max_drawdown=perf_checkpoint.mdd,  # Max drawdown
                     max_portfolio_value=perf_checkpoint.mpv,  # Max portfolio value achieved
                     open_ms=perf_checkpoint.open_ms,
