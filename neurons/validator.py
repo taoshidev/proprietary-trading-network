@@ -39,7 +39,6 @@ from time_util.time_util import TimeUtil
 from vali_objects.vali_config import TradePair
 from vali_objects.exceptions.signal_exception import SignalException
 from shared_objects.metagraph_updater import MetagraphUpdater
-from shared_objects.ptn_manager import PTNManager
 from shared_objects.error_utils import ErrorUtils
 from miner_objects.slack_notifier import SlackNotifier
 from vali_objects.utils.elimination_manager import EliminationManager
@@ -132,10 +131,6 @@ class Validator:
         self.ipc_manager = Manager()
         self.shared_queue_websockets = self.ipc_manager.Queue()
 
-        # Initialize PTNManager for custom shared objects
-        self.ptn_manager = PTNManager()
-        self.ptn_manager.start()
-
         self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False)
         self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
@@ -176,19 +171,18 @@ class Validator:
         # Create single weight request queue (validator only)
         weight_request_queue = self.ipc_manager.Queue()
 
-        # Create MetagraphUpdater through PTNManager (returns proxy for IPC-safe access)
-        # This lives in the manager process, and other processes get proxies that auto-marshal calls
-        self.metagraph_updater = self.ptn_manager.MetagraphUpdater(
+        # Create MetagraphUpdater with simple parameters (no PTNManager)
+        # This will run in a thread in the main process
+        self.metagraph_updater = MetagraphUpdater(
             self.config, self.metagraph, self.wallet.hotkey.ss58_address,
             False, position_manager=None,
             shutdown_dict=shutdown_dict,
             slack_notifier=self.slack_notifier,
             weight_request_queue=weight_request_queue
         )
+        self.subtensor = self.metagraph_updater.subtensor
+        bt.logging.info(f"Subtensor: {self.subtensor}")
 
-        # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
-        # This ensures we always have the current subtensor instance even after round-robin switches
-        bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
 
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
@@ -382,7 +376,7 @@ class Validator:
             f"Serving attached axons on network:"
             f" {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
-        self.axon.serve(netuid=self.config.netuid, subtensor=self.metagraph_updater.get_subtensor())
+        self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
         # Starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
@@ -490,8 +484,7 @@ class Validator:
 
         # Step 4: Initialize SubtensorWeightSetter
         def step4():
-            # Pass MetagraphUpdater proxy to SubtensorWeightSetter
-            # The proxy automatically marshals method calls across processes
+            # Pass shared metagraph which contains substrate reserves refreshed by MetagraphUpdater
             self.weight_setter = SubtensorWeightSetter(
                 self.metagraph,
                 position_manager=self.position_manager,
@@ -502,8 +495,6 @@ class Validator:
                 hotkey=self.wallet.hotkey.ss58_address,
                 contract_manager=self.contract_manager,
                 debt_ledger_manager=self.debt_ledger_manager,
-                metagraph_updater=self.metagraph_updater,  # Proxy for IPC-safe calls (auto-marshaled)
-                emissions_ledger_manager=self.debt_ledger_manager.emissions_ledger_manager,
                 is_mainnet=self.is_mainnet
             )
             return self.weight_setter
@@ -674,14 +665,8 @@ class Validator:
         )
         return priority
 
-    @property
-    def subtensor(self):
-        """
-        Property that always returns the current subtensor instance from MetagraphUpdater.
-        This ensures we're always using the active subtensor connection, even after
-        round-robin network switches in the MetagraphUpdater.
-        """
-        return self.metagraph_updater.get_subtensor()
+    # subtensor is now a simple instance variable (no property needed)
+    # It's created in __init__ and used directly throughout validator
 
     def get_config(self):
         # Step 2: Set up the configuration parser

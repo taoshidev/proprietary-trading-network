@@ -101,8 +101,7 @@ class DebtBasedScoring:
     @staticmethod
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
-        metagraph_updater: 'MetagraphUpdater',
-        emissions_ledger_manager: 'EmissionsLedgerManager',
+        metagraph: 'bt.metagraph',
         current_time_ms: int = None,
         verbose: bool = False,
         is_testnet: bool = False
@@ -115,8 +114,8 @@ class DebtBasedScoring:
         2. For each miner, calculate their "needed payout" from previous month's performance
         3. Calculate "actual payout" given so far in current month
         4. Calculate "remaining payout" to be distributed
-        5. Query real-time TAO emission rate from subtensor
-        6. Convert to ALPHA using current conversion rate
+        5. Query real-time TAO emission rate from metagraph
+        6. Convert to ALPHA using reserve data from shared metagraph (TAO/ALPHA ratio)
         7. Project total ALPHA available from now until day 25
         8. Set weights proportional to remaining_payout
         9. Warn if sum(remaining_payouts) > projected_emissions
@@ -125,8 +124,7 @@ class DebtBasedScoring:
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
-            metagraph_updater: MetagraphUpdater for IPC-safe subtensor and metagraph access
-            emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
+            metagraph: Shared IPC metagraph with emission data and substrate reserves
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
@@ -183,7 +181,7 @@ class DebtBasedScoring:
             # Before activation: apply minimum dust weights only, burn the rest
             return DebtBasedScoring._apply_pre_activation_weights(
                 ledger_dict=ledger_dict,
-                metagraph_updater=metagraph_updater,
+                metagraph=metagraph,
                 is_testnet=is_testnet,
                 verbose=verbose
             )
@@ -307,8 +305,7 @@ class DebtBasedScoring:
             # Query current emission rate and project availability
             try:
                 projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
-                    metagraph_updater=metagraph_updater,
-                    emissions_ledger_manager=emissions_ledger_manager,
+                    metagraph=metagraph,
                     days_until_target=days_until_target,
                     verbose=verbose
                 )
@@ -348,7 +345,7 @@ class DebtBasedScoring:
         # If sum >= 1.0: normalize to 1.0, burn address gets 0
         result = DebtBasedScoring._normalize_with_burn_address(
             weights=miner_weights_with_minimums,
-            metagraph_updater=metagraph_updater,
+            metagraph=metagraph,
             is_testnet=is_testnet,
             verbose=verbose
         )
@@ -365,8 +362,7 @@ class DebtBasedScoring:
 
     @staticmethod
     def _estimate_alpha_emissions_until_target(
-        metagraph_updater: 'MetagraphUpdater',
-        emissions_ledger_manager: 'EmissionsLedgerManager',
+        metagraph: 'bt.metagraph',
         days_until_target: int,
         verbose: bool = False
     ) -> float:
@@ -374,11 +370,10 @@ class DebtBasedScoring:
         Estimate total ALPHA emissions available from now until target day.
 
         Uses real-time metagraph data to get current TAO emission rate,
-        then converts to ALPHA using current conversion rate.
+        then converts to ALPHA using reserve data from shared metagraph.
 
         Args:
-            metagraph_updater: MetagraphUpdater for IPC-safe subtensor and metagraph access
-            emissions_ledger_manager: EmissionsLedgerManager for querying conversion rates
+            metagraph: Shared IPC metagraph with emission data and substrate reserves
             days_until_target: Number of days until target payout day
             verbose: Enable detailed logging
 
@@ -386,9 +381,6 @@ class DebtBasedScoring:
             Estimated total ALPHA emissions available (float)
         """
         try:
-            # Get current metagraph to read emission rates (IPC-safe)
-            metagraph = metagraph_updater.get_metagraph()
-
             # Get total TAO emission per block for the subnet (sum across all miners)
             # metagraph.emission is already in TAO (not RAO), but per tempo (360 blocks)
             # Need to convert: per-tempo → per-block (÷360)
@@ -411,13 +403,33 @@ class DebtBasedScoring:
                     f"total TAO: {total_tao_until_target:.2f}"
                 )
 
-            # Query current ALPHA-to-TAO conversion rate
-            # Use the latest block for most recent rate
-            current_block = metagraph_updater.get_current_block()
-            alpha_to_tao_rate = emissions_ledger_manager.query_alpha_to_tao_rate(current_block)
+            # Get substrate reserves from shared metagraph (refreshed by MetagraphUpdater)
+            # Use .value accessor for manager.Value() objects (thread-safe IPC)
+            tao_reserve_obj = getattr(metagraph, 'tao_reserve_rao', None)
+            alpha_reserve_obj = getattr(metagraph, 'alpha_reserve_rao', None)
+
+            tao_reserve_rao = tao_reserve_obj.value if tao_reserve_obj else 0.0
+            alpha_reserve_rao = alpha_reserve_obj.value if alpha_reserve_obj else 0.0
+
+            if tao_reserve_rao == 0 or alpha_reserve_rao == 0:
+                bt.logging.warning(
+                    "Substrate reserve data not available in shared metagraph "
+                    f"(TAO={tao_reserve_rao} RAO, ALPHA={alpha_reserve_rao} RAO). "
+                    "Cannot calculate ALPHA conversion rate."
+                )
+                return 0.0
+
+            # Calculate ALPHA-to-TAO conversion rate from reserve data
+            # alpha_to_tao_rate = tao_reserve / alpha_reserve (both in RAO, ratio is unitless)
+            # (How much TAO per ALPHA)
+            alpha_to_tao_rate = tao_reserve_rao / alpha_reserve_rao
 
             if verbose:
-                bt.logging.info(f"Current ALPHA-to-TAO rate: {alpha_to_tao_rate:.6f}")
+                bt.logging.info(
+                    f"Substrate reserves: TAO={tao_reserve_rao / 1e9:.2f} TAO ({tao_reserve_rao:.0f} RAO), "
+                    f"ALPHA={alpha_reserve_rao / 1e9:.2f} ALPHA ({alpha_reserve_rao:.0f} RAO), "
+                    f"rate={alpha_to_tao_rate:.6f} TAO/ALPHA"
+                )
 
             # Convert TAO to ALPHA
             # If ALPHA costs X TAO per ALPHA, then Y TAO buys Y/X ALPHA
@@ -502,23 +514,20 @@ class DebtBasedScoring:
 
     @staticmethod
     def _get_burn_address_hotkey(
-        metagraph_updater: 'MetagraphUpdater',
+        metagraph: 'bt.metagraph',
         is_testnet: bool = False
     ) -> str:
         """
         Get the hotkey for the burn address.
 
         Args:
-            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
+            metagraph: Bittensor metagraph for accessing hotkeys
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
 
         Returns:
             Hotkey string for burn address (uid 229 mainnet / uid 5 testnet)
         """
         burn_uid = DebtBasedScoring.get_burn_uid(is_testnet)
-
-        # Get hotkey for burn UID (IPC-safe)
-        metagraph = metagraph_updater.get_metagraph()
 
         # Get hotkey for burn UID
         if burn_uid < len(metagraph.hotkeys):
@@ -533,7 +542,7 @@ class DebtBasedScoring:
     @staticmethod
     def _normalize_with_burn_address(
         weights: dict[str, float],
-        metagraph_updater: 'MetagraphUpdater',
+        metagraph: 'bt.metagraph',
         is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
@@ -548,7 +557,7 @@ class DebtBasedScoring:
 
         Args:
             weights: Dict of {hotkey: weight}
-            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
+            metagraph: Bittensor metagraph for accessing hotkeys
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
@@ -570,8 +579,8 @@ class DebtBasedScoring:
             # Excess weight goes to burn address
             burn_weight = 1.0 - sum_weights
 
-            # Get burn address hotkey (IPC-safe)
-            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(metagraph_updater, is_testnet)
+            # Get burn address hotkey
+            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(metagraph, is_testnet)
 
             bt.logging.info(
                 f"Sum of weights ({sum_weights:.6f}) < 1.0. "
@@ -601,7 +610,7 @@ class DebtBasedScoring:
     @staticmethod
     def _apply_pre_activation_weights(
         ledger_dict: dict[str, DebtLedger],
-        metagraph_updater: 'MetagraphUpdater',
+        metagraph: 'bt.metagraph',
         is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
@@ -613,7 +622,7 @@ class DebtBasedScoring:
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
-            metagraph_updater: MetagraphUpdater for IPC-safe metagraph access
+            metagraph: Bittensor metagraph for accessing hotkeys
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
@@ -630,7 +639,7 @@ class DebtBasedScoring:
         # Apply burn address normalization
         result = DebtBasedScoring._normalize_with_burn_address(
             weights=miner_dust_weights,
-            metagraph_updater=metagraph_updater,
+            metagraph=metagraph,
             is_testnet=is_testnet,
             verbose=verbose
         )
