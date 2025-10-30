@@ -825,25 +825,12 @@ class PenaltyLedgerManager:
 
                         elif penalty_config.input_type == PenaltyInputType.ASSET_LEDGER:
                             segmentation_machine = AssetSegmentation({miner_hotkey: ledger_dict})
-                            accumulated_penalty = 1
-
-                            asset_class = self.asset_selection_manager.asset_selections.get(miner_hotkey);
-                            if not asset_class:
-                                accumulated_penalty = 0
-                            else:
-                                subcategories = ValiConfig.ASSET_CLASS_BREAKDOWN[asset_class].get("subcategory_weights", {}).keys()
-
-                                subcategory_penalties = []
-                                for subcategory in subcategories:
-                                    asset_ledger = segmentation_machine.segmentation(subcategory).get(miner_hotkey)
-                                    if not asset_ledger or not asset_ledger.cps:
-                                        continue
-                                    subcategory_penalty = penalty_config.function(asset_ledger, asset_class)
-                                    subcategory_penalties.append(subcategory_penalty)
-
-                                if subcategory_penalties:
-                                    category_penalty = sum(subcategory_penalties) / len(subcategory_penalties)
-                                    accumulated_penalty *= category_penalty
+                            accumulated_penalty = 1.0
+                            for asset_class in ValiConfig.ASSET_CLASS_BREAKDOWN.keys():
+                                asset_ledger = segmentation_machine.segmentation(asset_class).get(miner_hotkey)
+                                if not asset_ledger:
+                                    continue
+                                accumulated_penalty *= penalty_config.function(asset_ledger, asset_class)
 
                             penalty_value = accumulated_penalty
 
