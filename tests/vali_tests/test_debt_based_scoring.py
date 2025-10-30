@@ -882,8 +882,8 @@ class TestDebtBasedScoring(unittest.TestCase):
     # DYNAMIC DUST TESTS
     # ========================================================================
 
-    def test_dynamic_dust_disabled_by_default(self):
-        """Test that dynamic dust is disabled by default (backward compatibility)"""
+    def test_dynamic_dust_enabled_by_default(self):
+        """Test that dynamic dust is always enabled (miners with same PnL get same dynamic weight)"""
         current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         current_time_ms = int(current_time.timestamp() * 1000)
 
@@ -913,20 +913,19 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         ledgers = {"miner1": ledger1, "miner2": ledger2}
 
-        # Call WITHOUT use_dynamic_dust (should default to False)
+        # Call compute_results (dynamic dust always enabled)
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            # use_dynamic_dust NOT specified - defaults to False
             verbose=True
         )
 
         weights_dict = dict(result)
 
-        # Both miners should get EXACTLY 3x dust (static, no variation)
+        # Both miners have 0 PnL (negative floored at 0), should get floor weight (3x dust for MAINCOMP)
         self.assertAlmostEqual(weights_dict["miner1"], 3 * dust, places=10)
         self.assertAlmostEqual(weights_dict["miner2"], 3 * dust, places=10)
 
@@ -1007,14 +1006,13 @@ class TestDebtBasedScoring(unittest.TestCase):
             "worst_miner": ledger3
         }
 
-        # Call WITH use_dynamic_dust=True
+        # Call compute_results (dynamic dust always enabled)
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,  # ENABLE DYNAMIC DUST
             verbose=True
         )
 
@@ -1114,7 +1112,6 @@ class TestDebtBasedScoring(unittest.TestCase):
             mock_cpm,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,
             verbose=True
         )
 
@@ -1176,7 +1173,6 @@ class TestDebtBasedScoring(unittest.TestCase):
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,
             verbose=True
         )
 
@@ -1241,7 +1237,6 @@ class TestDebtBasedScoring(unittest.TestCase):
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,
             verbose=True
         )
 
@@ -1313,7 +1308,6 @@ class TestDebtBasedScoring(unittest.TestCase):
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,
             verbose=True
         )
 
@@ -1403,7 +1397,6 @@ class TestDebtBasedScoring(unittest.TestCase):
             self.mock_challengeperiod_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
-            use_dynamic_dust=True,
             verbose=True
         )
 

@@ -101,14 +101,56 @@ class DebtBasedScoring:
         return DebtBasedScoring.BURN_UID_TESTNET if is_testnet else DebtBasedScoring.BURN_UID_MAINNET
 
     @staticmethod
+    def log_projections(metagraph, days_until_target, verbose, total_remaining_payout_usd):
+        # Query current emission rate and project availability
+        # Get projected ALPHA emissions
+        projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
+            metagraph=metagraph,
+            days_until_target=days_until_target,
+            verbose=verbose
+        )
+
+        # Convert projected ALPHA to USD for comparison
+        projected_usd_available = DebtBasedScoring._convert_alpha_to_usd(
+            alpha_amount=projected_alpha_available,
+            metagraph=metagraph,
+            verbose=verbose
+        )
+
+        if verbose:
+            bt.logging.info(
+                f"Projected emissions: {projected_alpha_available:.2f} ALPHA "
+                f"≈ ${projected_usd_available:.2f} USD"
+            )
+
+        # Check if projected emissions (in USD) are sufficient
+        if projected_usd_available < total_remaining_payout_usd:
+            shortage_pct = ((
+                                        total_remaining_payout_usd - projected_usd_available) / total_remaining_payout_usd) * 100
+            bt.logging.warning(
+                f"⚠️  INSUFFICIENT EMISSIONS: Projected USD value in next {days_until_target} days "
+                f"(${projected_usd_available:.2f}) is less than total remaining payout needed "
+                f"(${total_remaining_payout_usd:.2f}). Shortage: {shortage_pct:.1f}%. "
+                f"Using aggressive {days_until_target}-day payout strategy (target day {DebtBasedScoring.PAYOUT_TARGET_DAY}). "
+                f"Miners will receive proportional payouts."
+            )
+        else:
+            surplus_pct = ((projected_usd_available - total_remaining_payout_usd) / total_remaining_payout_usd) * 100
+            bt.logging.info(
+                f"✓ Projected USD value in next {days_until_target} days (${projected_usd_available:.2f}) exceeds "
+                f"total remaining payout needed (${total_remaining_payout_usd:.2f}). "
+                f"Surplus: {surplus_pct:.1f}%. "
+                f"Using aggressive {days_until_target}-day payout strategy (actual deadline: day {DebtBasedScoring.PAYOUT_TARGET_DAY})."
+            )
+
+    @staticmethod
     def compute_results(
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
         challengeperiod_manager: 'ChallengePeriodManager',
         current_time_ms: int = None,
         verbose: bool = False,
-        is_testnet: bool = False,
-        use_dynamic_dust: bool = False
+        is_testnet: bool = False
     ) -> List[Tuple[str, float]]:
         """
         Compute miner weights based on debt ledger information with real-time emission projections.
@@ -123,7 +165,7 @@ class DebtBasedScoring:
         7. Project total ALPHA available from now until day 25
         8. Set weights proportional to remaining_payout
         9. Warn if sum(remaining_payouts) > projected_emissions
-        10. Enforce minimum weights based on challenge period status
+        10. Enforce minimum weights with dynamic dust (performance-scaled by 30-day PnL)
         11. Normalize weights with burn address logic (sum < 1.0 → burn gets excess)
 
         Args:
@@ -133,13 +175,15 @@ class DebtBasedScoring:
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
-            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
-                             When True, miners get dust weights scaled by 30-day PnL:
-                             floor = original dust, ceiling = floor + 1 DUST
 
         Returns:
             List of (hotkey, weight) tuples sorted by weight (descending)
             Includes burn address (uid 229 mainnet / uid 5 testnet) if sum of weights < 1.0
+
+        Note:
+            Dynamic dust weights are always enabled. Miners receive dust weights scaled by
+            30-day penalty-adjusted PnL within their bucket:
+            floor = original dust multiplier, ceiling = floor + 1 DUST
         """
         if current_time_ms is None:
             current_time_ms = TimeUtil.now_in_millis()
@@ -193,7 +237,6 @@ class DebtBasedScoring:
                 challengeperiod_manager=challengeperiod_manager,
                 current_time_ms=current_time_ms,
                 is_testnet=is_testnet,
-                use_dynamic_dust=use_dynamic_dust,
                 verbose=verbose
             )
 
@@ -314,60 +357,22 @@ class DebtBasedScoring:
         total_remaining_payout_usd = sum(miner_remaining_payouts_usd.values())
 
         if total_remaining_payout_usd > 0 and days_until_target > 0:
-            # Query current emission rate and project availability
-            try:
-                # Get projected ALPHA emissions
-                projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
-                    metagraph=metagraph,
-                    days_until_target=days_until_target,
-                    verbose=verbose
-                )
-
-                # Convert projected ALPHA to USD for comparison
-                projected_usd_available = DebtBasedScoring._convert_alpha_to_usd(
-                    alpha_amount=projected_alpha_available,
-                    metagraph=metagraph,
-                    verbose=verbose
-                )
-
-                if verbose:
-                    bt.logging.info(
-                        f"Projected emissions: {projected_alpha_available:.2f} ALPHA "
-                        f"≈ ${projected_usd_available:.2f} USD"
-                    )
-
-                # Check if projected emissions (in USD) are sufficient
-                if projected_usd_available < total_remaining_payout_usd:
-                    shortage_pct = ((total_remaining_payout_usd - projected_usd_available) / total_remaining_payout_usd) * 100
-                    bt.logging.warning(
-                        f"⚠️  INSUFFICIENT EMISSIONS: Projected USD value in next {days_until_target} days "
-                        f"(${projected_usd_available:.2f}) is less than total remaining payout needed "
-                        f"(${total_remaining_payout_usd:.2f}). Shortage: {shortage_pct:.1f}%. "
-                        f"Using aggressive {days_until_target}-day payout strategy (target day {DebtBasedScoring.PAYOUT_TARGET_DAY}). "
-                        f"Miners will receive proportional payouts."
-                    )
-                else:
-                    surplus_pct = ((projected_usd_available - total_remaining_payout_usd) / total_remaining_payout_usd) * 100
-                    bt.logging.info(
-                        f"✓ Projected USD value in next {days_until_target} days (${projected_usd_available:.2f}) exceeds "
-                        f"total remaining payout needed (${total_remaining_payout_usd:.2f}). "
-                        f"Surplus: {surplus_pct:.1f}%. "
-                        f"Using aggressive {days_until_target}-day payout strategy (actual deadline: day {DebtBasedScoring.PAYOUT_TARGET_DAY})."
-                    )
-
-            except Exception as e:
-                bt.logging.error(f"Failed to estimate emission projections: {e}. Continuing with weights calculation.")
+            DebtBasedScoring.log_projections(metagraph, days_until_target, verbose, total_remaining_payout_usd)
+        else:
+            bt.logging.info(
+                f"No remaining payouts needed {total_remaining_payout_usd} or no days until target "
+                f"{days_until_target}, skipping projection log"
+            )
 
         # Step 10: Enforce minimum weights based on challenge period status
         # All miners get minimum "dust" weights based on their current status
-        # If use_dynamic_dust=True, weights are scaled by 30-day performance
+        # Weights are dynamically scaled by 30-day performance within each bucket
         # NOTE: Weights are unitless proportions, but derived from USD payouts
         miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
             miner_remaining_payouts_usd=miner_remaining_payouts_usd,
             challengeperiod_manager=challengeperiod_manager,
             current_time_ms=current_time_ms,
-            use_dynamic_dust=use_dynamic_dust,
             verbose=verbose
         )
 
@@ -730,11 +735,10 @@ class DebtBasedScoring:
         miner_remaining_payouts_usd: dict[str, float],
         challengeperiod_manager: 'ChallengePeriodManager',
         current_time_ms: int = None,
-        use_dynamic_dust: bool = False,
         verbose: bool = False
     ) -> dict[str, float]:
         """
-        Enforce minimum weights based on challenge period status.
+        Enforce minimum weights based on challenge period status with dynamic dust scaling.
 
         All miners receive minimum "dust" weights based on their current status:
         - CHALLENGE/PLAGIARISM: 1x dust = CHALLENGE_PERIOD_MIN_WEIGHT
@@ -742,15 +746,14 @@ class DebtBasedScoring:
         - MAINCOMP: 3x dust = 3 * CHALLENGE_PERIOD_MIN_WEIGHT
         - UNKNOWN: 0x dust (no weight)
 
-        If use_dynamic_dust=True, miners are scaled within bucket based on 30-day
+        Dynamic dust is always enabled: miners are scaled within bucket based on 30-day
         penalty-adjusted PnL (in USD), with range [floor, floor+1 DUST].
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts_usd: Dict of {hotkey: remaining_payout_usd} in USD
             challengeperiod_manager: Manager for querying current challenge period status (required)
-            current_time_ms: Current timestamp (required if use_dynamic_dust=True)
-            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
+            current_time_ms: Current timestamp (required for dynamic dust calculation)
             verbose: Enable detailed logging
 
         Returns:
@@ -758,30 +761,26 @@ class DebtBasedScoring:
         """
         DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
-        # Calculate dynamic dust weights if enabled
-        if use_dynamic_dust:
-            if current_time_ms is None:
-                bt.logging.warning(
-                    "Dynamic dust enabled but current_time_ms not provided. "
-                    "Falling back to static dust weights."
-                )
-                dynamic_dust_weights = None
-            else:
-                try:
-                    dynamic_dust_weights = DebtBasedScoring._calculate_dynamic_dust_weights(
-                        ledger_dict=ledger_dict,
-                        challengeperiod_manager=challengeperiod_manager,
-                        current_time_ms=current_time_ms,
-                        base_dust=DUST,
-                        verbose=verbose
-                    )
-                    if verbose:
-                        bt.logging.info("Using dynamic dust weights (30-day performance scaling)")
-                except Exception as e:
-                    bt.logging.error(f"Error calculating dynamic dust weights: {e}. Falling back to static.")
-                    dynamic_dust_weights = None
-        else:
+        # Calculate dynamic dust weights (always enabled)
+        if current_time_ms is None:
+            bt.logging.warning(
+                "current_time_ms not provided. Falling back to static dust weights."
+            )
             dynamic_dust_weights = None
+        else:
+            try:
+                dynamic_dust_weights = DebtBasedScoring._calculate_dynamic_dust_weights(
+                    ledger_dict=ledger_dict,
+                    challengeperiod_manager=challengeperiod_manager,
+                    current_time_ms=current_time_ms,
+                    base_dust=DUST,
+                    verbose=verbose
+                )
+                if verbose:
+                    bt.logging.info("Using dynamic dust weights (30-day performance scaling)")
+            except Exception as e:
+                bt.logging.error(f"Error calculating dynamic dust weights: {e}. Falling back to static.")
+                dynamic_dust_weights = None
 
         # Static minimum weights (fallback)
         status_to_minimum_weight = {
@@ -933,7 +932,6 @@ class DebtBasedScoring:
         challengeperiod_manager: 'ChallengePeriodManager',
         current_time_ms: int = None,
         is_testnet: bool = False,
-        use_dynamic_dust: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
@@ -941,14 +939,14 @@ class DebtBasedScoring:
 
         During pre-activation, miners only receive minimum dust weights based on
         their challenge period status. Excess weight goes to burn address.
+        Dynamic dust scaling is always enabled.
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             metagraph: Bittensor metagraph for accessing hotkeys
             challengeperiod_manager: Manager for querying current challenge period status (required)
-            current_time_ms: Current timestamp (required if use_dynamic_dust=True)
+            current_time_ms: Current timestamp (required for dynamic dust calculation)
             is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
-            use_dynamic_dust: Enable performance-scaled dust weights (default: False)
             verbose: Enable detailed logging
 
         Returns:
@@ -960,7 +958,6 @@ class DebtBasedScoring:
             miner_remaining_payouts_usd={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
             challengeperiod_manager=challengeperiod_manager,
             current_time_ms=current_time_ms,
-            use_dynamic_dust=use_dynamic_dust,
             verbose=verbose
         )
 
