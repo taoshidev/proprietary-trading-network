@@ -671,13 +671,13 @@ class DebtLedgerManager:
 
     def run_daemon_forever(self, check_interval_seconds: Optional[int] = None, verbose: bool = False):
         """
-        Run as daemon - continuously update penalty ledgers forever.
+        Run as daemon - continuously update debt ledgers forever.
 
-        Checks for new performance checkpoints at regular intervals and performs delta updates.
+        Checks for new performance/emissions/penalty data at regular intervals and performs full rebuilds.
         Handles graceful shutdown on SIGINT/SIGTERM.
 
         Features:
-        - Delta updates (only processes new checkpoints since last update)
+        - Full rebuilds (debt ledgers are derived from emissions + penalties + performance)
         - Periodic refresh (default: every 12 hours)
         - Graceful shutdown
         - Automatic retry on failures
@@ -703,7 +703,7 @@ class DebtLedgerManager:
         bt.logging.info("Debt Ledger Manager - Daemon Mode")
         bt.logging.info("=" * 80)
         bt.logging.info(f"Check Interval: {check_interval_seconds}s ({check_interval_seconds / 3600:.1f} hours)")
-        bt.logging.info(f"Delta Update Mode: Enabled (resumes from last checkpoint)")
+        bt.logging.info(f"Full Rebuild Mode: Enabled (debt ledgers derived from emissions + penalties + perf)")
         bt.logging.info(f"Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
         bt.logging.info("=" * 80)
 
@@ -737,9 +737,11 @@ class DebtLedgerManager:
 
                 # Step 2: Build debt ledgers (combines data from penalty + emissions + perf)
                 # Penalty ledgers are updated separately by their dedicated daemon
-                bt.logging.info("Step 2/2: Building debt ledgers...")
+                # IMPORTANT: Debt ledgers ALWAYS do full rebuilds (never delta updates)
+                # since they're derived from three sources that can change retroactively
+                bt.logging.info("Step 2/2: Building debt ledgers (full rebuild)...")
                 debt_start = time.time()
-                self.build_debt_ledgers(verbose=verbose, delta_update=True)
+                self.build_debt_ledgers(verbose=verbose, delta_update=False)
                 bt.logging.info(f"Debt ledgers built in {time.time() - debt_start:.2f}s")
 
                 elapsed = time.time() - start_time
