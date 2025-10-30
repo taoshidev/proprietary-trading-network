@@ -287,52 +287,60 @@ class MetagraphUpdater(CacheController):
 
     def run_weight_processing_loop(self):
         """
-        Dedicated loop for processing weight requests with fast 5-second intervals.
-        Runs in a separate thread for responsive weight setting.
+        Dedicated loop for processing weight requests using blocking queue.
+        Runs in a separate thread. Blocks until a request arrives (efficient, no polling).
         """
         setproctitle(f"weight_processor_{self.hotkey}")
         bt.logging.enable_info()
         bt.logging.info("Starting dedicated weight processing loop")
-        
+
         while not self.shutdown_dict:
             try:
                 # Process weight requests if we're a validator
                 if self.weight_request_queue:
                     self._process_weight_requests()
-                
-                # Sleep for 5 seconds for responsive weight processing
-                time.sleep(5)
-                
+                else:
+                    time.sleep(5)  # No queue configured, sleep
+
             except Exception as e:
                 bt.logging.error(f"Error in weight processing loop: {e}")
                 bt.logging.error(traceback.format_exc())
                 time.sleep(10)  # Longer sleep on error
-        
+
         bt.logging.info("Weight processing loop shutting down")
 
     def _process_weight_requests(self):
-        """Process pending weight setting requests (validators only)"""
+        """
+        Process pending weight setting requests (validators only).
+        Uses blocking queue.get() to efficiently wait for requests without polling.
+        """
         try:
-            # Non-blocking check for weight requests
-            processed_count = 0
-            while True:
-                try:
-                    request = self.weight_request_queue.get_nowait()
-                    self._handle_weight_request(request)
-                    processed_count += 1
-                    
-                    # Limit processing per cycle to prevent blocking metagraph updates
-                    if processed_count >= 5:  # Process max 5 requests per cycle
-                        break
-                        
-                except queue.Empty:
-                    break  # No more requests
-                    
-            if processed_count > 0:
-                bt.logging.debug(f"Processed {processed_count} weight requests")
-                    
+            # Block until a request arrives (timeout 30s to check shutdown_dict periodically)
+            try:
+                request = self.weight_request_queue.get(timeout=30)
+                self._handle_weight_request(request)
+
+                # After processing first request, drain any additional pending requests
+                # (non-blocking to avoid waiting if queue is empty)
+                processed_count = 1
+                while processed_count < 5:  # Process max 5 requests per cycle
+                    try:
+                        request = self.weight_request_queue.get_nowait()
+                        self._handle_weight_request(request)
+                        processed_count += 1
+                    except queue.Empty:
+                        break  # No more pending requests
+
+                if processed_count > 1:
+                    bt.logging.debug(f"Processed {processed_count} weight requests in batch")
+
+            except queue.Empty:
+                # Timeout reached, no requests - this is normal, just loop back
+                pass
+
         except Exception as e:
             bt.logging.error(f"Error processing weight requests: {e}")
+            bt.logging.error(traceback.format_exc())
     
     def _handle_weight_request(self, request):
         """Handle a single weight setting request (no response needed)"""
@@ -622,6 +630,48 @@ class MetagraphUpdater(CacheController):
         """
         return self.metagraph
 
+    def refresh_substrate_reserves(self):
+        """
+        Refresh TAO and ALPHA reserve balances from substrate and store in shared metagraph.
+        Uses the same query pattern as emissions_ledger.py::query_alpha_to_tao_rate.
+        Fails fast - exceptions propagate to slack alert mechanism.
+        """
+        # Query TAO reserve (SubnetTAO)
+        tao_reserve_query = self.subtensor.substrate.query(
+            module='SubtensorModule',
+            storage_function='SubnetTAO',
+            params=[self.config.netuid]
+        )
+
+        # Query ALPHA reserve (SubnetAlphaIn)
+        alpha_reserve_query = self.subtensor.substrate.query(
+            module='SubtensorModule',
+            storage_function='SubnetAlphaIn',
+            params=[self.config.netuid]
+        )
+
+        if tao_reserve_query is None or alpha_reserve_query is None:
+            raise ValueError("Pool reserve data not available from substrate")
+
+        # Extract values (stored in RAO)
+        tao_reserve_rao = float(tao_reserve_query.value if hasattr(tao_reserve_query, 'value') else tao_reserve_query)
+        alpha_reserve_rao = float(alpha_reserve_query.value if hasattr(alpha_reserve_query, 'value') else alpha_reserve_query)
+
+        # Validate reserves (consistent with emissions_ledger.py::query_alpha_to_tao_rate)
+        if alpha_reserve_rao == 0:
+            raise ValueError("Alpha reserve is zero - cannot calculate conversion rate")
+
+        # Update shared metagraph (accessible from all processes via IPC)
+        # Use .value accessor for manager.Value() thread-safe synchronization
+        self.metagraph.tao_reserve_rao.value = tao_reserve_rao
+        self.metagraph.alpha_reserve_rao.value = alpha_reserve_rao
+
+        bt.logging.info(
+            f"Updated substrate reserves: TAO={tao_reserve_rao / 1e9:.2f} TAO "
+            f"({tao_reserve_rao:.0f} RAO), ALPHA={alpha_reserve_rao / 1e9:.2f} ALPHA "
+            f"({alpha_reserve_rao:.0f} RAO)"
+        )
+
     def update_metagraph(self):
         if not self.refresh_allowed(self.interval_wait_time_ms):
             return
@@ -688,6 +738,14 @@ class MetagraphUpdater(CacheController):
             self.update_likely_miners(recently_acked_miners)
         if recently_acked_validators:
             self.update_likely_validators(recently_acked_validators)
+
+        # Update shared emission data (TAO per tempo for each UID)
+        self.sync_lists(self.metagraph.emission, metagraph_clone.emission, brute_force=True)
+
+        # Refresh substrate reserves (TAO and ALPHA) for debt-based scoring
+        if not self.is_miner:  # Only validators need this for weight calculation
+            self.refresh_substrate_reserves()
+
         # self.log_metagraph_state()
         self.set_last_update_time()
 

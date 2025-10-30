@@ -24,7 +24,7 @@ class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
                  running_unit_tests=False, is_backtesting=False, use_slack_notifier=False,
                  shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None, contract_manager=None,
-                 debt_ledger_manager=None, metagraph_updater=None, emissions_ledger_manager=None, is_mainnet=True):
+                 debt_ledger_manager=None, is_mainnet=True):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -40,8 +40,6 @@ class SubtensorWeightSetter(CacheController):
 
         # Debt-based scoring dependencies
         self.debt_ledger_manager = debt_ledger_manager
-        self.metagraph_updater = metagraph_updater  # For IPC-safe subtensor calls
-        self.emissions_ledger_manager = emissions_ledger_manager
         self.is_mainnet = is_mainnet
 
         # IPC setup
@@ -134,11 +132,11 @@ class SubtensorWeightSetter(CacheController):
             bt.logging.warning(f"No debt ledgers found for {miner_group}")
             return [], []
 
-        # Use debt-based scoring
+        # Use debt-based scoring with shared metagraph
+        # The metagraph contains substrate reserves refreshed by MetagraphUpdater
         checkpoint_results = DebtBasedScoring.compute_results(
             ledger_dict=filtered_debt_ledgers,
-            metagraph_updater=self.metagraph_updater,
-            emissions_ledger_manager=self.emissions_ledger_manager,
+            metagraph=self.metagraph,  # Shared metagraph with substrate reserves
             current_time_ms=current_time,
             verbose=True,
             is_testnet=not self.is_mainnet
