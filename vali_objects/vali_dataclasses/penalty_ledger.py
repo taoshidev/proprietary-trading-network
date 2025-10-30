@@ -729,8 +729,11 @@ class PenaltyLedgerManager:
 
         hotkeys_processed = 0
         total_checkpoints_added = 0
+        total_hotkeys = len(all_perf_ledgers)
+        current_hotkey_index = 0
 
         for miner_hotkey, ledger_dict in all_perf_ledgers.items():
+            current_hotkey_index += 1
             # Get portfolio ledger for this miner
             portfolio_ledger = ledger_dict.get(TP_ID_PORTFOLIO)
 
@@ -868,6 +871,12 @@ class PenaltyLedgerManager:
                         f"Processed {checkpoints_processed} new penalty checkpoints for miner {miner_hotkey} "
                         f"(total: {len(penalty_ledger.checkpoints)})"
                     )
+
+            # Progress log (one line per miner iteration)
+            bt.logging.info(
+                f"[{current_hotkey_index}/{total_hotkeys}] {miner_hotkey}: "
+                f"+{checkpoints_processed} new checkpoints (total: {len(penalty_ledger.checkpoints)})"
+            )
 
         bt.logging.info(
             f"Built penalty ledgers: {hotkeys_processed} hotkeys processed, "
