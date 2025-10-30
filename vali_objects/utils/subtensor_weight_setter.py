@@ -129,7 +129,18 @@ class SubtensorWeightSetter(CacheController):
             return [], []
 
         if len(filtered_debt_ledgers) == 0:
-            bt.logging.warning(f"No debt ledgers found for {miner_group}")
+            # Diagnostic logging to understand the mismatch
+            bt.logging.warning(
+                f"No debt ledgers found for {miner_group}. "
+                f"Requested {len(hotkeys_to_compute_weights_for)} hotkeys, "
+                f"debt_ledger_manager has {len(self.debt_ledger_manager.debt_ledgers)} ledgers loaded."
+            )
+            if hotkeys_to_compute_weights_for and self.debt_ledger_manager.debt_ledgers:
+                bt.logging.debug(
+                    f"Sample requested hotkey: {hotkeys_to_compute_weights_for[0][:16]}..."
+                )
+                sample_available = list(self.debt_ledger_manager.debt_ledgers.keys())[0]
+                bt.logging.debug(f"Sample available hotkey: {sample_available[:16]}...")
             return [], []
 
         # Use debt-based scoring with shared metagraph
@@ -203,15 +214,22 @@ class SubtensorWeightSetter(CacheController):
                         self.set_last_update_time()
                     else:
                         # No weights computed - likely debt_ledger_manager not ready yet
-                        # Sleep for 5 minutes to avoid busy looping
+                        # Sleep for 5 minutes to avoid busy looping and log spam
                         if not self.debt_ledger_manager:
                             bt.logging.warning(
                                 "debt_ledger_manager not available. "
                                 "Waiting 5 minutes before retry..."
                             )
-                            time.sleep(300)  # 5 minutes
+                        elif not transformed_list:
+                            bt.logging.warning(
+                                "No weights computed (debt ledgers may still be initializing). "
+                                "Waiting 5 minutes before retry..."
+                            )
                         else:
-                            bt.logging.debug("No weights to set or IPC not available")
+                            bt.logging.debug("No IPC queue available")
+
+                        # Always sleep 5 minutes when weights aren't ready to avoid spam
+                        time.sleep(300)
 
             except Exception as e:
                 bt.logging.error(f"Error in weight setter update loop: {e}")
