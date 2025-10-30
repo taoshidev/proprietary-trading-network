@@ -485,6 +485,7 @@ class Validator:
         # Step 4: Initialize SubtensorWeightSetter
         def step4():
             # Pass shared metagraph which contains substrate reserves refreshed by MetagraphUpdater
+            # IMPORTANT: Pass the IPC dict directly, not the manager object (pickling breaks IPC connection)
             self.weight_setter = SubtensorWeightSetter(
                 self.metagraph,
                 position_manager=self.position_manager,
@@ -494,7 +495,7 @@ class Validator:
                 config=self.config,
                 hotkey=self.wallet.hotkey.ss58_address,
                 contract_manager=self.contract_manager,
-                debt_ledger_manager=self.debt_ledger_manager,
+                debt_ledgers_dict=self.debt_ledger_manager.debt_ledgers,  # Pass IPC dict directly
                 is_mainnet=self.is_mainnet
             )
             return self.weight_setter
