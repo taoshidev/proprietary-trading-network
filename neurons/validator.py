@@ -490,7 +490,8 @@ class Validator:
                 weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
                 config=self.config,
                 hotkey=self.wallet.hotkey.ss58_address,
-                contract_manager=self.contract_manager
+                contract_manager=self.contract_manager,
+                debt_ledger_manager=self.debt_ledger_manager
             )
             return self.weight_setter
         run_init_step_with_monitoring(4, "Initializing SubtensorWeightSetter", step4)
