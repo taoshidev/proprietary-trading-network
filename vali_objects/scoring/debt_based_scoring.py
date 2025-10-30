@@ -27,7 +27,7 @@ Algorithm Flow:
     - PROBATION: 2x dust
     - MAINCOMP: 3x dust
 11. Normalize weights with burn address logic:
-    - If sum < 1.0: assign (1.0 - sum) to burn address (uid 229)
+    - If sum < 1.0: assign (1.0 - sum) to burn address (uid 229 mainnet / uid 5 testnet)
     - If sum >= 1.0: normalize to 1.0, burn address gets 0
 
 Aggressive Payout Strategy:
@@ -39,7 +39,7 @@ Aggressive Payout Strategy:
 Important Notes:
 - Debt-based scoring activates December 2025 (nominal payouts begin Dec 1)
 - Before December 2025, miners only receive minimum dust weights
-- Excess weight (when sum < 1.0) goes to burn address (uid 229)
+- Excess weight (when sum < 1.0) goes to burn address (uid 229 mainnet, uid 5 testnet)
 - Hard deadline: day 25 of each month
 - Checkpoints are 12-hour intervals (2 per day)
 - Uses real-time subtensor queries for emission rate estimation
@@ -81,8 +81,22 @@ class DebtBasedScoring:
     BLOCKS_PER_DAY_FALLBACK = 7200  # ~12 seconds per block
     RAO_PER_TOKEN = 1e9
 
-    # Burn address UID (receives excess weight when sum < 1.0)
-    BURN_UID = 229
+    # Burn address UIDs (receives excess weight when sum < 1.0)
+    BURN_UID_MAINNET = 229
+    BURN_UID_TESTNET = 5
+
+    @staticmethod
+    def get_burn_uid(is_testnet: bool = False) -> int:
+        """
+        Get the correct burn UID based on network (testnet vs mainnet).
+
+        Args:
+            is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
+
+        Returns:
+            229 for mainnet, 5 for testnet
+        """
+        return DebtBasedScoring.BURN_UID_TESTNET if is_testnet else DebtBasedScoring.BURN_UID_MAINNET
 
     @staticmethod
     def compute_results(
@@ -92,7 +106,8 @@ class DebtBasedScoring:
         emissions_ledger_manager: 'EmissionsLedgerManager',
         current_time_ms: int = None,
         verbose: bool = False,
-        metagraph: 'bt.metagraph' = None
+        metagraph: 'bt.metagraph' = None,
+        is_testnet: bool = False
     ) -> List[Tuple[str, float]]:
         """
         Compute miner weights based on debt ledger information with real-time emission projections.
@@ -118,10 +133,11 @@ class DebtBasedScoring:
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             metagraph: Optional metagraph instance (if not provided, will query from subtensor)
+            is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
 
         Returns:
             List of (hotkey, weight) tuples sorted by weight (descending)
-            Includes burn address (uid 229) if sum of weights < 1.0
+            Includes burn address (uid 229 mainnet / uid 5 testnet) if sum of weights < 1.0
         """
         if current_time_ms is None:
             current_time_ms = TimeUtil.now_in_millis()
@@ -174,6 +190,7 @@ class DebtBasedScoring:
                 subtensor=subtensor,
                 netuid=netuid,
                 metagraph=metagraph,
+                is_testnet=is_testnet,
                 verbose=verbose
             )
 
@@ -334,13 +351,14 @@ class DebtBasedScoring:
         )
 
         # Step 11: Normalize weights with special burn address logic
-        # If sum < 1.0: assign remaining weight to burn address (uid 229)
+        # If sum < 1.0: assign remaining weight to burn address (uid 229 / uid 5)
         # If sum >= 1.0: normalize to 1.0, burn address gets 0
         result = DebtBasedScoring._normalize_with_burn_address(
             weights=miner_weights_with_minimums,
             subtensor=subtensor,
             netuid=netuid,
             metagraph=metagraph,
+            is_testnet=is_testnet,
             verbose=verbose
         )
 
@@ -497,31 +515,35 @@ class DebtBasedScoring:
     def _get_burn_address_hotkey(
         subtensor: 'bt.subtensor',
         netuid: int,
-        metagraph: 'bt.metagraph' = None
+        metagraph: 'bt.metagraph' = None,
+        is_testnet: bool = False
     ) -> str:
         """
-        Get the hotkey for the burn address (uid 229).
+        Get the hotkey for the burn address.
 
         Args:
             subtensor: Bittensor subtensor instance
             netuid: Network UID
             metagraph: Optional metagraph instance (if not provided, will query)
+            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
 
         Returns:
-            Hotkey string for uid 229
+            Hotkey string for burn address (uid 229 mainnet / uid 5 testnet)
         """
         if metagraph is None:
             metagraph = subtensor.metagraph(netuid)
 
-        # Get hotkey for uid 229
-        if DebtBasedScoring.BURN_UID < len(metagraph.hotkeys):
-            return metagraph.hotkeys[DebtBasedScoring.BURN_UID]
+        burn_uid = DebtBasedScoring.get_burn_uid(is_testnet)
+
+        # Get hotkey for burn UID
+        if burn_uid < len(metagraph.hotkeys):
+            return metagraph.hotkeys[burn_uid]
         else:
             bt.logging.warning(
-                f"Burn UID {DebtBasedScoring.BURN_UID} not found in metagraph "
+                f"Burn UID {burn_uid} not found in metagraph "
                 f"(only {len(metagraph.hotkeys)} UIDs). Using placeholder."
             )
-            return f"burn_uid_{DebtBasedScoring.BURN_UID}"
+            return f"burn_uid_{burn_uid}"
 
     @staticmethod
     def _normalize_with_burn_address(
@@ -529,13 +551,14 @@ class DebtBasedScoring:
         subtensor: 'bt.subtensor',
         netuid: int,
         metagraph: 'bt.metagraph' = None,
+        is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
         Normalize weights with special burn address logic.
 
         If sum of weights < 1.0:
-            - Assign remaining weight (1.0 - sum) to burn address (uid 229)
+            - Assign remaining weight (1.0 - sum) to burn address (uid 229 mainnet / uid 5 testnet)
         If sum of weights >= 1.0:
             - Normalize all weights to sum to 1.0
             - Burn address gets 0 (not included)
@@ -545,6 +568,7 @@ class DebtBasedScoring:
             subtensor: Bittensor subtensor instance
             netuid: Network UID
             metagraph: Optional metagraph instance
+            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
         Returns:
@@ -559,14 +583,16 @@ class DebtBasedScoring:
         if verbose:
             bt.logging.info(f"Sum of weights before normalization: {sum_weights:.6f}")
 
+        burn_uid = DebtBasedScoring.get_burn_uid(is_testnet)
+
         if sum_weights < 1.0:
             # Excess weight goes to burn address
             burn_weight = 1.0 - sum_weights
-            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(subtensor, netuid, metagraph)
+            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(subtensor, netuid, metagraph, is_testnet)
 
             bt.logging.info(
                 f"Sum of weights ({sum_weights:.6f}) < 1.0. "
-                f"Assigning {burn_weight:.6f} to burn address (uid {DebtBasedScoring.BURN_UID})"
+                f"Assigning {burn_weight:.6f} to burn address (uid {burn_uid})"
             )
 
             # Create result with original weights + burn address
@@ -595,6 +621,7 @@ class DebtBasedScoring:
         subtensor: 'bt.subtensor',
         netuid: int,
         metagraph: 'bt.metagraph' = None,
+        is_testnet: bool = False,
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
@@ -608,6 +635,7 @@ class DebtBasedScoring:
             subtensor: Bittensor subtensor instance
             netuid: Network UID
             metagraph: Optional metagraph instance
+            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
         Returns:
@@ -626,6 +654,7 @@ class DebtBasedScoring:
             subtensor=subtensor,
             netuid=netuid,
             metagraph=metagraph,
+            is_testnet=is_testnet,
             verbose=verbose
         )
 
