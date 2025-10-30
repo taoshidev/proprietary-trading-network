@@ -1790,21 +1790,12 @@ class EmissionsLedgerManager:
             )
             return 0
 
-        # CRITICAL: Clear existing ledgers before rebuilding from scratch
-        # This ensures emissions reflect any changes in performance ledgers
-        bt.logging.info("Clearing existing emissions ledgers for full rebuild (perf ledgers may have changed)")
-        self.emissions_ledgers.clear()
-
-        # Calculate start time from lookback period (rebuild from scratch)
-        current_time = datetime.now(timezone.utc)
-        start_time_dt = current_time - timedelta(days=self.DEFAULT_START_TIME_OFFSET_DAYS)
-        start_time_ms = int(start_time_dt.timestamp() * 1000)
+        # Delta update: build from last checkpoint to end_time (NEVER clear existing ledgers!)
+        start_time_ms = last_computed_chunk_end_ms
 
         bt.logging.info(
-            f"Rebuilding ALL emissions ledgers from scratch: "
-            f"{TimeUtil.millis_to_formatted_date_str(start_time_ms)} to "
-            f"{TimeUtil.millis_to_formatted_date_str(end_time_ms)} "
-            f"({self.DEFAULT_START_TIME_OFFSET_DAYS} day lookback)"
+            f"Delta update from {TimeUtil.millis_to_formatted_date_str(start_time_ms)} "
+            f"to {TimeUtil.millis_to_formatted_date_str(end_time_ms)}"
         )
 
         self.build_all_emissions_ledgers_optimized(
@@ -1812,16 +1803,18 @@ class EmissionsLedgerManager:
             end_time_ms=end_time_ms
         )
 
-        # Calculate total chunks built
-        total_chunks = sum(len(ledger.checkpoints) for ledger in self.emissions_ledgers.values())
+        # Calculate chunks built in this delta
+        checkpoint_info_after = self.get_checkpoint_info()
+        chunks_built = checkpoint_info_after["last_computed_chunk_end_ms"] - last_computed_chunk_end_ms
+        chunks_built = chunks_built // ValiConfig.EMISSIONS_LEDGER_CHUNK_DURATION_MS if chunks_built > 0 else 0
 
         elapsed = time.time() - start_time
         bt.logging.info(
-            f"Full rebuild completed in {elapsed:.2f}s - "
-            f"built {total_chunks} total chunks"
+            f"Delta update completed in {elapsed:.2f}s - "
+            f"built {chunks_built} new chunks"
         )
 
-        return total_chunks
+        return chunks_built
 
     def _build_full(self, end_time_ms: int, lookback_days: int = DEFAULT_START_TIME_OFFSET_DAYS) -> int:
         """
