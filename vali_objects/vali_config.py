@@ -310,8 +310,8 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
+    MIN_COLLATERAL_BALANCE_THETA = 300  # Required minimum total collateral balance per miner in Theta. Approx $150k capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 0
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
