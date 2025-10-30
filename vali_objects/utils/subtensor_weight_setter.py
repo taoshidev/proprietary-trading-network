@@ -14,6 +14,7 @@ from vali_objects.vali_config import ValiConfig
 from shared_objects.cache_controller import CacheController
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.scoring.scoring import Scoring
+from vali_objects.scoring.debt_based_scoring import DebtBasedScoring
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger
 from shared_objects.error_utils import ErrorUtils
 
@@ -22,7 +23,8 @@ from shared_objects.error_utils import ErrorUtils
 class SubtensorWeightSetter(CacheController):
     def __init__(self, metagraph, position_manager: PositionManager,
                  running_unit_tests=False, is_backtesting=False, use_slack_notifier=False,
-                 shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None, contract_manager=None):
+                 shutdown_dict=None, weight_request_queue=None, config=None, hotkey=None, contract_manager=None,
+                 debt_ledger_manager=None, subtensor=None, netuid=None, emissions_ledger_manager=None, is_mainnet=True):
         super().__init__(metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
         self.position_manager = position_manager
         self.perf_ledger_manager = position_manager.perf_ledger_manager
@@ -34,8 +36,15 @@ class SubtensorWeightSetter(CacheController):
         self._slack_notifier = None
         self.config = config
         self.hotkey = hotkey
-        self.contract_manager=contract_manager
-        
+        self.contract_manager = contract_manager
+
+        # Debt-based scoring dependencies
+        self.debt_ledger_manager = debt_ledger_manager
+        self.subtensor = subtensor
+        self.netuid = netuid
+        self.emissions_ledger_manager = emissions_ledger_manager
+        self.is_mainnet = is_mainnet
+
         # IPC setup
         self.shutdown_dict = shutdown_dict if shutdown_dict is not None else {}
         self.weight_request_queue = weight_request_queue
@@ -63,38 +72,38 @@ class SubtensorWeightSetter(CacheController):
 
         block_reg_failures = set()
 
-        # augmented ledger should have the gain, loss, n_updates, and time_duration
+        # Get all miners from all buckets
         challenge_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
         probation_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PROBATION))
-
-        # Still need to provide plagiarism miners dust in case of false positives
         plagiarism_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.PLAGIARISM))
-        testing_hotkeys = challenge_hotkeys +  probation_hotkeys + plagiarism_hotkeys
         success_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP))
 
-        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*success_hotkeys, *probation_hotkeys])  # ledger of all miners in maincomp, including probation
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        subcategory_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-            maincomp_ledger, asset_subcategories
-        )
-        bt.logging.info(f"subtensor_weight_setter subcategory_min_days: {subcategory_min_days}")
-
+        # DebtBasedScoring handles all miners together - it applies:
+        # - Debt-based weights for MAINCOMP/PROBATION (earning periods)
+        # - Minimum dust weights for CHALLENGE/PLAGIARISM/UNKNOWN
+        # - Burn address gets excess weight when sum < 1.0
         if self.is_backtesting:
-            hotkeys_to_compute_weights_for = testing_hotkeys + success_hotkeys
+            all_hotkeys = challenge_hotkeys + probation_hotkeys + plagiarism_hotkeys + success_hotkeys
         else:
-            hotkeys_to_compute_weights_for = success_hotkeys
-        checkpoint_netuid_weights, checkpoint_results = self._compute_miner_weights(hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days=subcategory_min_days, scoring_challenge=False)
+            all_hotkeys = challenge_hotkeys + probation_hotkeys + plagiarism_hotkeys + success_hotkeys
+
+        bt.logging.info(
+            f"Computing weights for {len(all_hotkeys)} miners: "
+            f"{len(success_hotkeys)} MAINCOMP, {len(probation_hotkeys)} PROBATION, "
+            f"{len(challenge_hotkeys)} CHALLENGE, {len(plagiarism_hotkeys)} PLAGIARISM"
+        )
+
+        # Compute weights for all miners using debt-based scoring
+        # subcategory_min_days parameter no longer needed for debt-based scoring
+        checkpoint_netuid_weights, checkpoint_results = self._compute_miner_weights(
+            all_hotkeys, hotkey_to_idx, current_time, subcategory_min_days={}, scoring_challenge=False
+        )
 
         if checkpoint_netuid_weights is None or len(checkpoint_netuid_weights) == 0:
-            bt.logging.info("No returns to set weights with. Do nothing for now.")
+            bt.logging.info("No weights computed. Do nothing for now.")
             return [], []
 
-        if self.is_backtesting:
-            challengeperiod_weights = []
-        else:
-            challengeperiod_weights, _ = self._compute_miner_weights(testing_hotkeys, hotkey_to_idx, current_time, subcategory_min_days=subcategory_min_days, scoring_challenge=True)
-
-        transformed_list = checkpoint_netuid_weights + challengeperiod_weights
+        transformed_list = checkpoint_netuid_weights
         self.handle_block_reg_failures(transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks, idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures)
         bt.logging.info(f"transformed list: {transformed_list}")
         if block_reg_failures:
@@ -105,46 +114,51 @@ class SubtensorWeightSetter(CacheController):
     def _compute_miner_weights(self, hotkeys_to_compute_weights_for, hotkey_to_idx, current_time, subcategory_min_days, scoring_challenge: bool = False):
         miner_group = "challenge period" if scoring_challenge else "main competition"
 
-        # only collect ledger elements for the miners that passed the challenge period
-        filtered_ledger: dict[str, dict[str, PerfLedger]] = self.perf_ledger_manager.filtered_ledger_for_scoring(
-            hotkeys=hotkeys_to_compute_weights_for)
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(
-            hotkeys=hotkeys_to_compute_weights_for)
-
-        if len(filtered_ledger) == 0:
+        if len(hotkeys_to_compute_weights_for) == 0:
             return [], []
+
+        bt.logging.info(f"Calculating new subtensor weights for {miner_group} using debt-based scoring...")
+
+        # Get debt ledgers for the specified miners
+        if self.debt_ledger_manager and self.debt_ledger_manager.debt_ledgers:
+            # Filter debt ledgers to only include specified hotkeys
+            filtered_debt_ledgers = {
+                hotkey: ledger
+                for hotkey, ledger in self.debt_ledger_manager.debt_ledgers.items()
+                if hotkey in hotkeys_to_compute_weights_for
+            }
         else:
-            bt.logging.info(f"Calculating new subtensor weights for {miner_group}...")
-            all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=current_time)
+            bt.logging.warning("No debt ledgers available for scoring")
+            return [], []
 
-            checkpoint_results = Scoring.compute_results_checkpoint(
-                filtered_ledger,
-                filtered_positions,
-                subcategory_min_days=subcategory_min_days,
-                evaluation_time_ms=current_time,
-                verbose=True,
-                weighting=True,
-                all_miner_account_sizes=all_miner_account_sizes
-            )
-            checkpoint_results = sorted(checkpoint_results, key=lambda x: x[1], reverse=True)
+        if len(filtered_debt_ledgers) == 0:
+            bt.logging.warning(f"No debt ledgers found for {miner_group}")
+            return [], []
 
-            bt.logging.info(f"Sorted results for weight setting for {miner_group}: [{checkpoint_results}]")
+        # Use debt-based scoring
+        checkpoint_results = DebtBasedScoring.compute_results(
+            ledger_dict=filtered_debt_ledgers,
+            subtensor=self.subtensor,
+            netuid=self.netuid,
+            emissions_ledger_manager=self.emissions_ledger_manager,
+            current_time_ms=current_time,
+            verbose=True,
+            metagraph=self.metagraph,
+            is_testnet=not self.is_mainnet
+        )
 
-            # Extra processing if scoring challenge
-            processed_checkpoint_results = checkpoint_results
+        bt.logging.info(f"Debt-based scoring results for {miner_group}: [{checkpoint_results}]")
 
-            if scoring_challenge:
-                processed_checkpoint_results = Scoring.score_testing_miners(filtered_ledger, checkpoint_results)
+        checkpoint_netuid_weights = []
+        for miner, score in checkpoint_results:
+            if miner in hotkey_to_idx:
+                checkpoint_netuid_weights.append((
+                    hotkey_to_idx[miner],
+                    score
+                ))
+            else:
+                bt.logging.error(f"Miner {miner} not found in the metagraph.")
 
-            checkpoint_netuid_weights = []
-            for miner, score in processed_checkpoint_results:
-                if miner in hotkey_to_idx:
-                    checkpoint_netuid_weights.append((
-                        hotkey_to_idx[miner],
-                        score
-                    ))
-                else:
-                    bt.logging.error(f"Miner {miner} not found in the metagraph.")
         return checkpoint_netuid_weights, checkpoint_results
 
     def _store_weights(self, checkpoint_results: list[tuple[str, float]], transformed_list: list[tuple[str, float]]):
