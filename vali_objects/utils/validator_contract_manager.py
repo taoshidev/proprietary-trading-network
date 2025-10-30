@@ -15,6 +15,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
 TARGET_MS = 1759817759000
+GRACE_PERIOD_MS = 1763168399000
 
 class CollateralRecord:
     def __init__(self, account_size, account_size_theta, update_time_ms):
@@ -131,9 +132,7 @@ class ValidatorContractManager:
         if now_ms > TARGET_MS:
             return
 
-        miners_to_reinstate = {
-            "5FsjZqFW4soyaToAaMWehDWDtemHKVDMY5bcQrbmU1QBu8N3": 299
-        }
+        miners_to_reinstate = {}
         for miner, amount in miners_to_reinstate.items():
             self.force_deposit(amount, miner)
 
@@ -456,7 +455,15 @@ class ValidatorContractManager:
 
             # Determine amount slashed and remaining amount eligible for withdrawal
             drawdown = self.position_manager.compute_realtime_drawdown(miner_hotkey)
-            withdrawal_proportion = amount / theta_current_balance
+
+            # temp grace period. penalty free withdrawals down to 300 theta until 11/14
+            if TimeUtil.now_in_millis() < GRACE_PERIOD_MS:
+                penalty_free_amount = max(0.0, theta_current_balance - 300)
+                penalty_amount = max(0.0, amount - penalty_free_amount)
+                withdrawal_proportion = penalty_amount / theta_current_balance if theta_current_balance > 0 else 0
+            else:
+                withdrawal_proportion = amount / theta_current_balance
+
             slashed_amount = self.compute_slash_amount(miner_hotkey, drawdown) * withdrawal_proportion
             withdrawal_amount = amount - slashed_amount
             new_balance = theta_current_balance - amount
@@ -507,7 +514,15 @@ class ValidatorContractManager:
 
             # Determine amount slashed and remaining amount eligible for withdrawal
             drawdown = self.position_manager.compute_realtime_drawdown(miner_hotkey)
-            withdrawal_proportion = amount / theta_current_balance
+
+            # temp grace period. penalty free withdrawals down to 300 theta until 11/14
+            if TimeUtil.now_in_millis() < GRACE_PERIOD_MS:
+                penalty_free_amount = max(0.0, theta_current_balance - 300)
+                penalty_amount = max(0.0, amount - penalty_free_amount)
+                withdrawal_proportion = penalty_amount / theta_current_balance if theta_current_balance > 0 else 0
+            else:
+                withdrawal_proportion = amount / theta_current_balance
+
             slashed_amount = self.compute_slash_amount(miner_hotkey, drawdown) * withdrawal_proportion
             withdrawal_amount = amount - slashed_amount
 
