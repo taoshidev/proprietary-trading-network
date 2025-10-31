@@ -93,6 +93,9 @@ def _TradePair_Lookup() -> dict[str, TradePairCategory]:
     return mapping
 
 class InterpolatedValueFromDate():
+    """
+    Dynamic value based on dates. Used for setting configs in the future.
+    """
     def __init__(self, start_date: str, *, low: int=None, high:int=None, interval: int, increment: int, target: int):
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         self.low = low
@@ -267,15 +270,14 @@ class ValiConfig:
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
     CHALLENGE_PERIOD_MINIMUM_DAYS = 61
-    CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
-    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = 90
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
-    PROBATION_MAXIMUM_DAYS = 30
+    PROBATION_MAXIMUM_DAYS = 60
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
-    ASSET_SPLIT_GRACE_DATE = "2025-10-02"
 
-    PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
+    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINCOMP miners per asset class
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
@@ -308,22 +310,19 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
-    MIN_COLLATERAL_BALANCE_TESTNET = 0
+    MIN_COLLATERAL_BALANCE_THETA = 300  # Required minimum total collateral balance per miner in Theta. Approx $150k capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
+    MIN_COLLATERAL_BALANCE_TESTNET = 100
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
     # Account Size
-    COST_PER_THETA = 175  # Account size USD value per theta of collateral
-    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
+    COST_PER_THETA = 500  # Account size USD value per theta of collateral
+    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $150k
     MIN_CAPITAL = 5_000   # USD minimum capital account size
-    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    DEFAULT_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
-    # Miner will get a base of 50% collateral returned upon elimination
-    BASE_COLLATERAL_RETURNED = 0.5
-    # 50% of drawdown proportion is slashed
-    SLASH_PROPORTION = 0.5
-    CHALLENGEPERIOD_SLASH_PROPORTION = 0.1  # 10% slashed upon challenge period elimination
+    # Percent of collateral deposit at risk of slashing based on drawdown. 100%
+    DRAWDOWN_SLASH_PROPORTION = 1.0
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
@@ -409,6 +408,15 @@ class TradePair(Enum):
               TradePairCategory.FOREX, ForexSubcategory.G2]
     USDMXN = ["USDMXN", "USD/MXN", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE,
               TradePairCategory.FOREX, ForexSubcategory.G5]
+    # forex trade pairs for USD currency conversions. (utility only, not tradeable)
+    CADUSD = ["CADUSD", "CAD/USD", 0.00007, 0, 0,
+              TradePairCategory.FOREX, ForexSubcategory.G1]
+    CHFUSD = ["CHFUSD", "CHF/USD", 0.00007, 0, 0,
+              TradePairCategory.FOREX, ForexSubcategory.G1]
+    JPYUSD = ["JPYUSD", "JPY/USD", 0.00007, 0, 0,
+              TradePairCategory.FOREX, ForexSubcategory.G2]
+    MXNUSD = ["MXNUSD", "MXN/USD", 0.00007, 0, 0,
+              TradePairCategory.FOREX, ForexSubcategory.G5]
 
     # "Commodities" (Bundle with Forex for now) (temporariliy paused for trading)
     XAUUSD = ["XAUUSD", "XAU/USD", 0.00007, ValiConfig.FOREX_MIN_LEVERAGE, ValiConfig.FOREX_MAX_LEVERAGE, TradePairCategory.FOREX]
@@ -479,9 +487,18 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def lot_size(self):
+        trade_pair_lot_size = {TradePairCategory.CRYPTO: 1,
+                               TradePairCategory.FOREX: 100_000,
+                               TradePairCategory.INDICES: 1,
+                               TradePairCategory.EQUITIES: 1}
+        return trade_pair_lot_size[self.trade_pair_category]
 
     @property
     def leverage_multiplier(self) -> int:
@@ -490,6 +507,17 @@ class TradePair(Enum):
                                           TradePairCategory.INDICES: 1,
                                           TradePairCategory.EQUITIES: 2}
         return trade_pair_leverage_multiplier[self.trade_pair_category]
+
+    @property
+    def base(self):
+        return self.trade_pair.split("/")[0]
+
+    @property
+    def quote(self):
+        if self.is_forex:
+            return self.trade_pair.split("/")[1]
+        else:
+            return "USD"
 
     @classmethod
     def categories(cls):

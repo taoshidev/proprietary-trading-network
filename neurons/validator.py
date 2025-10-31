@@ -202,11 +202,11 @@ class Validator:
                                               signal_sync_condition=self.signal_sync_condition,
                                               n_orders_being_processed=self.n_orders_being_processed,
                                               ipc_manager=self.ipc_manager,
-                                              position_manager=None,
+                                              position_manager=None,     # Set after self.pm creation
                                               auto_sync_enabled=self.auto_sync,
                                               contract_manager=self.contract_manager,
                                               live_price_fetcher=self.live_price_fetcher,
-                                              asset_selection_manager=self.asset_selection_manager)  # Set after self.pm creation
+                                              asset_selection_manager=self.asset_selection_manager)
 
         self.p2p_syncer = P2PSyncer(wallet=self.wallet, metagraph=self.metagraph, is_testnet=not self.is_mainnet,
                                     shutdown_dict=shutdown_dict, signal_sync_lock=self.signal_sync_lock,
@@ -219,16 +219,17 @@ class Validator:
         self.perf_ledger_manager = PerfLedgerManager(self.metagraph, ipc_manager=self.ipc_manager,
                                                      shutdown_dict=shutdown_dict,
                                                      perf_ledger_hks_to_invalidate=self.position_syncer.perf_ledger_hks_to_invalidate,
-                                                     position_manager=None,
-                                                     contract_manager=self.contract_manager)  # Set after self.pm creation)
+                                                     position_manager=None)  # Set after self.pm creation)
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
                                                 perform_order_corrections=True,
                                                 ipc_manager=self.ipc_manager,
+                                                live_price_fetcher=self.live_price_fetcher,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
                                                 challengeperiod_manager=None,
+                                                contract_manager=self.contract_manager,
                                                 secrets=self.secrets,
                                                 shared_queue_websockets=self.shared_queue_websockets,
                                                 closed_position_daemon=True)
@@ -703,7 +704,7 @@ class Validator:
                 self._add_order_to_existing_position(existing_open_pos, trade_pair, OrderType.FLAT,
                                                      0.0, force_close_order_time, miner_hotkey,
                                                      price_sources, force_close_order_uuid, miner_repo_version,
-                                                     OrderSource.MAX_ORDERS_PER_POSITION_CLOSE, account_size)
+                                                     OrderSource.MAX_ORDERS_PER_POSITION_CLOSE)
                 time.sleep(0.1)  # Put 100ms between two consecutive websocket writes for the same trade pair and hotkey. We need the new order to be seen after the FLAT.
             else:
                 # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
@@ -854,17 +855,28 @@ class Validator:
         return temp
 
     def _add_order_to_existing_position(self, existing_position, trade_pair, signal_order_type: OrderType,
-                                        signal_leverage: float, order_time_ms: int, miner_hotkey: str,
-                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource,
-                                        account_size):
+                                        quantity: float, order_time_ms: int, miner_hotkey: str,
+                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource):
         # Must be locked by caller
         best_price_source = price_sources[0]
+        price = best_price_source.parse_appropriate_price(order_time_ms, trade_pair.is_forex, signal_order_type, existing_position.orders[0].order_type)
+
+        if existing_position.account_size <= 0:
+            bt.logging.warning(
+                f"Invalid account_size {existing_position.account_size} for position {existing_position.position_uuid}. "
+                f"Using MIN_CAPITAL as fallback."
+            )
+            existing_position.account_size = ValiConfig.MIN_CAPITAL
+        # Calculate value and leverage
+        value = price * (quantity * trade_pair.lot_size)
+        leverage = value / existing_position.account_size
         order = Order(
             trade_pair=trade_pair,
             order_type=signal_order_type,
-            leverage=signal_leverage,
-            price=best_price_source.parse_appropriate_price(order_time_ms, trade_pair.is_forex, signal_order_type,
-                                                            existing_position),
+            quantity=quantity,
+            value=value,
+            leverage=leverage,
+            price=price,
             processed_ms=order_time_ms,
             order_uuid=miner_order_uuid,
             price_sources=price_sources,
@@ -872,9 +884,8 @@ class Validator:
             ask=best_price_source.ask,
             src=src
         )
-        self.price_slippage_model.refresh_features_daily(time_ms=order_time_ms)
-        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
         net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
         existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
         self.position_manager.save_miner_position(existing_position)
         # Update cooldown cache after successful order processing
@@ -892,6 +903,28 @@ class Validator:
         else:
             account_size = max(account_size, ValiConfig.MIN_CAPITAL)
         return account_size
+
+    def parse_order_quantity(self, signal, price, trade_pair, portfolio_value):
+        """
+        parses an order signal and calculates leverage, value, and quantity
+        """
+        leverage = signal.get("leverage")
+        value = signal.get("value")
+        quantity = signal.get("quantity")
+
+        fields_set = [x is not None for x in (leverage, value, quantity)]
+        if sum(fields_set) != 1:
+            raise ValueError("Exactly one of 'leverage', 'value', or 'quantity' must be set")
+
+        if quantity is not None:
+            return quantity
+        if leverage is not None:
+            value = leverage * portfolio_value
+            quantity = value / (price * trade_pair.lot_size)
+        elif value is not None:
+            quantity = value / (price * trade_pair.lot_size)
+
+        return quantity
 
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
@@ -926,7 +959,6 @@ class Validator:
                 raise SignalException(
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
 
-            signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
 
             # Multiple threads can run receive_signal at once. Don't allow two threads to trample each other.
@@ -944,10 +976,14 @@ class Validator:
                 existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type,
                     now_ms, miner_hotkey, miner_order_uuid, now_ms, price_sources, miner_repo_version, account_size)
                 if existing_position:
+                    best_price_source = price_sources[0]
+                    price = best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type, existing_position.orders[0].order_type)
+                    quantity = self.parse_order_quantity(signal, price, trade_pair, existing_position.account_size)
+
                     self._add_order_to_existing_position(existing_position, trade_pair, signal_order_type,
-                                                        signal_leverage, now_ms, miner_hotkey,
+                                                        quantity, now_ms, miner_hotkey,
                                                         price_sources, miner_order_uuid, miner_repo_version,
-                                                        OrderSource.ORGANIC, account_size)
+                                                        OrderSource.ORGANIC)
                     synapse.order_json = existing_position.orders[-1].__str__()
                 else:
                     # Happens if a FLAT is sent when no position exists
