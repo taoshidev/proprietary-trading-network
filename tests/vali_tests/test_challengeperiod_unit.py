@@ -90,29 +90,26 @@ class TestChallengePeriodUnit(TestBase):
         self.MIN_SCORE = 0.2
 
         # Set up successful scores for 4 miners
-        self.all_subcategories = set()
-        for category_data in ValiConfig.ASSET_CLASS_BREAKDOWN.values():
-            subcategory_weights = category_data.get('subcategory_weights', {})
-            self.all_subcategories.update(subcategory_weights.keys())
+        self.all_asset_classes = set(ValiConfig.ASSET_CLASS_BREAKDOWN.keys())
 
-        self.default_subcategory = vali_file.CryptoSubcategory.MAJORS # Possibly use a mock
+        self.default_asset_class = vali_file.TradePairCategory.CRYPTO
         #Use
         self.success_scores_dict = {}
-        for subcategory in self.all_subcategories:
-            self.success_scores_dict[subcategory]  = {"metrics": {}, "penalties": {}}
+        for asset_class in self.all_asset_classes:
+            self.success_scores_dict[asset_class]  = {"metrics": {}, "penalties": {}}
 
-            subcategory_dict = self.success_scores_dict[subcategory]
+            asset_class_dict = self.success_scores_dict[asset_class]
 
             raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(self.SUCCESS_MINER_NAMES))
             success_scores = list(zip(self.SUCCESS_MINER_NAMES, raw_scores))
 
             for config_name, config in Scoring.scoring_config.items():
-                subcategory_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
+                asset_class_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
                                                             'weight': config['weight']}
             raw_penalties = [1 for _ in self.SUCCESS_MINER_NAMES]
             success_penalties = dict(zip(self.SUCCESS_MINER_NAMES, raw_penalties))
 
-            subcategory_dict["penalties"] = copy.deepcopy(success_penalties)
+            asset_class_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Initialize system components
         self.mock_metagraph = MockMetagraph(self.MINER_NAMES)
@@ -141,9 +138,9 @@ class TestChallengePeriodUnit(TestBase):
             high_performing: true means trial miner should be passing, false means they should be failing
             score: specific score to use
         """
-        trial_scores_dict = {self.default_subcategory: {"metrics": {}}}
-        subcategory_trial_scores = trial_scores_dict.get(self.default_subcategory)
-        trial_metrics = subcategory_trial_scores["metrics"]
+        trial_scores_dict = {self.default_asset_class: {"metrics": {}}}
+        asset_class_trial_scores = trial_scores_dict.get(self.default_asset_class)
+        trial_metrics = asset_class_trial_scores["metrics"]
         if score is not None:
             for config_name, config in Scoring.scoring_config.items():
                 trial_metrics[config_name] = {'scores': [("miner", score)],
@@ -159,7 +156,7 @@ class TestChallengePeriodUnit(TestBase):
                 trial_metrics[config_name] = {'scores': [("miner", self.MIN_SCORE)],
                                               'weight': config['weight'],
                                                   }
-        subcategory_trial_scores["penalties"] = {"miner": 1}
+        asset_class_trial_scores["penalties"] = {"miner": 1}
         return trial_scores_dict
 
 
@@ -482,8 +479,8 @@ class TestChallengePeriodUnit(TestBase):
         # the miner ends up with a percentile at 0.75.
         trial_scoring_dict = self.get_trial_scores(score=0.75)
 
-        success_scores_dict = {self.default_subcategory: {"metrics": {}}}
-        subcategory_success_scores_dict = success_scores_dict.get(self.default_subcategory)
+        success_scores_dict = {self.default_asset_class: {"metrics": {}}}
+        asset_class_success_scores_dict = success_scores_dict.get(self.default_asset_class)
         success_miner_names = self.SUCCESS_MINER_NAMES[1:]
         raw_scores = np.linspace(self.TOP_SCORE, self.MIN_SCORE, len(success_miner_names))
         success_scores = list(zip(success_miner_names, raw_scores))
@@ -494,13 +491,13 @@ class TestChallengePeriodUnit(TestBase):
         self.challengeperiod_manager.active_miners["miner4"] = (MinerBucket.MAINCOMP, 0)
 
         for config_name, config in Scoring.scoring_config.items():
-            subcategory_success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
+            asset_class_success_scores_dict["metrics"][config_name] = {'scores': copy.deepcopy(success_scores),
                                                            'weight': config['weight']
                                                           }
         raw_penalties = [1 for _ in success_miner_names]
         success_penalties = dict(zip(success_miner_names, raw_penalties))
 
-        subcategory_success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
+        asset_class_success_scores_dict["penalties"] = copy.deepcopy(success_penalties)
 
         # Check that the miner is screened as passing
         passing, demoted, failing = self.challengeperiod_manager.inspect(

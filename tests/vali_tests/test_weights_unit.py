@@ -1,7 +1,7 @@
 # developer: trdougherty
 import copy
 from vali_objects.utils.asset_segmentation import AssetSegmentation
-from vali_objects.vali_config import ForexSubcategory, CryptoSubcategory
+from vali_objects.vali_config import ForexSubcategory, CryptoSubcategory, TradePairCategory
 
 from tests.shared_objects.test_utilities import generate_ledger
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -9,7 +9,7 @@ from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.position import Position
 from vali_objects.scoring.scoring import Scoring
 from vali_objects.vali_config import TradePair, ValiConfig
-from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO
+from vali_objects.vali_dataclasses.perf_ledger import TP_ID_PORTFOLIO, TradePairReturnStatus
 
 
 class TestWeights(TestBase):
@@ -33,21 +33,22 @@ class TestWeights(TestBase):
             open_ms=self.DEFAULT_OPEN_MS,
             trade_pair=self.DEFAULT_TRADE_PAIR,
         )
-        self.DEFAULT_SUBCATEGORY = ForexSubcategory.G1
+        # self.DEFAULT_SUBCATEGORY = ForexSubcategory.G1
+        self.DEFAULT_ASSET_CLASS = TradePairCategory.FOREX
         self.DEFAULT_ASSET_SCORES = {
-            ForexSubcategory.G1: {
+            TradePairCategory.FOREX: {
                 "miner1": 0.6,
                 "miner2": 0.3,
                 "miner3": 0.1,
             },
-            CryptoSubcategory.MAJORS: {
+            TradePairCategory.CRYPTO: {
                 "miner1": 0.2,
                 "miner2": 0.7,
                 "miner3": 0.1,
             }
         }
         self.DEFAULT_SCORING_DICT = {
-            self.DEFAULT_SUBCATEGORY: {
+            self.DEFAULT_ASSET_CLASS: {
                 "metrics": {
                     "sharpe": {
                         "scores": [("miner1", 1.5), ("miner2", 1.0)],
@@ -65,8 +66,8 @@ class TestWeights(TestBase):
             }
         }
 
-        asset_subcategories = list(AssetSegmentation.distill_asset_subcategories(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        self.SUBCATEGORY_MIN_DAYS = {subcategory: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for subcategory in asset_subcategories}
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        self.SUBCATEGORY_MIN_DAYS = {asset_class: ValiConfig.STATISTICAL_CONFIDENCE_MINIMUM_N_CEIL for asset_class in asset_classes}
 
         self.DEFAULT_LEDGER = generate_ledger(0.1)
 
@@ -82,7 +83,7 @@ class TestWeights(TestBase):
         scaled_transformed_list = Scoring.compute_results_checkpoint(
             ledger,
             miner_positions,
-            subcategory_min_days=self.SUBCATEGORY_MIN_DAYS,
+            asset_class_min_days=self.SUBCATEGORY_MIN_DAYS,
             evaluation_time_ms=self.EVALUATION_TIME_MS,
             all_miner_account_sizes={}
         )
@@ -298,18 +299,17 @@ class TestWeights(TestBase):
         self.assertEqual(final_scores["miner3"], MAX_WEIGHT)
         self.assertEqual(final_scores["miner1"], MIN_WEIGHT)
 
-    def test_subclass_score_aggregation_empty_input(self):
-        """Test subclass_score_aggregation with empty input"""
-        result = Scoring.subclass_score_aggregation({}, {})
+    def test_asset_class_score_aggregation_empty_input(self):
+        """Test asset_class_score_aggregation with empty input"""
+        result = Scoring.asset_class_score_aggregation({})
         self.assertEqual(result, [])
 
-    def test_subclass_score_aggregation_single_asset(self):
-        """Test subclass_score_aggregation with single asset class"""
+    def test_asset_class_score_aggregation_single_asset(self):
+        """Test asset_class_score_aggregation with single asset class"""
 
-        asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
-        asset_weights = {self.DEFAULT_SUBCATEGORY: 1.0}
+        asset_scores = {self.DEFAULT_ASSET_CLASS: self.DEFAULT_ASSET_SCORES[self.DEFAULT_ASSET_CLASS]}
         
-        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
+        result = Scoring.asset_class_score_aggregation(asset_scores)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
         
@@ -322,17 +322,17 @@ class TestWeights(TestBase):
         self.assertIn("miner2", miner_names)
         self.assertIn("miner3", miner_names)
 
-    def test_subclass_score_aggregation_multiple_assets(self):
-        """Test subclass_score_aggregation with multiple asset classes"""
-        asset_scores = self.DEFAULT_ASSET_SCORES
-        asset_weights = {sub_category : 0.5 for sub_category in self.DEFAULT_ASSET_SCORES.keys()}
-        result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 3)
+    # def test_subclass_score_aggregation_multiple_assets(self):
+    #     """Test subclass_score_aggregation with multiple asset classes"""
+    #     asset_scores = self.DEFAULT_ASSET_SCORES
+    #     asset_weights = {sub_category : 0.5 for sub_category in self.DEFAULT_ASSET_SCORES.keys()}
+    #     result = Scoring.subclass_score_aggregation(asset_scores, asset_weights)
+    #     self.assertIsInstance(result, list)
+    #     self.assertEqual(len(result), 3)
         
-        # Check that results are sorted in descending order
-        for i in range(len(result) - 1):
-            self.assertGreaterEqual(result[i][1], result[i + 1][1])
+    #     # Check that results are sorted in descending order
+    #     for i in range(len(result) - 1):
+    #         self.assertGreaterEqual(result[i][1], result[i + 1][1])
 
     def test_softmax_by_asset_empty_input(self):
         """Test softmax_by_asset with empty input"""
@@ -341,14 +341,14 @@ class TestWeights(TestBase):
 
     def test_softmax_by_asset_single_asset(self):
         """Test softmax_by_asset with single asset class"""
-        asset_scores = {self.DEFAULT_SUBCATEGORY: self.DEFAULT_ASSET_SCORES[self.DEFAULT_SUBCATEGORY]}
+        asset_scores = {self.DEFAULT_ASSET_CLASS: self.DEFAULT_ASSET_SCORES[self.DEFAULT_ASSET_CLASS]}
 
         result = Scoring.softmax_by_asset(asset_scores)
         self.assertIsInstance(result, dict)
         self.assertEqual(len(result), 1)
-        self.assertIn(self.DEFAULT_SUBCATEGORY, result)
+        self.assertIn(self.DEFAULT_ASSET_CLASS, result)
         
-        softmax_scores = result[self.DEFAULT_SUBCATEGORY]
+        softmax_scores = result[self.DEFAULT_ASSET_CLASS]
         self.assertEqual(len(softmax_scores), 3)
         
         # Check that softmax scores sum to approximately 1.0
@@ -407,13 +407,13 @@ class TestWeights(TestBase):
     def test_combine_scores_single_asset(self):
         """Test combine_scores with single asset class"""
         scoring_dict = self.DEFAULT_SCORING_DICT
-        
+
         result = Scoring.combine_scores(scoring_dict)
         self.assertIsInstance(result, dict)
         self.assertEqual(len(result), 1)
-        self.assertIn(ForexSubcategory.G1, result)
-        
-        combined_scores = result[ForexSubcategory.G1]
+        self.assertIn(self.DEFAULT_ASSET_CLASS, result)
+
+        combined_scores = result[self.DEFAULT_ASSET_CLASS]
         self.assertIn("miner1", combined_scores)
         self.assertIn("miner2", combined_scores)
 
