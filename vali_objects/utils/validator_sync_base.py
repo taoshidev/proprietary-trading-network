@@ -12,6 +12,8 @@ import bittensor as bt
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import TradePair
+
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
 # Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
@@ -779,7 +781,7 @@ class ValidatorSyncBase():
         
         return deduped_positions
 
-    def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[str, list[Position]]:
+    def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[TradePair, list[Position]]:
         positions_by_trade_pair = defaultdict(list)
         for position in positions:
             positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
@@ -847,20 +849,23 @@ class ValidatorSyncBase():
                 stats['trade_pairs_checked'] += 1
 
                 # Find all positions with overlaps using interval merging
-                overlapping_positions = self._find_overlapping_positions_via_merge(tp_positions, current_time_ms)
+                overlapping_position_uuids = self._find_overlapping_positions_via_merge(tp_positions, current_time_ms)
 
-                if overlapping_positions:
+                if overlapping_position_uuids:
                     stats['hotkeys_with_overlaps'].add(hotkey)
                     stats['trade_pairs_with_overlaps'][trade_pair.trade_pair_id] += 1
 
+                    # Build UUID -> Position map for efficient lookup
+                    uuid_to_position = {p.position_uuid: p for p in tp_positions}
+
                     # Delete all overlapping positions
-                    for position in overlapping_positions:
+                    for position_uuid in overlapping_position_uuids:
                         if not self.is_mothership:
-                            self.position_manager.delete_position(position)
+                            self.position_manager.delete_position(uuid_to_position[position_uuid])
                         stats['positions_deleted'] += 1
 
                     bt.logging.warning(
-                        f"Deleted {len(overlapping_positions)} overlapping positions for "
+                        f"Deleted {len(overlapping_position_uuids)} overlapping positions for "
                         f"hotkey {hotkey} trade pair {trade_pair.trade_pair_id}"
                     )
 
@@ -878,7 +883,7 @@ class ValidatorSyncBase():
 
         return stats
 
-    def _find_overlapping_positions_via_merge(self, positions: list[Position], current_time_ms: int) -> list[Position]:
+    def _find_overlapping_positions_via_merge(self, positions: list[Position], current_time_ms: int) -> set:
         """
         Find all positions that have overlapping time ranges using interval merging algorithm.
 
@@ -912,9 +917,9 @@ class ValidatorSyncBase():
         intervals.sort(key=lambda x: x[0])
 
         # Merge overlapping intervals and track which positions are in each merged group
-        merged_groups = []  # List of lists of positions
         current_group = [intervals[0][2]]  # Start with first position
         current_end = intervals[0][1]
+        overlapping_position_uuids = set()
 
         for i in range(1, len(intervals)):
             start_ms, end_ms, position = intervals[i]
@@ -926,23 +931,12 @@ class ValidatorSyncBase():
                 current_group.append(position)
                 # Extend the merged interval's end if necessary
                 current_end = max(current_end, end_ms)
+                overlapping_position_uuids.add(position.position_uuid)
+                overlapping_position_uuids.add(intervals[i-1][2].position_uuid)
             else:
-                # No overlap - save current group and start new one
-                if len(current_group) > 1:
-                    # This group had overlaps
-                    merged_groups.append(current_group)
-
+                # No overlap
                 # Start new group
                 current_group = [position]
                 current_end = end_ms
 
-        # Don't forget the last group
-        if len(current_group) > 1:
-            merged_groups.append(current_group)
-
-        # Flatten all groups to get list of all overlapping positions
-        overlapping_positions = []
-        for group in merged_groups:
-            overlapping_positions.extend(group)
-
-        return overlapping_positions
+        return overlapping_position_uuids

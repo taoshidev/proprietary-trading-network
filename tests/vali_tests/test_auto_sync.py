@@ -3132,8 +3132,8 @@ class TestOverlapDetection(TestBase):
         overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2], current_time_ms)
 
         self.assertEqual(len(overlaps), 2, "Both positions should be flagged for overlap")
-        self.assertIn(p1, overlaps, "P1 should be in overlapping positions")
-        self.assertIn(p2, overlaps, "P2 should be in overlapping positions")
+        self.assertIn(p1.position_uuid, overlaps, "P1 UUID should be in overlapping positions")
+        self.assertIn(p2.position_uuid, overlaps, "P2 UUID should be in overlapping positions")
 
     def test_multiple_overlapping_positions(self):
         """Test that multiple overlapping positions are all detected"""
@@ -3152,10 +3152,10 @@ class TestOverlapDetection(TestBase):
         # P1, P2, P3 should all be flagged (they form a chain of overlaps)
         # P4 should not be flagged
         self.assertEqual(len(overlaps), 3, "Three overlapping positions should be flagged")
-        self.assertIn(p1, overlaps, "P1 should be in overlapping positions")
-        self.assertIn(p2, overlaps, "P2 should be in overlapping positions")
-        self.assertIn(p3, overlaps, "P3 should be in overlapping positions")
-        self.assertNotIn(p4, overlaps, "P4 should not be in overlapping positions")
+        self.assertIn(p1.position_uuid, overlaps, "P1 UUID should be in overlapping positions")
+        self.assertIn(p2.position_uuid, overlaps, "P2 UUID should be in overlapping positions")
+        self.assertIn(p3.position_uuid, overlaps, "P3 UUID should be in overlapping positions")
+        self.assertNotIn(p4.position_uuid, overlaps, "P4 UUID should not be in overlapping positions")
 
     def test_open_positions_with_current_time(self):
         """Test that open positions use current_time_ms as end time"""
@@ -3259,9 +3259,9 @@ class TestOverlapDetection(TestBase):
 
         # Should still detect P1 and P2 as overlapping despite being passed unsorted
         self.assertEqual(len(overlaps), 2, "Should detect overlaps regardless of input order")
-        self.assertIn(p1, overlaps)
-        self.assertIn(p2, overlaps)
-        self.assertNotIn(p3, overlaps)
+        self.assertIn(p1.position_uuid, overlaps)
+        self.assertIn(p2.position_uuid, overlaps)
+        self.assertNotIn(p3.position_uuid, overlaps)
 
     def test_empty_positions_list(self):
         """Test that empty positions list doesn't cause errors"""
@@ -3270,8 +3270,9 @@ class TestOverlapDetection(TestBase):
 
         stats = self.position_syncer.detect_and_delete_overlapping_positions(disk_positions, current_time_ms)
 
+        # Empty positions list is skipped, so hotkeys_checked should be 0
         self.assertEqual(stats['positions_deleted'], 0)
-        self.assertEqual(stats['hotkeys_checked'], 1)
+        self.assertEqual(stats['hotkeys_checked'], 0)
 
 
 
