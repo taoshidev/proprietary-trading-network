@@ -120,15 +120,17 @@ class EmissionsLedger:
     along with methods to query and visualize the data.
     """
 
-    def __init__(self, hotkey: str, checkpoints: Optional[List[EmissionsCheckpoint]] = None):
+    def __init__(self, hotkey: str, coldkey: str, checkpoints: Optional[List[EmissionsCheckpoint]] = None):
         """
         Initialize emissions ledger for a single hotkey.
 
         Args:
             hotkey: SS58 address of the hotkey
+            coldkey: SS58 address of the coldkey (owner of this hotkey)
             checkpoints: Optional list of emission checkpoints
         """
         self.hotkey = hotkey
+        self.coldkey = coldkey
         self.checkpoints: List[EmissionsCheckpoint] = checkpoints or []
 
     def add_checkpoint(self, checkpoint: EmissionsCheckpoint, target_cp_duration_ms: int):
@@ -276,10 +278,11 @@ class EmissionsLedger:
         Convert ledger to dictionary for serialization.
 
         Returns:
-            Dictionary with hotkey and all checkpoints
+            Dictionary with hotkey, coldkey, and all checkpoints
         """
         return {
             'hotkey': self.hotkey,
+            'coldkey': self.coldkey,
             'total_checkpoints': len(self.checkpoints),
             'cumulative_emissions': self.get_cumulative_emissions(),
             'cumulative_emissions_tao': self.get_cumulative_emissions_tao(),
@@ -518,10 +521,8 @@ class EmissionsLedgerManager:
         self.rate_limit_per_second = rate_limit_per_second
         self.last_query_time = 0.0
         self.running_unit_tests = running_unit_tests
-        # In-memory ledgers
+        # In-memory ledgers (each ledger contains its own coldkey)
         self.emissions_ledgers: Dict[str, EmissionsLedger] = ipc_manager.dict() if ipc_manager else {}
-        # Hotkey to coldkey cache (persistent, saves queries)
-        self.hotkey_to_coldkey: Dict[str, str] = {}
         # Daemon control
         self.running = False
         self.daemon_process: Optional[multiprocessing.Process] = None
@@ -819,6 +820,56 @@ class EmissionsLedgerManager:
 
         return tao_balance
 
+    def _get_coldkey_for_hotkey(self, hotkey_ss58: str) -> str:
+        """
+        Get coldkey for a hotkey, checking ledger first then querying substrate.
+
+        If ledger exists but doesn't have coldkey, queries substrate and updates ledger.
+        This ensures coldkey is persisted for future lookups and disk saves.
+
+        Args:
+            hotkey_ss58: SS58 address of the hotkey
+
+        Returns:
+            Coldkey SS58 address
+
+        Raises:
+            ValueError: If no coldkey found
+            Exception: If substrate query fails
+        """
+        # Check if ledger exists and has coldkey
+        if hotkey_ss58 in self.emissions_ledgers:
+            ledger = self.emissions_ledgers[hotkey_ss58]
+            if ledger.coldkey:
+                return ledger.coldkey
+
+        # Query substrate for coldkey
+        self._rate_limit()
+
+        try:
+            coldkey = self.subtensor.substrate.query(
+                module='SubtensorModule',
+                storage_function='Owner',
+                params=[hotkey_ss58]
+            )
+
+            if not coldkey:
+                raise ValueError(f"No coldkey found for hotkey {hotkey_ss58}")
+
+            coldkey_str = str(coldkey)
+
+            # Update ledger with coldkey if ledger exists
+            if hotkey_ss58 in self.emissions_ledgers:
+                self.emissions_ledgers[hotkey_ss58].coldkey = coldkey_str
+                bt.logging.debug(f"Updated ledger for {hotkey_ss58[:16]}... with coldkey {coldkey_str[:16]}...")
+
+            return coldkey_str
+
+        except Exception as e:
+            raise Exception(
+                f"Failed to query coldkey (Owner) for hotkey {hotkey_ss58}: {e}"
+            )
+
     def _query_alpha_balance_at_block(
         self,
         hotkey_ss58: str,
@@ -829,9 +880,6 @@ class EmissionsLedgerManager:
 
         Uses subtensor.get_stake() which queries the alpha stake amount for a hotkey
         within this subnet. Alpha emissions are automatically staked to the hotkey.
-
-        Caches the hotkey->coldkey mapping to avoid redundant queries, since
-        coldkey ownership doesn't change.
 
         Args:
             hotkey_ss58: SS58 address of the hotkey
@@ -844,32 +892,8 @@ class EmissionsLedgerManager:
             ValueError: If query returns invalid data
             Exception: If substrate query fails
         """
-        # Check cache first for coldkey
-        if hotkey_ss58 in self.hotkey_to_coldkey:
-            coldkey = self.hotkey_to_coldkey[hotkey_ss58]
-        else:
-            # Cache miss - query and cache it
-            self._rate_limit()
-
-            try:
-                # Query the coldkey that owns this hotkey (current block is fine, ownership doesn't change)
-                coldkey = self.subtensor.substrate.query(
-                    module='SubtensorModule',
-                    storage_function='Owner',
-                    params=[hotkey_ss58]
-                )
-
-                if not coldkey:
-                    raise ValueError(f"No coldkey found for hotkey {hotkey_ss58}")
-
-                # Cache it for future queries
-                self.hotkey_to_coldkey[hotkey_ss58] = str(coldkey)
-                coldkey = str(coldkey)
-
-            except Exception as e:
-                raise Exception(
-                    f"Failed to query coldkey (Owner) for hotkey {hotkey_ss58}: {e}"
-                )
+        # Get coldkey for this hotkey (checks ledger first, then queries)
+        coldkey = self._get_coldkey_for_hotkey(hotkey_ss58)
 
         try:
             # Rate limit before stake query
@@ -1231,7 +1255,8 @@ class EmissionsLedgerManager:
 
                     # Create ledger if this is a newly discovered hotkey
                     if hotkey not in self.emissions_ledgers:
-                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
+                        coldkey = self._get_coldkey_for_hotkey(hotkey)
+                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey, coldkey)
 
                     # Track if this hotkey had any emissions in this chunk
                     if alpha_emissions > 0:
@@ -1260,7 +1285,8 @@ class EmissionsLedgerManager:
                     # Hotkey exists but had no emissions in this chunk - create zero-emission checkpoint
                     # Create ledger if this is a newly discovered hotkey (discovered mid-chunk with no emissions)
                     if hotkey not in self.emissions_ledgers:
-                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey)
+                        coldkey = self._get_coldkey_for_hotkey(hotkey)
+                        self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey, coldkey)
 
                     # Query balance snapshots at checkpoint end
                     tao_balance = self._query_tao_balance_at_block(hotkey, end_block_hash)
@@ -1593,18 +1619,17 @@ class EmissionsLedgerManager:
 
         ledger_path = self._get_ledger_path()
 
-        # Build data structure
+        # Build data structure (coldkey now stored in each ledger)
         data = {
             "format_version": "1.0",
             "last_update_ms": int(time.time() * 1000),
             "netuid": self.netuid,
             "archive_endpoint": self.archive_endpoint,
-            "hotkey_to_coldkey": self.hotkey_to_coldkey,  # Save cache for efficiency
             "ledgers": {}
         }
 
         for hotkey, ledger in self.emissions_ledgers.items():
-            data["ledgers"][hotkey] = ledger.to_dict()
+            data["ledgers"][hotkey] = ledger.to_dict()  # Includes coldkey automatically
 
         # Create backup before overwriting
         if create_backup and os.path.exists(ledger_path):
@@ -1630,9 +1655,6 @@ class EmissionsLedgerManager:
 
         # Load data
         data = self._read_compressed(ledger_path)
-
-        # Load hotkey->coldkey cache (optimization to avoid redundant queries)
-        self.hotkey_to_coldkey = data.get("hotkey_to_coldkey", {})
 
         # Extract metadata
         metadata = {
@@ -1663,11 +1685,12 @@ class EmissionsLedgerManager:
 
                 checkpoints.append(checkpoint)
 
-            self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey=hotkey, checkpoints=checkpoints)
+            # Load coldkey from ledger data (required field)
+            coldkey = ledger_dict["coldkey"]
+            self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey=hotkey, coldkey=coldkey, checkpoints=checkpoints)
 
         bt.logging.info(
             f"Loaded {len(self.emissions_ledgers)} emissions ledgers, "
-            f"{len(self.hotkey_to_coldkey)} cached hotkey->coldkey mappings, "
             f"metadata: {metadata}, "
             f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}"
         )
