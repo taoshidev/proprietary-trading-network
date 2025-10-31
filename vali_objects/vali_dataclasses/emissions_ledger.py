@@ -1685,8 +1685,14 @@ class EmissionsLedgerManager:
 
                 checkpoints.append(checkpoint)
 
-            # Load coldkey from ledger data (required field)
-            coldkey = ledger_dict["coldkey"]
+            # Load coldkey from ledger data (empty string if missing - will be lazily queried)
+            coldkey = ledger_dict.get("coldkey", "")
+
+            # Note: If coldkey is empty, it will be lazily queried from substrate when first needed
+            # by _get_coldkey_for_hotkey() and then persisted on next save (one-time migration)
+            if not coldkey:
+                bt.logging.debug(f"Coldkey missing for {hotkey[:16]}... in saved data - will be queried lazily when needed")
+
             self.emissions_ledgers[hotkey] = EmissionsLedger(hotkey=hotkey, coldkey=coldkey, checkpoints=checkpoints)
 
         bt.logging.info(

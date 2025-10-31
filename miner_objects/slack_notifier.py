@@ -5,7 +5,7 @@ import requests
 import threading
 import time
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, Any
 from collections import defaultdict
 import bittensor as bt
@@ -151,7 +151,7 @@ class SlackNotifier:
                     # Calculate seconds until next midnight UTC
                     next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
                     if next_midnight <= now:
-                        next_midnight = next_midnight.replace(day=next_midnight.day + 1)
+                        next_midnight = next_midnight + timedelta(days=1)
 
                     sleep_seconds = (next_midnight - now).total_seconds()
                     time.sleep(sleep_seconds)
