@@ -63,12 +63,6 @@ class SubtensorWeightSetter(CacheController):
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
         metagraph_hotkeys = list(self.metagraph.hotkeys)
         hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
-        idx_to_hotkey = {idx: hotkey for idx, hotkey in enumerate(metagraph_hotkeys)}
-        hotkey_registration_blocks = list(self.metagraph.block_at_registration)
-        target_dtao_block_zero_incentive_start = 4916273
-        target_dtao_block_zero_incentive_end = 4951874
-
-        block_reg_failures = set()
 
         # Get all miners from all buckets
         challenge_hotkeys = list(self.position_manager.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.CHALLENGE))
@@ -102,10 +96,7 @@ class SubtensorWeightSetter(CacheController):
             return [], []
 
         transformed_list = checkpoint_netuid_weights
-        self.handle_block_reg_failures(transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks, idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures)
         bt.logging.info(f"transformed list: {transformed_list}")
-        if block_reg_failures:
-            bt.logging.info(f"Miners with registration blocks outside of permissible dTAO blocks: {block_reg_failures}")
 
         return checkpoint_results, transformed_list
 
@@ -184,24 +175,6 @@ class SubtensorWeightSetter(CacheController):
         self.checkpoint_results = checkpoint_results
         self.transformed_list = transformed_list
 
-    def handle_block_reg_failures(self, transformed_list, target_dtao_block_zero_incentive_start, hotkey_registration_blocks,
-                                  idx_to_hotkey, target_dtao_block_zero_incentive_end, block_reg_failures):
-        if self.is_backtesting:
-            return
-        for tl_idx, (metagraph_idx, score) in enumerate(transformed_list):
-            if target_dtao_block_zero_incentive_start < hotkey_registration_blocks[metagraph_idx] <= target_dtao_block_zero_incentive_end:
-                try:
-                    block_reg_failures.add(idx_to_hotkey[metagraph_idx])
-                    transformed_list[tl_idx] = (metagraph_idx, 0.0)
-                except Exception as e:
-                    warning_str = (f"metagraph_idx {metagraph_idx} ({idx_to_hotkey.get(metagraph_idx)}),"
-                                   f" hotkey_registration_blocks {hotkey_registration_blocks} ({len(hotkey_registration_blocks)}),"
-                                   f" block_reg_failures {block_reg_failures}, "
-                                   f"idx_to_hotkey {idx_to_hotkey} ({len(idx_to_hotkey)}), ")
-                    bt.logging.warning(warning_str)
-                    raise e
-
-    
     def run_update_loop(self):
         """
         Weight setter loop that sends fire-and-forget requests to MetagraphUpdater.

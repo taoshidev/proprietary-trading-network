@@ -3024,4 +3024,254 @@ class TestPositions(TestBase):
             f"Should track implicit flat: {stats}"
 
 
+class TestOverlapDetection(TestBase):
+    """Tests for overlap detection and deletion feature"""
+
+    def setUp(self):
+        super().setUp()
+        self.DEFAULT_MINER_HOTKEY = "test_miner"
+        self.DEFAULT_OPEN_MS = 1718071209000
+        self.DEFAULT_TRADE_PAIR = TradePair.BTCUSD
+
+        self.mock_metagraph = MockMetagraph([self.DEFAULT_MINER_HOTKEY])
+        self.elimination_manager = EliminationManager(self.mock_metagraph, None, None, running_unit_tests=True)
+        secrets = ValiUtils.get_secrets(running_unit_tests=True)
+        self.live_price_fetcher = MockLivePriceFetcher(secrets=secrets, disable_ws=True)
+        self.position_manager = PositionManager(
+            metagraph=self.mock_metagraph,
+            running_unit_tests=True,
+            elimination_manager=self.elimination_manager,
+            live_price_fetcher=self.live_price_fetcher
+        )
+        self.elimination_manager.position_manager = self.position_manager
+        self.position_manager.clear_all_miner_positions()
+        self.elimination_manager.eliminations.clear()
+
+        self.position_syncer = PositionSyncer(
+            running_unit_tests=True,
+            position_manager=self.position_manager,
+            enable_position_splitting=True
+        )
+
+    def create_position(self, position_uuid, open_ms, close_ms=None, trade_pair=None, miner_hotkey=None):
+        """Helper to create a test position"""
+        if trade_pair is None:
+            trade_pair = self.DEFAULT_TRADE_PAIR
+        if miner_hotkey is None:
+            miner_hotkey = self.DEFAULT_MINER_HOTKEY
+
+        order1 = Order(
+            price=100.0,
+            processed_ms=open_ms,
+            order_uuid=f"{position_uuid}_o1",
+            trade_pair=trade_pair,
+            order_type=OrderType.LONG,
+            leverage=1.0
+        )
+
+        orders = [order1]
+        position_type = OrderType.LONG
+
+        if close_ms is not None:
+            order2 = Order(
+                price=105.0,
+                processed_ms=close_ms,
+                order_uuid=f"{position_uuid}_o2",
+                trade_pair=trade_pair,
+                order_type=OrderType.FLAT,
+                leverage=0.0
+            )
+            orders.append(order2)
+            position_type = OrderType.FLAT
+
+        position = Position(
+            miner_hotkey=miner_hotkey,
+            position_uuid=position_uuid,
+            open_ms=open_ms,
+            trade_pair=trade_pair,
+            orders=orders,
+            position_type=position_type,
+        )
+
+        if close_ms is not None:
+            position.close_out_position(close_ms)
+
+        return position
+
+    def test_no_overlaps_single_position(self):
+        """Test that a single position has no overlaps"""
+        position = self.create_position("p1", self.DEFAULT_OPEN_MS, self.DEFAULT_OPEN_MS + 1000)
+
+        current_time_ms = self.DEFAULT_OPEN_MS + 10000
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([position], current_time_ms)
+
+        self.assertEqual(len(overlaps), 0, "Single position should have no overlaps")
+
+    def test_no_overlaps_non_overlapping_positions(self):
+        """Test that non-overlapping positions are not flagged"""
+        # P1: [100, 200]
+        p1 = self.create_position("p1", 100, 200)
+        # P2: [300, 400]
+        p2 = self.create_position("p2", 300, 400)
+        # P3: [500, 600]
+        p3 = self.create_position("p3", 500, 600)
+
+        current_time_ms = 700
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2, p3], current_time_ms)
+
+        self.assertEqual(len(overlaps), 0, "Non-overlapping positions should not be flagged")
+
+    def test_two_positions_clear_overlap(self):
+        """Test that two positions with clear overlap are detected"""
+        # P1: [100, 200]
+        p1 = self.create_position("p1", 100, 200)
+        # P2: [150, 250] - overlaps with P1
+        p2 = self.create_position("p2", 150, 250)
+
+        current_time_ms = 300
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2], current_time_ms)
+
+        self.assertEqual(len(overlaps), 2, "Both positions should be flagged for overlap")
+        self.assertIn(p1, overlaps, "P1 should be in overlapping positions")
+        self.assertIn(p2, overlaps, "P2 should be in overlapping positions")
+
+    def test_multiple_overlapping_positions(self):
+        """Test that multiple overlapping positions are all detected"""
+        # P1: [100, 200]
+        p1 = self.create_position("p1", 100, 200)
+        # P2: [150, 250] - overlaps with P1
+        p2 = self.create_position("p2", 150, 250)
+        # P3: [240, 300] - overlaps with P2
+        p3 = self.create_position("p3", 240, 300)
+        # P4: [400, 500] - no overlap
+        p4 = self.create_position("p4", 400, 500)
+
+        current_time_ms = 600
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2, p3, p4], current_time_ms)
+
+        # P1, P2, P3 should all be flagged (they form a chain of overlaps)
+        # P4 should not be flagged
+        self.assertEqual(len(overlaps), 3, "Three overlapping positions should be flagged")
+        self.assertIn(p1, overlaps, "P1 should be in overlapping positions")
+        self.assertIn(p2, overlaps, "P2 should be in overlapping positions")
+        self.assertIn(p3, overlaps, "P3 should be in overlapping positions")
+        self.assertNotIn(p4, overlaps, "P4 should not be in overlapping positions")
+
+    def test_open_positions_with_current_time(self):
+        """Test that open positions use current_time_ms as end time"""
+        # P1: [100, 200] - closed
+        p1 = self.create_position("p1", 100, 200)
+        # P2: [150, open] - open position
+        p2 = self.create_position("p2", 150, None)
+
+        # With current_time=180, P2's effective end is 180, so it overlaps with P1 [100, 200]
+        current_time_ms = 180
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2], current_time_ms)
+
+        self.assertEqual(len(overlaps), 2, "Open and closed positions should be detected as overlapping")
+
+    def test_touching_boundaries_no_overlap(self):
+        """Test that positions that touch at boundaries don't overlap"""
+        # P1: [100, 200]
+        p1 = self.create_position("p1", 100, 200)
+        # P2: [200, 300] - starts exactly when P1 ends
+        p2 = self.create_position("p2", 200, 300)
+
+        current_time_ms = 400
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p1, p2], current_time_ms)
+
+        # start_ms < current_end check means [100, 200] and [200, 300] don't overlap
+        self.assertEqual(len(overlaps), 0, "Positions touching at boundaries should not overlap")
+
+    def test_different_trade_pairs_no_overlap(self):
+        """Test that different trade pairs are analyzed separately"""
+        # Both positions have same time range but different trade pairs
+        p1_btc = self.create_position("p1", 100, 200, trade_pair=TradePair.BTCUSD)
+        p2_eth = self.create_position("p2", 150, 250, trade_pair=TradePair.ETHUSD)
+
+        # When analyzing only BTC positions
+        current_time_ms = 300
+        overlaps_btc = self.position_syncer._find_overlapping_positions_via_merge([p1_btc], current_time_ms)
+
+        self.assertEqual(len(overlaps_btc), 0, "Single position in trade pair should have no overlaps")
+
+    def test_detect_and_delete_overlapping_positions(self):
+        """Test the full detect_and_delete_overlapping_positions method"""
+        # Create overlapping positions
+        p1 = self.create_position("p1", 100, 200)
+        p2 = self.create_position("p2", 150, 250)
+        p3 = self.create_position("p3", 400, 500)  # Non-overlapping
+
+        # Save positions to disk
+        for p in [p1, p2, p3]:
+            self.position_manager.save_miner_position(p)
+
+        disk_positions = {self.DEFAULT_MINER_HOTKEY: [p1, p2, p3]}
+        current_time_ms = 600
+
+        stats = self.position_syncer.detect_and_delete_overlapping_positions(disk_positions, current_time_ms)
+
+        # Verify stats
+        self.assertEqual(stats['hotkeys_checked'], 1, "Should check 1 hotkey")
+        self.assertEqual(stats['trade_pairs_checked'], 1, "Should check 1 trade pair")
+        self.assertEqual(stats['positions_deleted'], 2, "Should delete 2 overlapping positions")
+        self.assertEqual(len(stats['hotkeys_with_overlaps']), 1, "Should have 1 hotkey with overlaps")
+
+        # Verify positions were actually deleted from disk
+        remaining_positions = self.position_manager.get_positions_for_one_hotkey(self.DEFAULT_MINER_HOTKEY)
+        self.assertEqual(len(remaining_positions), 1, "Should have 1 position remaining")
+        self.assertEqual(remaining_positions[0].position_uuid, "p3", "P3 should remain")
+
+    def test_multiple_trade_pairs_overlap_detection(self):
+        """Test overlap detection across multiple trade pairs"""
+        # Create overlapping BTC positions
+        p1_btc = self.create_position("p1_btc", 100, 200, trade_pair=TradePair.BTCUSD)
+        p2_btc = self.create_position("p2_btc", 150, 250, trade_pair=TradePair.BTCUSD)
+
+        # Create overlapping ETH positions
+        p1_eth = self.create_position("p1_eth", 300, 400, trade_pair=TradePair.ETHUSD)
+        p2_eth = self.create_position("p2_eth", 350, 450, trade_pair=TradePair.ETHUSD)
+
+        # Save positions
+        for p in [p1_btc, p2_btc, p1_eth, p2_eth]:
+            self.position_manager.save_miner_position(p)
+
+        disk_positions = {self.DEFAULT_MINER_HOTKEY: [p1_btc, p2_btc, p1_eth, p2_eth]}
+        current_time_ms = 500
+
+        stats = self.position_syncer.detect_and_delete_overlapping_positions(disk_positions, current_time_ms)
+
+        # Should detect overlaps in both trade pairs
+        self.assertEqual(stats['positions_deleted'], 4, "Should delete all 4 overlapping positions")
+        self.assertEqual(stats['trade_pairs_checked'], 2, "Should check 2 trade pairs")
+        self.assertEqual(stats['trade_pairs_with_overlaps'][TradePair.BTCUSD.trade_pair_id], 1)
+        self.assertEqual(stats['trade_pairs_with_overlaps'][TradePair.ETHUSD.trade_pair_id], 1)
+
+    def test_unsorted_positions_handled_correctly(self):
+        """Test that positions are sorted internally before overlap detection"""
+        # Create positions in non-chronological order
+        p3 = self.create_position("p3", 300, 400)
+        p1 = self.create_position("p1", 100, 200)
+        p2 = self.create_position("p2", 150, 250)
+
+        current_time_ms = 500
+        overlaps = self.position_syncer._find_overlapping_positions_via_merge([p3, p1, p2], current_time_ms)
+
+        # Should still detect P1 and P2 as overlapping despite being passed unsorted
+        self.assertEqual(len(overlaps), 2, "Should detect overlaps regardless of input order")
+        self.assertIn(p1, overlaps)
+        self.assertIn(p2, overlaps)
+        self.assertNotIn(p3, overlaps)
+
+    def test_empty_positions_list(self):
+        """Test that empty positions list doesn't cause errors"""
+        disk_positions = {self.DEFAULT_MINER_HOTKEY: []}
+        current_time_ms = 500
+
+        stats = self.position_syncer.detect_and_delete_overlapping_positions(disk_positions, current_time_ms)
+
+        self.assertEqual(stats['positions_deleted'], 0)
+        self.assertEqual(stats['hotkeys_checked'], 1)
+
+
 
