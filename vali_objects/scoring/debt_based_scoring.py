@@ -85,7 +85,7 @@ class DebtBasedScoring:
 
     # Burn address UIDs (receives excess weight when sum < 1.0)
     BURN_UID_MAINNET = 229
-    BURN_UID_TESTNET = 5
+    BURN_UID_TESTNET = 220
 
     @staticmethod
     def get_burn_uid(is_testnet: bool = False) -> int:
