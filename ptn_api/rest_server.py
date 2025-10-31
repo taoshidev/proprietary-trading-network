@@ -786,17 +786,33 @@ class PTNRestServer(APIKeyMixin):
                 data = request.get_json()
                 if not data:
                     return jsonify({'error': 'Invalid JSON body'}), 400
-                    
-                # Validate required fields for signed withdrawal
+
+                # Validate required fields for withdrawal query
                 required_fields = ['amount', 'miner_hotkey']
                 for field in required_fields:
                     if field not in data:
                         return jsonify({'error': f'Missing required field: {field}'}), 400
 
-                # Process the withdrawal using verified data
+                # Validate amount is a positive number
+                try:
+                    amount = float(data['amount'])
+                    if amount <= 0:
+                        return jsonify({'error': 'Amount must be a positive number'}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Amount must be a valid number'}), 400
+
+                # Validate miner_hotkey is a valid SS58 address
+                miner_hotkey = data['miner_hotkey']
+                try:
+                    # Attempt to create a Keypair to validate SS58 format
+                    Keypair(ss58_address=miner_hotkey)
+                except Exception:
+                    return jsonify({'error': 'Invalid SS58 address format for miner_hotkey'}), 400
+
+                # Process the withdrawal query
                 result = self.contract_manager.query_withdrawal_request(
-                    amount=data['amount'],
-                    miner_hotkey=data['miner_hotkey']
+                    amount=amount,
+                    miner_hotkey=miner_hotkey
                 )
 
                 # Return response
@@ -855,6 +871,14 @@ class PTNRestServer(APIKeyMixin):
                 )
                 if not is_valid:
                     return jsonify({'error': f'{error_msg}'}), 401
+
+                # Validate amount is a positive number
+                try:
+                    amount = float(data['amount'])
+                    if amount <= 0:
+                        return jsonify({'error': 'Amount must be a positive number'}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Amount must be a valid number'}), 400
 
                 # Process the withdrawal using verified data
                 result = self.contract_manager.process_withdrawal_request(
