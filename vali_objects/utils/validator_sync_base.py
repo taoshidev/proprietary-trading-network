@@ -900,10 +900,10 @@ class ValidatorSyncBase():
             current_time_ms: Current timestamp (used for open positions' end time)
 
         Returns:
-            List of all positions that are part of any overlap
+            Set of position UUIDs that are part of any overlap
         """
         if len(positions) < 2:
-            return []
+            return set()
 
         # Create intervals: (start_ms, end_ms, position)
         intervals = []

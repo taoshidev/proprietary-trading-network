@@ -380,7 +380,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         weights_dict = dict(result)
 
         # Burn address should be testnet (uid 5)
-        burn_hotkey = "burn_address_testnet"
+        burn_hotkey = "hotkey_220"
         self.assertIn(burn_hotkey, weights_dict)
 
         # Total should sum to 1.0

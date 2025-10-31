@@ -817,30 +817,44 @@ class TestPositions(TestBase):
         assert self.position_syncer.perf_ledger_hks_to_invalidate[self.DEFAULT_MINER_HOTKEY] == self.default_order.processed_ms - 1000 * 60 * 30
 
     def test_validate_position_sync_one_of_each_uuid_match(self):
+        # Create non-overlapping closed positions
+        # dp_to_keep: [T0 + 30min, T0 + 40min]
         dp_to_keep = deepcopy(self.default_closed_position)
         dp_to_keep.position_uuid = "to_keep"
         dp_to_keep.open_ms += 1000 * 60 * 30
+        dp_to_keep.close_ms = dp_to_keep.open_ms + 1000 * 60 * 10
+        dp_to_keep.close_out_position(dp_to_keep.close_ms)
 
+        # dp_to_delete: [T0 - 10min, T0 - 5min]
         dp_to_delete = deepcopy(self.default_closed_position)
         dp_to_delete.position_uuid = "to_delete"
         dp_to_delete.open_ms -= 1000 * 60 * 10
-        dp_to_delete.close_ms += 1000 * 60 * 10
+        dp_to_delete.close_ms = dp_to_delete.open_ms + 1000 * 60 * 5
+        dp_to_delete.close_out_position(dp_to_delete.close_ms)
 
+        # dp_to_match: [T0, T0 + 10min]
         dp_to_match = deepcopy(self.default_closed_position)
         dp_to_match.position_uuid = "to_match"
+        dp_to_match.close_ms = dp_to_match.open_ms + 1000 * 60 * 10
+        dp_to_match.close_out_position(dp_to_match.close_ms)
         dp_to_match.orders[0].processed_ms += 1000
 
+        # cp_to_insert: [T0 + 50min, T0 + 60min]
         cp_to_insert = deepcopy(self.default_closed_position)
         cp_to_insert.position_uuid = "to_insert"
         cp_to_insert.orders[0].order_type = OrderType.SHORT
-        cp_to_insert.open_ms += 1000 * 60 * 1
+        cp_to_insert.open_ms += 1000 * 60 * 50
+        cp_to_insert.close_ms = cp_to_insert.open_ms + 1000 * 60 * 10
+        cp_to_insert.close_out_position(cp_to_insert.close_ms)
 
-        # Let's do heuristic match
+        # cp_to_match: [T0, T0 + 10min] (same as dp_to_match - they should match by UUID)
         cp_to_match = deepcopy(self.default_closed_position)
         cp_to_match.position_uuid = "to_match"
+        cp_to_match.close_ms = cp_to_match.open_ms + 1000 * 60 * 10
+        cp_to_match.close_out_position(cp_to_match.close_ms)
         order_to_insert = deepcopy(self.default_order)
         order_to_insert.order_uuid = "to_insert"
-        order_to_insert.processed_ms = self.default_order.processed_ms + 1000 * 60 * 20
+        order_to_insert.processed_ms = cp_to_match.open_ms + 1000 * 60 * 5  # Within the position's time range
         cp_to_match.orders.append(order_to_insert)
 
         disk_positions = self.positions_to_disk_data([dp_to_keep, dp_to_delete, dp_to_match])
@@ -877,31 +891,44 @@ class TestPositions(TestBase):
 
 
     def test_validate_position_sync_one_of_each_heuristic_match(self):
+        # Create non-overlapping closed positions
+        # dp_to_keep: [T0 + 30min, T0 + 40min]
         dp_to_keep = deepcopy(self.default_closed_position)
         dp_to_keep.position_uuid = "to_keep"
         dp_to_keep.open_ms += 1000 * 60 * 30
+        dp_to_keep.close_ms = dp_to_keep.open_ms + 1000 * 60 * 10
+        dp_to_keep.close_out_position(dp_to_keep.close_ms)
 
+        # dp_to_delete: [T0 - 10min, T0 - 5min]
         dp_to_delete = deepcopy(self.default_closed_position)
         dp_to_delete.position_uuid = "to_delete"
         dp_to_delete.open_ms -= 1000 * 60 * 10
-        dp_to_delete.close_ms += 1000 * 60 * 10
+        dp_to_delete.close_ms = dp_to_delete.open_ms + 1000 * 60 * 5
+        dp_to_delete.close_out_position(dp_to_delete.close_ms)
 
-        # Let's do heuristic match
+        # dp_to_match: [T0, T0 + 10min]
         dp_to_match = deepcopy(self.default_closed_position)
         dp_to_match.position_uuid = "to_match"
+        dp_to_match.close_ms = dp_to_match.open_ms + 1000 * 60 * 10
+        dp_to_match.close_out_position(dp_to_match.close_ms)
         dp_to_match.orders[0].processed_ms += 1000
 
+        # cp_to_insert: [T0 + 50min, T0 + 60min]
         cp_to_insert = deepcopy(self.default_closed_position)
         cp_to_insert.position_uuid = "to_insert"
         cp_to_insert.orders[0].order_type = OrderType.SHORT
-        cp_to_insert.open_ms += 1000 * 60 * 1
+        cp_to_insert.open_ms += 1000 * 60 * 50
+        cp_to_insert.close_ms = cp_to_insert.open_ms + 1000 * 60 * 10
+        cp_to_insert.close_out_position(cp_to_insert.close_ms)
 
-        # Let's do heuristic match
+        # cp_to_match: [T0, T0 + 10min] (matches dp_to_match by heuristic)
         cp_to_match = deepcopy(self.default_closed_position)
         cp_to_match.position_uuid = "candy_to_match"
+        cp_to_match.close_ms = cp_to_match.open_ms + 1000 * 60 * 10
+        cp_to_match.close_out_position(cp_to_match.close_ms)
         order_to_insert = deepcopy(self.default_order)
         order_to_insert.order_uuid = "to_insert"
-        order_to_insert.processed_ms = self.default_order.processed_ms + 1000 * 60 * 20
+        order_to_insert.processed_ms = cp_to_match.open_ms + 1000 * 60 * 5  # Within the position's time range
         cp_to_match.orders.append(order_to_insert)
 
 
@@ -1002,21 +1029,30 @@ class TestPositions(TestBase):
         """Test edge cases around hard_snap_cutoff_ms boundary to ensure correct position handling"""
         # Create positions around the hard snap cutoff boundary
         hard_snap_cutoff_ms = self.DEFAULT_OPEN_MS
-        
+
         # Position just before cutoff - should be deleted if not in candidate
+        # Make it a closed position to avoid overlap with other positions
         before_cutoff = deepcopy(self.default_position)
         before_cutoff.position_uuid = "before_cutoff"
-        before_cutoff.open_ms = hard_snap_cutoff_ms - 1
-        
+        before_cutoff.open_ms = hard_snap_cutoff_ms - 10000
+        before_cutoff.close_ms = hard_snap_cutoff_ms - 1
+        before_cutoff.close_out_position(before_cutoff.close_ms)
+
         # Position exactly at cutoff - should be kept
+        # Make it a closed position to avoid overlap
         at_cutoff = deepcopy(self.default_position)
         at_cutoff.position_uuid = "at_cutoff"
         at_cutoff.open_ms = hard_snap_cutoff_ms
-        
+        at_cutoff.close_ms = hard_snap_cutoff_ms + 5000
+        at_cutoff.close_out_position(at_cutoff.close_ms)
+
         # Position just after cutoff - should be kept
+        # Make it a closed position to avoid overlap
         after_cutoff = deepcopy(self.default_position)
         after_cutoff.position_uuid = "after_cutoff"
-        after_cutoff.open_ms = hard_snap_cutoff_ms + 1
+        after_cutoff.open_ms = hard_snap_cutoff_ms + 10000
+        after_cutoff.close_ms = hard_snap_cutoff_ms + 15000
+        after_cutoff.close_out_position(after_cutoff.close_ms)
         
         # Test with empty candidate data - positions at/after cutoff should be kept
         candidate_data = self.positions_to_candidate_data([])
@@ -1034,7 +1070,9 @@ class TestPositions(TestBase):
         new_position = deepcopy(self.default_position)
         new_position.position_uuid = "new_position"
         new_position.open_ms = hard_snap_cutoff_ms + 1000 * 60 * 5  # 5 minutes later to avoid heuristic matching
-        
+        new_position.close_ms = hard_snap_cutoff_ms + 1000 * 60 * 5 + 5000
+        new_position.close_out_position(new_position.close_ms)
+
         # Make sure the order type is different to avoid positions_aligned matching
         new_position.orders[0].order_type = OrderType.SHORT
         new_position.orders[0].leverage = -1
@@ -1471,19 +1509,26 @@ class TestPositions(TestBase):
     def test_hard_snap_cutoff_with_position_updates(self):
         """Test that positions before cutoff are deleted even when other positions are being updated"""
         hard_snap_cutoff_ms = self.DEFAULT_OPEN_MS
-        
+
         # Create three positions - one to be deleted, one to be updated, one to be kept
+        # Make all closed positions with non-overlapping time ranges
         to_delete = deepcopy(self.default_position)
         to_delete.position_uuid = "to_delete"
-        to_delete.open_ms = hard_snap_cutoff_ms - 1000
-        
+        to_delete.open_ms = hard_snap_cutoff_ms - 10000
+        to_delete.close_ms = hard_snap_cutoff_ms - 1000
+        to_delete.close_out_position(to_delete.close_ms)
+
         to_update = deepcopy(self.default_position)
         to_update.position_uuid = "to_update"
         to_update.open_ms = hard_snap_cutoff_ms + 1000
-        
+        to_update.close_ms = hard_snap_cutoff_ms + 5000
+        to_update.close_out_position(to_update.close_ms)
+
         to_keep = deepcopy(self.default_position)
         to_keep.position_uuid = "to_keep"
-        to_keep.open_ms = hard_snap_cutoff_ms + 2000
+        to_keep.open_ms = hard_snap_cutoff_ms + 10000
+        to_keep.close_ms = hard_snap_cutoff_ms + 15000
+        to_keep.close_out_position(to_keep.close_ms)
         
         # Candidate has updated version of to_update with extra order
         candidate_update = deepcopy(to_update)
@@ -1749,13 +1794,18 @@ class TestPositions(TestBase):
     def test_perf_ledger_invalidation_tracking(self):
         """Test that perf ledger invalidation timestamps are tracked correctly"""
         # Create multiple positions with different change timestamps
+        # Make them closed positions with non-overlapping time ranges
         pos1 = deepcopy(self.default_position)
         pos1.position_uuid = "pos1"
         pos1.open_ms = self.DEFAULT_OPEN_MS
-        
+        pos1.close_ms = self.DEFAULT_OPEN_MS + 1000 * 60 * 3
+        pos1.close_out_position(pos1.close_ms)
+
         pos2 = deepcopy(self.default_position)
         pos2.position_uuid = "pos2"
         pos2.open_ms = self.DEFAULT_OPEN_MS + 1000 * 60 * 5
+        pos2.close_ms = self.DEFAULT_OPEN_MS + 1000 * 60 * 8
+        pos2.close_out_position(pos2.close_ms)
         
         # Candidate adds order to pos1 (earlier timestamp)
         new_order = deepcopy(self.default_order)
