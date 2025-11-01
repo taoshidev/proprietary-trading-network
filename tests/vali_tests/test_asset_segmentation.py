@@ -97,9 +97,16 @@ class TestAssetSegmentation(TestBase):
         # Get all asset classes from breakdown
         all_asset_classes = set(breakdown.keys())
 
-        # Check each TradePair
+        # Categories that aren't enabled for trading yet
+        disabled_categories = {TradePairCategory.EQUITIES, TradePairCategory.INDICES}
+
+        # Check each TradePair (excluding disabled categories)
         for trade_pair in TradePair:
             category = trade_pair.trade_pair_category
+
+            # Skip disabled categories - they exist in TradePair enum but aren't enabled for trading yet
+            if category in disabled_categories:
+                continue
 
             # Assert that the category exists in the breakdown
             self.assertIn(category, all_asset_classes,
