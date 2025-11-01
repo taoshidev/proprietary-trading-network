@@ -1,3 +1,4 @@
+from multiprocessing.managers import BaseManager
 import time
 from typing import List, Tuple, Dict
 
@@ -14,6 +15,41 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
+
+class LivePriceFetcherClient(BaseManager): pass
+LivePriceFetcherClient.register('LivePriceFetcher')
+
+def get_live_price_client(address=('localhost', 50000), authkey=b'secret', max_retries = 5):
+    bt.logging.info(f"Attempting to connect to LivePriceFetcher server")
+    for attempt in range(max_retries):
+        try:
+            manager = LivePriceFetcherClient(address=address, authkey=authkey)
+            manager.connect()
+            bt.logging.success(f"Successfully connected to LivePriceFetcher server")
+            return manager.LivePriceFetcher()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                bt.logging.warning(f"Failed to connect to LivePriceFetcher server (attempt {attempt + 1}/{max_retries}): {e}. Retrying in 1s...")
+                time.sleep(1)
+            else:
+                bt.logging.error(f"Failed to connect to LivePriceFetcher server after {max_retries} attempts: {e}")
+                raise
+
+class LivePriceFetcherServer(BaseManager): pass
+
+def run_live_price_server(secrets, address=('localhost', 50000), authkey=b'secret', disable_ws=False, ipc_manager=None, is_backtesting=False):
+    bt.logging.info(f"Starting LivePriceFetcher server ...")
+    try:
+        live_price_fetcher = LivePriceFetcher(secrets, disable_ws, ipc_manager, is_backtesting)
+        bt.logging.info(f"LivePriceFetcher instance created successfully")
+        LivePriceFetcherServer.register('LivePriceFetcher', callable=lambda: live_price_fetcher)
+        manager = LivePriceFetcherServer(address=address, authkey=authkey)
+        server = manager.get_server()
+        bt.logging.success(f"LivePriceFetcher server is now listening")
+        server.serve_forever()
+    except Exception as e:
+        bt.logging.error(f"Failed to start LivePriceFetcher server {e}")
+        raise
 
 class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False, ipc_manager=None, is_backtesting=False):
@@ -32,6 +68,18 @@ class LivePriceFetcher:
     def stop_all_threads(self):
         self.tiingo_data_service.stop_threads()
         self.polygon_data_service.stop_threads()
+
+    def is_market_open(self, trade_pair: TradePair) -> bool:
+        return self.polygon_data_service.is_market_open(trade_pair)
+
+    def get_unsupported_trade_pairs(self):
+        return self.polygon_data_service.UNSUPPORTED_TRADE_PAIRS
+
+    def get_currency_conversion(self, base: str, quote: str):
+        return self.polygon_data_service.get_currency_conversion(base=base, quote=quote)
+
+    def unified_candle_fetcher(self, trade_pair, start_date, order_date, timespan="day"):
+        return self.polygon_data_service.unified_candle_fetcher(trade_pair, start_date, order_date, timespan=timespan)
 
     def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """

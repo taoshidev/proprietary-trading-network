@@ -28,6 +28,7 @@ import base64
 from runnable.generate_request_core import RequestCoreManager
 from runnable.generate_request_minerstatistics import MinerStatisticsManager
 from runnable.generate_request_outputs import RequestOutputGenerator
+from vali_objects.utils import live_price_fetcher
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.p2p_syncer import P2PSyncer
 from shared_objects.rate_limiter import RateLimiter
@@ -131,7 +132,17 @@ class Validator:
         self.ipc_manager = Manager()
         self.shared_queue_websockets = self.ipc_manager.Queue()
 
-        self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False)
+        self.live_price_fetcher_process = Process(
+            target=live_price_fetcher.run_live_price_server,
+            args=(self.secrets,),
+            kwargs={'disable_ws': False},
+            daemon=True
+        )
+        self.live_price_fetcher_process.start()
+        self._wait_for_live_price_server_ready()
+        self.live_price_fetcher = live_price_fetcher.get_live_price_client();
+        # self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=False)
+
         self.price_slippage_model = PriceSlippageModel(live_price_fetcher=self.live_price_fetcher)
         # Activating Bittensor's logging with the set configurations.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
@@ -641,6 +652,25 @@ class Validator:
                 self.position_syncer.sync_positions(
                     False, candidate_data=self.position_syncer.read_validator_checkpoint_from_gcloud_zip())
 
+    def _wait_for_live_price_server_ready(self, max_wait_time=10, min_wait_time=2, check_interval=0.5):
+        bt.logging.info("LivePriceFetcher server process started, waiting for it to be ready...")
+
+        waited = 0
+        while waited < max_wait_time:
+            if not self.live_price_fetcher_process.is_alive():
+                raise RuntimeError(
+                    f"LivePriceFetcher server process died during startup. "
+                    f"Exit code: {self.live_price_fetcher_process.exitcode}"
+                )
+            time.sleep(check_interval)
+            waited += check_interval
+            if waited >= min_wait_time:
+                break
+
+        if not self.live_price_fetcher_process.is_alive():
+            raise RuntimeError("LivePriceFetcher server process failed to start")
+
+        bt.logging.info(f"LivePriceFetcher server process ready")
 
     @staticmethod
     def blacklist_fn(synapse, metagraph) -> Tuple[bool, str]:
@@ -970,12 +1000,12 @@ class Validator:
                 )
                 synapse.error_message = msg
 
-            elif not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
+            elif not self.live_price_fetcher.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
                 synapse.error_message = msg
 
-            elif tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
+            elif tp in self.live_price_fetcher.get_unsupported_trade_pairs():
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
                        f"Please try again with a different trade pair.")
                 synapse.error_message = msg
