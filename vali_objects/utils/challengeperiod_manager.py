@@ -560,9 +560,8 @@ class ChallengePeriodManager(CacheController):
         return any_changes
 
     def remove_eliminated(self, eliminations=None):
-        if eliminations is None:
-            eliminations = []
-
+        # Pass eliminations directly to _remove_eliminated_from_memory
+        # Don't convert None to [] - let the inner function handle None properly
         any_changes = self._remove_eliminated_from_memory(eliminations=eliminations)
         if any_changes:
             self._write_challengeperiod_from_memory_to_disk()

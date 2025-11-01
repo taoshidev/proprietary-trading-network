@@ -5,6 +5,7 @@ Consolidated weight calculation tests for eliminated miners.
 Combines weight calculation behavior and elimination weight tests.
 """
 import time
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 import bittensor as bt
 
@@ -20,7 +21,7 @@ from tests.vali_tests.mock_utils import (
     EnhancedMockPerfLedgerManager,
     EnhancedMockPositionManager,
     MockLedgerFactory,
-    MockScoring
+    MockSubtensorWeightSetterHelper
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
@@ -42,13 +43,16 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager, PerfLed
 from vali_objects.scoring.scoring import Scoring
 
 
-@patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
 class TestEliminationWeightCalculation(TestBase):
     """Weight calculation behavior for eliminated miners"""
-    
+
+    # Test date after DebtBasedScoring activation (Dec 2025)
+    # January 15, 2026 00:00:00 UTC
+    TEST_TIME_MS = int(datetime(2026, 1, 15, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
     def setUp(self):
         super().setUp()
-        
+
         # Create test miners
         self.ELIMINATED_MINER = "eliminated_miner"
         self.HEALTHY_MINER_1 = "healthy_miner_1"
@@ -99,12 +103,16 @@ class TestEliminationWeightCalculation(TestBase):
         )
 
         self.contract_manager = ValidatorContractManager(running_unit_tests=True)
-        
+
+        from vali_objects.utils.plagiarism_manager import PlagiarismManager
+        self.plagiarism_manager = PlagiarismManager(slack_notifier=None, running_unit_tests=True)
+
         self.challengeperiod_manager = ChallengePeriodManager(
             self.mock_metagraph,
             position_manager=self.position_manager,
             perf_ledger_manager=self.perf_ledger_manager,
             contract_manager=self.contract_manager,
+            plagiarism_manager=self.plagiarism_manager,
             running_unit_tests=True
         )
         
@@ -114,22 +122,28 @@ class TestEliminationWeightCalculation(TestBase):
         self.perf_ledger_manager.position_manager = self.position_manager
         self.perf_ledger_manager.elimination_manager = self.elimination_manager
         self.position_manager.challengeperiod_manager = self.challengeperiod_manager
-        
-        # Create weight setter
-        self.weight_setter = SubtensorWeightSetter(
-            self.mock_metagraph,
-            self.position_manager,
-            contract_manager=self.contract_manager,
-            running_unit_tests=True
-        )
-        
+
         # Clear data
         self.clear_all_data()
-        
+
         # Set up initial state
         self._setup_positions()
         self._setup_challenge_period_status()
         self._setup_perf_ledgers()
+
+        # Create weight setter with mock debt_ledger_manager (after perf ledgers are set up)
+        self.mock_debt_ledger_manager = MockSubtensorWeightSetterHelper.create_mock_debt_ledger_manager(
+            self.all_miners,
+            perf_ledger_manager=self.perf_ledger_manager
+        )
+        self.weight_setter = SubtensorWeightSetter(
+            self.mock_metagraph,
+            self.position_manager,
+            contract_manager=self.contract_manager,
+            debt_ledger_manager=self.mock_debt_ledger_manager,
+            running_unit_tests=True
+        )
+
         self._setup_eliminations()
 
     def tearDown(self):
@@ -145,16 +159,17 @@ class TestEliminationWeightCalculation(TestBase):
 
     def _setup_positions(self):
         """Create positions for all miners"""
+        position_time_ms = self.TEST_TIME_MS - MS_IN_24_HOURS * 5
         for miner in self.all_miners:
             position = Position(
                 miner_hotkey=miner,
                 position_uuid=f"{miner}_position",
-                open_ms=TimeUtil.now_in_millis() - MS_IN_24_HOURS * 5,
+                open_ms=position_time_ms,
                 trade_pair=TradePair.BTCUSD,
                 is_closed_position=False,
                 orders=[Order(
                     price=60000,
-                    processed_ms=TimeUtil.now_in_millis() - MS_IN_24_HOURS * 5,
+                    processed_ms=position_time_ms,
                     order_uuid=f"order_{miner}",
                     trade_pair=TradePair.BTCUSD,
                     order_type=OrderType.LONG,
@@ -165,62 +180,79 @@ class TestEliminationWeightCalculation(TestBase):
 
     def _setup_challenge_period_status(self):
         """Set up challenge period status"""
-        # Main competition miners
-        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_1] = (MinerBucket.MAINCOMP, 0, None, None)
-        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_2] = (MinerBucket.MAINCOMP, 0, None, None)
-        self.challengeperiod_manager.active_miners[self.ELIMINATED_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
-        
+        # Main competition miners - use start of ledger window as bucket start time
+        bucket_start_ms = self.TEST_TIME_MS - ValiConfig.TARGET_LEDGER_WINDOW_MS
+        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_1] = (MinerBucket.MAINCOMP, bucket_start_ms, None, None)
+        self.challengeperiod_manager.active_miners[self.HEALTHY_MINER_2] = (MinerBucket.MAINCOMP, bucket_start_ms, None, None)
+        self.challengeperiod_manager.active_miners[self.ELIMINATED_MINER] = (MinerBucket.MAINCOMP, bucket_start_ms, None, None)
+
         # Challenge period miner
         self.challengeperiod_manager.active_miners[self.CHALLENGE_MINER] = (
             MinerBucket.CHALLENGE,
-            TimeUtil.now_in_millis() - MS_IN_24_HOURS,
+            self.TEST_TIME_MS - MS_IN_24_HOURS,
             None,
             None
         )
-        
+
         # Probation miner
         self.challengeperiod_manager.active_miners[self.PROBATION_MINER] = (
             MinerBucket.PROBATION,
-            TimeUtil.now_in_millis() - MS_IN_24_HOURS * 3,
+            self.TEST_TIME_MS - MS_IN_24_HOURS * 3,
             None,
             None
         )
-        
+
         # Zombie miner (will be removed from metagraph)
-        self.challengeperiod_manager.active_miners[self.ZOMBIE_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
+        self.challengeperiod_manager.active_miners[self.ZOMBIE_MINER] = (MinerBucket.MAINCOMP, bucket_start_ms, None, None)
 
     def _setup_perf_ledgers(self):
         """Set up performance ledgers"""
         ledgers = {}
-        
+
+        # Use TEST_TIME_MS as the end time (current time), and calculate start based on window
+        end_ms = self.TEST_TIME_MS
+        start_ms = end_ms - ValiConfig.TARGET_LEDGER_WINDOW_MS
+
         # Healthy miners with good performance
         ledgers[self.HEALTHY_MINER_1] = MockLedgerFactory.create_winning_ledger(
+            start_ms=start_ms,
+            end_ms=end_ms,
             final_return=1.15  # 15% gain
         )
-        
+
         ledgers[self.HEALTHY_MINER_2] = MockLedgerFactory.create_winning_ledger(
-            final_return=1.10  # 10% gain  
+            start_ms=start_ms,
+            end_ms=end_ms,
+            final_return=1.10  # 10% gain
         )
-        
+
         # Eliminated miner (will be excluded from weights)
         ledgers[self.ELIMINATED_MINER] = MockLedgerFactory.create_losing_ledger(
+            start_ms=start_ms,
+            end_ms=end_ms,
             final_return=0.88  # 12% loss, exceeds MDD
         )
-        
+
         # Challenge and probation miners
         ledgers[self.CHALLENGE_MINER] = MockLedgerFactory.create_winning_ledger(
+            start_ms=start_ms,
+            end_ms=end_ms,
             final_return=1.05  # 5% gain
         )
-        
+
         ledgers[self.PROBATION_MINER] = MockLedgerFactory.create_winning_ledger(
+            start_ms=start_ms,
+            end_ms=end_ms,
             final_return=1.08  # 8% gain
         )
-        
+
         # Zombie miner
         ledgers[self.ZOMBIE_MINER] = MockLedgerFactory.create_winning_ledger(
+            start_ms=start_ms,
+            end_ms=end_ms,
             final_return=1.06  # 6% gain
         )
-        
+
         self.perf_ledger_manager.save_perf_ledgers(ledgers)
 
     def _setup_eliminations(self):
@@ -230,21 +262,23 @@ class TestEliminationWeightCalculation(TestBase):
             'hotkey': self.ELIMINATED_MINER,
             'reason': EliminationReason.MAX_TOTAL_DRAWDOWN.value,
             'dd': 0.12,
-            'elimination_initiated_time_ms': TimeUtil.now_in_millis()
+            'elimination_initiated_time_ms': self.TEST_TIME_MS
         })
+
+        # Remove eliminated miners from challenge period manager's active_miners
+        self.challengeperiod_manager.remove_eliminated()
 
     # ========== Weight Calculation Tests (from test_weight_calculation_eliminations.py) ==========
     
     def test_eliminated_miners_excluded_from_weights(self):
         """Test that eliminated miners receive zero weights"""
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
-        
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
+
         # Get miner hotkeys and weights
         metagraph_hotkeys = list(self.mock_metagraph.hotkeys)
         hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
-        
+
         # Check eliminated miner has zero weight
         # The elimination should have been processed already
         eliminated_found = False
@@ -288,8 +322,7 @@ class TestEliminationWeightCalculation(TestBase):
         self.assertTrue(mock_candle_fetcher.called)
         
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
         
         # Verify zombie is not in results
         result_hotkeys = [result[0] for result in checkpoint_results]
@@ -302,12 +335,14 @@ class TestEliminationWeightCalculation(TestBase):
             'hotkey': self.ZOMBIE_MINER,
             'reason': EliminationReason.ZOMBIE.value,
             'dd': 0.0,
-            'elimination_initiated_time_ms': TimeUtil.now_in_millis()
+            'elimination_initiated_time_ms': self.TEST_TIME_MS
         })
-        
+
+        # Remove the newly eliminated miner from active_miners
+        self.challengeperiod_manager.remove_eliminated()
+
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
         
         # Get non-zero weights
         non_zero_weights = [weight for _, weight in transformed_list if weight > 0]
@@ -321,8 +356,7 @@ class TestEliminationWeightCalculation(TestBase):
     def test_challenge_period_miners_weights(self):
         """Test weight calculation for challenge period miners"""
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
         
         # Challenge period miners should be included in results
         result_hotkeys = [result[0] for result in checkpoint_results]
@@ -360,7 +394,7 @@ class TestEliminationWeightCalculation(TestBase):
                 filtered_ledger,
                 filtered_positions,
                 asset_class_min_days=asset_class_min_days,
-                evaluation_time_ms=TimeUtil.now_in_millis(),
+                evaluation_time_ms=self.TEST_TIME_MS,
                 all_miner_account_sizes={}
             )
             
@@ -390,8 +424,7 @@ class TestEliminationWeightCalculation(TestBase):
         self.mock_metagraph.block_at_registration[idx] = target_dtao_block_zero_incentive_start + 100
         
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
         
         # The weight setter should handle this case
         # (In production, such miners might get zero weight)
@@ -417,14 +450,16 @@ class TestEliminationWeightCalculation(TestBase):
         """Test that weights always sum to 1.0 regardless of eliminations"""
         # Test with no eliminations
         self.elimination_manager.eliminations = []
+        # Re-add the eliminated miner to active_miners since we cleared eliminations
+        self.challengeperiod_manager.active_miners[self.ELIMINATED_MINER] = (MinerBucket.MAINCOMP, 0, None, None)
         current_time = TimeUtil.now_in_millis()
         _, transformed_list = self.weight_setter.compute_weights_default(current_time)
-        
+
         # The transformed_list contains raw scores, not normalized weights
         # The actual normalization happens in the subtensor.set_weights call
         # So we just verify that we have non-empty results
         self.assertGreater(len(transformed_list), 0)
-        
+
         # Test with eliminations - verify eliminated miners get zero
         self._setup_eliminations()
         _, transformed_list = self.weight_setter.compute_weights_default(current_time)
@@ -438,19 +473,22 @@ class TestEliminationWeightCalculation(TestBase):
     def test_progressive_elimination_weight_behavior(self):
         """Test weight behavior as miners are progressively eliminated"""
         current_time = TimeUtil.now_in_millis()
-        
+
         # Initial state - one elimination
         _, initial_weights = self.weight_setter.compute_weights_default(current_time)
         initial_non_zero = sum(1 for _, w in initial_weights if w > 0)
-        
+
         # Add another elimination
         self.elimination_manager.eliminations.append({
             'hotkey': self.HEALTHY_MINER_2,
             'reason': EliminationReason.PLAGIARISM.value,
             'dd': 0.0,
-            'elimination_initiated_time_ms': TimeUtil.now_in_millis()
+            'elimination_initiated_time_ms': self.TEST_TIME_MS
         })
-        
+
+        # Remove the newly eliminated miner from active_miners
+        self.challengeperiod_manager.remove_eliminated()
+
         # Recompute weights
         _, new_weights = self.weight_setter.compute_weights_default(current_time)
         new_non_zero = sum(1 for _, w in new_weights if w > 0)
@@ -542,12 +580,14 @@ class TestEliminationWeightCalculation(TestBase):
                 'hotkey': miner,
                 'reason': EliminationReason.MAX_TOTAL_DRAWDOWN.value,
                 'dd': 0.15,
-                'elimination_initiated_time_ms': TimeUtil.now_in_millis()
+                'elimination_initiated_time_ms': self.TEST_TIME_MS
             })
-        
+
+        # Remove all newly eliminated miners from active_miners
+        self.challengeperiod_manager.remove_eliminated()
+
         # Compute weights
-        current_time = TimeUtil.now_in_millis()
-        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(current_time)
+        checkpoint_results, transformed_list = self.weight_setter.compute_weights_default(self.TEST_TIME_MS)
         
         # Should have exactly one miner with weight 1.0
         non_zero_weights = [(idx, w) for idx, w in transformed_list if w > 0]

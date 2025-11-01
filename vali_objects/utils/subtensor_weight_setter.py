@@ -62,6 +62,7 @@ class SubtensorWeightSetter(CacheController):
 
         # Collect metagraph hotkeys to ensure we are only setting weights for miners in the metagraph
         metagraph_hotkeys = list(self.metagraph.hotkeys)
+        metagraph_hotkeys_set = set(metagraph_hotkeys)
         hotkey_to_idx = {hotkey: idx for idx, hotkey in enumerate(metagraph_hotkeys)}
 
         # Get all miners from all buckets
@@ -79,10 +80,20 @@ class SubtensorWeightSetter(CacheController):
         else:
             all_hotkeys = challenge_hotkeys + probation_hotkeys + plagiarism_hotkeys + success_hotkeys
 
+        # Filter out zombie miners (miners in buckets but not in metagraph)
+        # This can happen when miners deregister but haven't been pruned from active_miners yet
+        all_hotkeys_before_filter = len(all_hotkeys)
+        all_hotkeys = [hk for hk in all_hotkeys if hk in metagraph_hotkeys_set]
+        zombies_filtered = all_hotkeys_before_filter - len(all_hotkeys)
+
+        if zombies_filtered > 0:
+            bt.logging.info(f"Filtered out {zombies_filtered} zombie miners (not in metagraph)")
+
         bt.logging.info(
             f"Computing weights for {len(all_hotkeys)} miners: "
             f"{len(success_hotkeys)} MAINCOMP, {len(probation_hotkeys)} PROBATION, "
-            f"{len(challenge_hotkeys)} CHALLENGE, {len(plagiarism_hotkeys)} PLAGIARISM"
+            f"{len(challenge_hotkeys)} CHALLENGE, {len(plagiarism_hotkeys)} PLAGIARISM "
+            f"({zombies_filtered} zombies filtered)"
         )
 
         # Compute weights for all miners using debt-based scoring

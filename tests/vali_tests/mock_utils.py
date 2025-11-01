@@ -28,14 +28,14 @@ from vali_objects.scoring.scoring import Scoring
 
 class EnhancedMockMetagraph(BaseMockMetagraph):
     """Enhanced mock metagraph with full attribute support"""
-    
+
     def __init__(self, hotkeys, neurons=None):
         super().__init__(hotkeys, neurons)
-        
+
         # Initialize block attributes first
         self.block = 10000  # Default block number
         self.uid_to_block = {i: 1000 for i in range(len(hotkeys))}
-        
+
         # Initialize all required attributes
         self.n = len(hotkeys)
         self.uids = list(range(len(hotkeys)))
@@ -49,11 +49,33 @@ class EnhancedMockMetagraph(BaseMockMetagraph):
         self.validator_permit = [True] * len(hotkeys)
         self.weights = [[0.0] * len(hotkeys) for _ in range(len(hotkeys))]
         self.bonds = [[0.0] * len(hotkeys) for _ in range(len(hotkeys))]
-        
+
         # Registration tracking
         self.block_at_registration = [1000] * len(hotkeys)
         self.uid_to_hotkey = {i: hk for i, hk in enumerate(hotkeys)}
         self.hotkey_to_uid = {hk: i for i, hk in enumerate(hotkeys)}
+
+        # Attributes for DebtBasedScoring (production code requirements)
+        # Emission: TAO per tempo (360 blocks), one value per UID
+        # Assume 0.1 TAO per tempo per miner as reasonable default
+        self.emission = [0.1] * len(hotkeys)
+
+        # Substrate reserves for ALPHA/TAO conversion
+        # Need to mimic multiprocessing.Value objects with .value accessor
+        from unittest.mock import MagicMock
+
+        # Reserve values: 1M TAO reserve, 10M ALPHA reserve
+        # This gives alpha_to_tao_rate = 1M / 10M = 0.1 TAO per ALPHA
+        tao_reserve_mock = MagicMock()
+        tao_reserve_mock.value = 1_000_000 * 1e9  # 1M TAO in RAO
+        self.tao_reserve_rao = tao_reserve_mock
+
+        alpha_reserve_mock = MagicMock()
+        alpha_reserve_mock.value = 10_000_000 * 1e9  # 10M ALPHA in RAO
+        self.alpha_reserve_rao = alpha_reserve_mock
+
+        # TAO to USD price: $500 per TAO as reasonable test value
+        self.tao_to_usd_rate = 500.0
         
     def sync(self, block=None, lite=True):
         """Mock sync method"""
@@ -101,23 +123,43 @@ class EnhancedMockMetagraph(BaseMockMetagraph):
 
 class EnhancedMockChallengePeriodManager(BaseMockChallengePeriodManager):
     """Enhanced mock challenge period manager with full bucket support"""
-    
+
     def __init__(self, metagraph, position_manager, perf_ledger_manager, contract_manager, plagiarism_manager, running_unit_tests=True):
         super().__init__(metagraph, position_manager, contract_manager, plagiarism_manager)
         self.perf_ledger_manager = perf_ledger_manager
-        
+        self.elimination_manager = position_manager.elimination_manager if position_manager else None
+
         # Initialize bucket storage
         self.active_miners = {}  # hotkey -> (bucket, timestamp)
         self.eliminations_with_reasons = {}
         self.miner_plagiarism_scores = {}
-        
+
         # Performance thresholds
         self.elimination_threshold = 0.25  # Bottom 25% get eliminated
-        
+
     def get_hotkeys_by_bucket(self, bucket: MinerBucket) -> List[str]:
-        """Get all hotkeys in a specific bucket"""
-        return [hk for hk, (b, _, _, _) in self.active_miners.items() if b == bucket]
-    
+        """Get all hotkeys in a specific bucket, excluding eliminated miners"""
+        # Get eliminated hotkeys if elimination_manager is available
+        eliminated_hotkeys = set()
+        if self.elimination_manager:
+            eliminated_hotkeys = set(self.elimination_manager.get_eliminated_hotkeys())
+
+        # Return hotkeys in the bucket that are not eliminated
+        return [hk for hk, (b, _, _, _) in self.active_miners.items()
+                if b == bucket and hk not in eliminated_hotkeys]
+
+    def remove_eliminated(self):
+        """Remove eliminated miners from active_miners"""
+        if not self.elimination_manager:
+            return
+
+        eliminated_hotkeys = set(self.elimination_manager.get_eliminated_hotkeys())
+
+        # Remove eliminated miners from active_miners
+        miners_to_remove = [hk for hk in self.active_miners.keys() if hk in eliminated_hotkeys]
+        for hotkey in miners_to_remove:
+            del self.active_miners[hotkey]
+
     def set_miner_bucket(self, hotkey: str, bucket: MinerBucket, timestamp_ms: int = None):
         """Set a miner's bucket"""
         if timestamp_ms is None:
@@ -385,7 +427,7 @@ class MockLedgerFactory:
 
 class MockSubtensorWeightSetterHelper:
     """Helper for setting up weight setter tests"""
-    
+
     @staticmethod
     def create_mock_subtensor():
         """Create a properly configured mock subtensor"""
@@ -393,7 +435,7 @@ class MockSubtensorWeightSetterHelper:
         mock_subtensor.set_weights = MagicMock(return_value=(True, "Success"))
         mock_subtensor.get_current_block = MagicMock(return_value=10000)
         return mock_subtensor
-        
+
     @staticmethod
     def create_mock_wallet():
         """Create a properly configured mock wallet"""
@@ -402,10 +444,92 @@ class MockSubtensorWeightSetterHelper:
         mock_wallet.coldkey = MagicMock()
         return mock_wallet
 
+    @staticmethod
+    def create_mock_debt_ledger_manager(hotkeys: List[str] = None, perf_ledger_manager = None):
+        """
+        Create a properly configured mock debt ledger manager
+
+        Args:
+            hotkeys: List of hotkeys to create debt ledgers for. If None, creates empty dict.
+            perf_ledger_manager: Optional perf ledger manager to extract checkpoint data from
+        """
+        from vali_objects.vali_dataclasses.debt_ledger import DebtLedger, DebtCheckpoint
+
+        mock_manager = MagicMock()
+
+        if hotkeys:
+            # Create debt ledgers aligned with perf ledgers if available
+            mock_manager.debt_ledgers = {}
+
+            for hotkey in hotkeys:
+                # Create a debt ledger with at least one checkpoint
+                debt_ledger = DebtLedger(hotkey=hotkey)
+
+                # If we have perf ledger manager, extract performance data
+                if perf_ledger_manager:
+                    perf_ledgers = perf_ledger_manager.get_perf_ledgers(portfolio_only=False)
+                    if hotkey in perf_ledgers:
+                        miner_ledgers = perf_ledgers[hotkey]
+                        portfolio_ledger = miner_ledgers.get(TP_ID_PORTFOLIO)
+
+                        if portfolio_ledger and portfolio_ledger.cps:
+                            # Get the latest checkpoint from perf ledger
+                            latest_cp = portfolio_ledger.cps[-1]
+
+                            # Create debt checkpoint with matching performance data
+                            debt_checkpoint = DebtCheckpoint(
+                                timestamp_ms=latest_cp.last_update_ms,
+                                # Performance data from perf ledger
+                                portfolio_return=latest_cp.prev_portfolio_ret,
+                                max_drawdown=latest_cp.mdd,
+                                max_portfolio_value=latest_cp.mpv,
+                                pnl_gain=latest_cp.gain if hasattr(latest_cp, 'gain') else 0.0,
+                                pnl_loss=latest_cp.loss if hasattr(latest_cp, 'loss') else 0.0,
+                                open_ms=latest_cp.open_ms,
+                                accum_ms=latest_cp.accum_ms,
+                                n_updates=latest_cp.n_updates,
+                                # Default penalty values
+                                total_penalty=1.0
+                            )
+
+                            # Add checkpoint to ledger (use target duration from ValiConfig)
+                            debt_ledger.add_checkpoint(debt_checkpoint, ValiConfig.TARGET_CHECKPOINT_DURATION_MS)
+                        else:
+                            # No perf checkpoint data - create default checkpoint
+                            debt_checkpoint = DebtCheckpoint(
+                                timestamp_ms=TimeUtil.now_in_millis(),
+                                portfolio_return=1.0,
+                                total_penalty=1.0
+                            )
+                            debt_ledger.add_checkpoint(debt_checkpoint, ValiConfig.TARGET_CHECKPOINT_DURATION_MS)
+                    else:
+                        # Hotkey not in perf ledgers - create default checkpoint
+                        debt_checkpoint = DebtCheckpoint(
+                            timestamp_ms=TimeUtil.now_in_millis(),
+                            portfolio_return=1.0,
+                            total_penalty=1.0
+                        )
+                        debt_ledger.add_checkpoint(debt_checkpoint, ValiConfig.TARGET_CHECKPOINT_DURATION_MS)
+                else:
+                    # No perf ledger manager - create default checkpoint
+                    debt_checkpoint = DebtCheckpoint(
+                        timestamp_ms=TimeUtil.now_in_millis(),
+                        portfolio_return=1.0,
+                        total_penalty=1.0
+                    )
+                    debt_ledger.add_checkpoint(debt_checkpoint, ValiConfig.TARGET_CHECKPOINT_DURATION_MS)
+
+                mock_manager.debt_ledgers[hotkey] = debt_ledger
+        else:
+            # Empty dict - weight calculation will handle this gracefully
+            mock_manager.debt_ledgers = {}
+
+        return mock_manager
+
 
 class MockScoring:
     """Mock scoring implementation for testing"""
-    
+
     @staticmethod
     def compute_results_checkpoint(
         ledger_dict: Dict[str, Dict[str, PerfLedger]],
@@ -416,35 +540,72 @@ class MockScoring:
         """Mock compute_results_checkpoint that returns simple scores"""
         if evaluation_time_ms is None:
             evaluation_time_ms = TimeUtil.now_in_millis()
-            
+
         results = []
-        
+
         # Generate scores based on ledger performance
         for hotkey, miner_ledger in ledger_dict.items():
             portfolio_ledger = miner_ledger.get(TP_ID_PORTFOLIO)
             if not portfolio_ledger or not portfolio_ledger.cps:
                 continue
-                
+
             # Calculate simple return
             if len(portfolio_ledger.cps) > 0:
                 initial_return = portfolio_ledger.cps[0].prev_portfolio_ret
                 final_return = portfolio_ledger.cps[-1].prev_portfolio_ret
                 total_return = (final_return / initial_return) - 1.0
-                
+
                 # Simple scoring: positive return = good score
                 score = max(0.0, min(1.0, 0.5 + total_return))
             else:
                 score = 0.0
-                
+
             results.append((hotkey, score))
-            
+
         # Sort by score descending
         results.sort(key=lambda x: x[1], reverse=True)
         return results
-    
+
     @staticmethod
     def score_testing_miners(filtered_ledger, checkpoint_results):
         """Mock score_testing_miners for challenge period miners"""
         # For testing miners, we just pass through the results
         # In production, this would apply special scoring logic
         return checkpoint_results
+
+
+class MockDebtBasedScoring:
+    """Mock debt-based scoring implementation for testing"""
+
+    @staticmethod
+    def compute_results(
+        ledger_dict: dict,
+        metagraph,
+        challengeperiod_manager,
+        current_time_ms: int = None,
+        **kwargs
+    ):
+        """Mock compute_results that uses actual debt ledger checkpoint data for tests"""
+        if current_time_ms is None:
+            current_time_ms = TimeUtil.now_in_millis()
+
+        results = []
+
+        # Extract scores from debt ledger checkpoints
+        for hotkey, debt_ledger in ledger_dict.items():
+            # Get the latest checkpoint from the debt ledger
+            latest_checkpoint = debt_ledger.get_latest_checkpoint()
+
+            if latest_checkpoint:
+                # Use weighted_score which combines portfolio_return and penalties
+                # This is what the production debt-based scoring uses
+                score = latest_checkpoint.weighted_score
+            else:
+                # No checkpoint data - assign zero score
+                score = 0.0
+
+            results.append((hotkey, score))
+
+        # Sort by score descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
