@@ -976,3 +976,74 @@ class DebtBasedScoring:
             )
 
         return result
+
+    @staticmethod
+    def _assign_static_dust_weights(
+        hotkeys: List[str],
+        metagraph: 'bt.metagraph',
+        challengeperiod_manager: 'ChallengePeriodManager',
+        current_time_ms: int,
+        is_testnet: bool = False,
+        verbose: bool = False
+    ) -> List[Tuple[str, float]]:
+        """
+        Assign static dust weights without requiring debt ledgers.
+
+        Used during pre-activation period when debt ledgers haven't been loaded yet.
+        This allows immediate weight assignment at startup without waiting for debt ledger daemon.
+
+        Unlike _apply_pre_activation_weights(), this method works with just a list of hotkeys
+        and doesn't require debt ledgers to be available. It queries bucket status directly
+        from challengeperiod_manager and assigns appropriate dust weights.
+
+        Args:
+            hotkeys: List of miner hotkeys to assign weights for
+            metagraph: Bittensor metagraph
+            challengeperiod_manager: Manager for querying bucket status
+            current_time_ms: Current timestamp
+            is_testnet: True for testnet, False for mainnet
+            verbose: Enable detailed logging
+
+        Returns:
+            List of (hotkey, weight) tuples with static dust weights + burn address
+        """
+        DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+        # Static dust multipliers by bucket
+        status_to_dust_multiplier = {
+            MinerBucket.CHALLENGE.value: 1,
+            MinerBucket.PLAGIARISM.value: 1,
+            MinerBucket.PROBATION.value: 2,
+            MinerBucket.MAINCOMP.value: 3,
+            MinerBucket.UNKNOWN.value: 0,
+        }
+
+        # Query bucket status for all miners
+        miner_weights = {}
+        for hotkey in hotkeys:
+            bucket = challengeperiod_manager.get_miner_bucket(hotkey).value
+            multiplier = status_to_dust_multiplier.get(bucket, 1)
+            dust_weight = multiplier * DUST
+            miner_weights[hotkey] = dust_weight
+
+            if verbose:
+                bucket_name = MinerBucket(bucket).name if bucket in [b.value for b in MinerBucket] else "UNKNOWN"
+                bt.logging.debug(
+                    f"{hotkey[:16]}...{hotkey[-8:]}: bucket={bucket_name}, dust={dust_weight:.8f}"
+                )
+
+        # Normalize with burn address logic
+        result = DebtBasedScoring._normalize_with_burn_address(
+            weights=miner_weights,
+            metagraph=metagraph,
+            is_testnet=is_testnet,
+            verbose=verbose
+        )
+
+        if verbose:
+            bt.logging.info(
+                f"Static dust weights assigned for {len(miner_weights)} miners "
+                f"(no debt ledgers needed in pre-activation mode)"
+            )
+
+        return result

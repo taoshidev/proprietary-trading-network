@@ -140,8 +140,7 @@ class SubtensorWeightSetter(CacheController):
                 bt.logging.info(
                     f"No debt ledgers loaded yet for {miner_group}. "
                     f"Requested {len(hotkeys_to_compute_weights_for)} hotkeys. "
-                    f"Debt ledger daemon likely still building initial data (120s delay + build time). "
-                    f"Will retry in 5 minutes."
+                    f"Debt ledger daemon likely still building initial data (120s delay + build time)."
                 )
             else:
                 bt.logging.warning(
@@ -155,7 +154,63 @@ class SubtensorWeightSetter(CacheController):
                     )
                     sample_available = list(self.debt_ledger_manager.debt_ledgers.keys())[0]
                     bt.logging.debug(f"Sample available hotkey: {sample_available[:16]}...")
-            return [], []
+
+            # Check if we're in pre-activation period (before Dec 2025)
+            # If so, we can assign static dust weights without debt ledgers
+            current_dt = TimeUtil.millis_to_datetime(current_time)
+            current_year = current_dt.year
+            current_month = current_dt.month
+
+            # Calculate previous month
+            if current_month == 1:
+                prev_month = 12
+                prev_year = current_year - 1
+            else:
+                prev_month = current_month - 1
+                prev_year = current_year
+
+            # If before Dec 2025, we can assign dust weights without debt ledgers
+            if (prev_year < DebtBasedScoring.ACTIVATION_YEAR or
+                (prev_year == DebtBasedScoring.ACTIVATION_YEAR and
+                 prev_month < DebtBasedScoring.ACTIVATION_MONTH)):
+
+                bt.logging.info(
+                    f"Pre-activation mode ({prev_year}-{prev_month:02d}). "
+                    f"Assigning static dust weights immediately without debt ledgers for "
+                    f"{len(hotkeys_to_compute_weights_for)} miners."
+                )
+
+                # Use static dust weights (no historical data needed)
+                checkpoint_results = DebtBasedScoring._assign_static_dust_weights(
+                    hotkeys=hotkeys_to_compute_weights_for,
+                    metagraph=self.metagraph,
+                    challengeperiod_manager=self.position_manager.challengeperiod_manager,
+                    current_time_ms=current_time,
+                    is_testnet=not self.is_mainnet,
+                    verbose=True
+                )
+
+                bt.logging.info(f"Static dust weights assigned for {miner_group}: [{checkpoint_results}]")
+
+                # Convert to netuid weights
+                checkpoint_netuid_weights = []
+                for miner, score in checkpoint_results:
+                    if miner in hotkey_to_idx:
+                        checkpoint_netuid_weights.append((
+                            hotkey_to_idx[miner],
+                            score
+                        ))
+                    else:
+                        bt.logging.error(f"Miner {miner} not found in the metagraph.")
+
+                return checkpoint_netuid_weights, checkpoint_results
+            else:
+                # After activation, we need debt ledgers - return empty and wait
+                bt.logging.info(
+                    f"Post-activation mode ({prev_year}-{prev_month:02d}). "
+                    f"Debt ledgers required for weight calculation. Will retry in 5 minutes."
+                )
+                return [], []
 
         # Use debt-based scoring with shared metagraph
         # The metagraph contains substrate reserves refreshed by MetagraphUpdater
