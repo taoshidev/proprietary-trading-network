@@ -10,14 +10,15 @@ from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, TP_ID_PORTFOLI
 # Common patches and mocks for all tests
 MOCK_ASSET_BREAKDOWN = {
     TradePairCategory.CRYPTO: {
-        "subcategory_weights": {"crypto_majors": 0.7}
+        "emission": 0.5,
+        "days_in_year": 365
     }
 }
 
-def create_mock_trade_pair(subcategory):
-    """Helper to create mock trade pairs with specified subcategory"""
+def create_mock_trade_pair(trade_pair_category):
+    """Helper to create mock trade pairs with specified category"""
     mock_trade_pair = Mock()
-    mock_trade_pair.subcategory = subcategory
+    mock_trade_pair.trade_pair_category = trade_pair_category
     return mock_trade_pair
 
 
@@ -30,17 +31,11 @@ class TestAssetSegmentation(TestBase):
         self.mock_asset_breakdown = {
             TradePairCategory.CRYPTO: {
                 "emission": 0.4,
-                "subcategory_weights": {
-                    "crypto_majors": 0.7,
-                    "crypto_alts": 0.3
-                }
+                "days_in_year": 365
             },
             TradePairCategory.FOREX: {
                 "emission": 0.6,
-                "subcategory_weights": {
-                    "forex_group1": 0.5,
-                    "forex_group2": 0.5
-                }
+                "days_in_year": 252
             }
         }
         
@@ -72,104 +67,96 @@ class TestAssetSegmentation(TestBase):
     def test_init(self):
         """Test AssetSegmentation initialization"""
         segmentation = AssetSegmentation(self.test_ledgers)
-        
+
         self.assertEqual(segmentation.overall_ledgers, self.test_ledgers)
         self.assertIsInstance(segmentation.asset_breakdown, dict)
-        self.assertIsInstance(segmentation.asset_subcategories, set)
+        self.assertIsInstance(segmentation.asset_classes, set)
 
-    def test_distill_asset_subcategories(self):
-        """Test distill_asset_subcategories static method"""
-        subcategories = AssetSegmentation.distill_asset_subcategories(self.mock_asset_breakdown)
-        
-        expected_subcategories = {"crypto_majors", "crypto_alts", "forex_group1", "forex_group2"}
-        self.assertEqual(subcategories, expected_subcategories)
+    def test_distill_asset_classes(self):
+        """Test distill_asset_classes static method"""
+        asset_classes = AssetSegmentation.distill_asset_classes(self.mock_asset_breakdown)
+
+        expected_classes = {TradePairCategory.CRYPTO, TradePairCategory.FOREX}
+        self.assertEqual(asset_classes, expected_classes)
 
     def test_asset_weight_sum_to_one(self):
-        """Test that weights sum to one"""
+        """Test that emission weights sum to one"""
         breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
         asset_class_sum = 0
 
         for data in breakdown.values():
             asset_class_sum += data['emission']
-            subcategory_sum = 0
-            for weight in data['subcategory_weights'].values():
-                subcategory_sum += weight
 
-            # Sub categories should sum to one
-            self.assertEqual(1, subcategory_sum)
-
-        # Asset class categories should sum to one
+        # Asset class emissions should sum to one
         self.assertEqual(1, asset_class_sum)
 
     def test_all_trade_pairs_belong_to_correct_category(self):
         """Test that all trade pairs in ValiConfig belong to their declared TradePairCategory"""
         breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
-        
-        # Get all subcategories from breakdown
-        all_subcategories = set()
-        for category_data in breakdown.values():
-            subcategory_weights = category_data.get('subcategory_weights', {})
-            all_subcategories.update(subcategory_weights.keys())
-        
-        # Check each TradePair
+
+        # Get all asset classes from breakdown
+        all_asset_classes = set(breakdown.keys())
+
+        # Categories that aren't enabled for trading yet
+        disabled_categories = {TradePairCategory.EQUITIES, TradePairCategory.INDICES}
+
+        # Check each TradePair (excluding disabled categories)
         for trade_pair in TradePair:
             category = trade_pair.trade_pair_category
-            subcategory = trade_pair.subcategory
-            
-            # Skip trade pairs without subcategories (commodities, equities, indices)
-            if subcategory is None:
+
+            # Skip disabled categories - they exist in TradePair enum but aren't enabled for trading yet
+            if category in disabled_categories:
                 continue
-            
-            # Assert that the subcategory exists in the breakdown
-            self.assertIn(subcategory, all_subcategories, 
-                         f"Trade pair {trade_pair.name} has subcategory {subcategory} not found in ASSET_CLASS_BREAKDOWN")
-            
-            # Assert that the subcategory belongs to the correct category
-            category_breakdown = breakdown.get(category, {})
-            subcategory_weights = category_breakdown.get('subcategory_weights', {})
-            self.assertIn(subcategory, subcategory_weights, 
-                         f"Trade pair {trade_pair.name} subcategory {subcategory} not found in category {category} breakdown")
+
+            # Assert that the category exists in the breakdown
+            self.assertIn(category, all_asset_classes,
+                         f"Trade pair {trade_pair.name} has category {category} not found in ASSET_CLASS_BREAKDOWN")
 
 
     @patch.object(TradePair, 'from_trade_pair_id')
     @patch.object(ValiConfig, 'ASSET_CLASS_BREAKDOWN', new_callable=lambda: MOCK_ASSET_BREAKDOWN)
-    def test_ledger_subset_valid_subcategory(self, mock_asset_breakdown, mock_from_trade_pair_id):
-        """Test ledger_subset with valid asset subcategory"""
-        mock_from_trade_pair_id.return_value = create_mock_trade_pair("crypto_majors")
-        
+    def test_ledger_subset_valid_asset_class(self, mock_asset_breakdown, mock_from_trade_pair_id):
+        """Test ledger_subset with valid asset class"""
+        mock_from_trade_pair_id.return_value = create_mock_trade_pair(TradePairCategory.CRYPTO)
+
         segmentation = AssetSegmentation(self.test_ledgers)
-        segmentation.asset_subcategories = {"crypto_majors"}
-        
-        subset = segmentation.ledger_subset("crypto_majors")
-        
+        segmentation.asset_classes = {TradePairCategory.CRYPTO}
+
+        subset = segmentation.ledger_subset(TradePairCategory.CRYPTO)
+
         self.assertIn("miner1", subset)
         self.assertIn("miner2", subset)
         # Should not include portfolio in subset
         for miner_ledgers in subset.values():
             self.assertNotIn(TP_ID_PORTFOLIO, miner_ledgers)
 
-    def test_ledger_subset_invalid_subcategory(self):
-        """Test ledger_subset with invalid asset subcategory"""
+    def test_ledger_subset_invalid_asset_class(self):
+        """Test ledger_subset with invalid asset class"""
         segmentation = AssetSegmentation(self.test_ledgers)
-        
+
+        # Create a mock invalid category
+        invalid_category = Mock()
+        invalid_category.value = "invalid_category"
+
         with self.assertRaises(ValueError) as context:
-            segmentation.ledger_subset("invalid_subcategory")
-        
-        self.assertIn("Asset class invalid_subcategory is not recognized", str(context.exception))
+            segmentation.ledger_subset(invalid_category)
+
+        self.assertIn("Asset class", str(context.exception))
 
     @patch.object(TradePair, 'from_trade_pair_id')
-    def test_ledger_subset_none_subcategory(self, mock_from_trade_pair_id):
-        """Test ledger_subset when trade pair has None subcategory"""
-        mock_from_trade_pair_id.return_value = create_mock_trade_pair(None)
-        
-        segmentation = AssetSegmentation(self.test_ledgers)
-        segmentation.asset_subcategories = {"crypto_majors"}
-        
-        # with patch('bittensor.logging.warning') as mock_warning:
-        #     segmentation.ledger_subset("crypto_majors")
-        #     mock_warning.assert_called()
+    def test_ledger_subset_excludes_other_categories(self, mock_from_trade_pair_id):
+        """Test ledger_subset only includes trade pairs from specified category"""
+        mock_from_trade_pair_id.return_value = create_mock_trade_pair(TradePairCategory.FOREX)
 
-        assert all(value == {} for value in segmentation.ledger_subset("crypto_majors").values())
+        segmentation = AssetSegmentation(self.test_ledgers)
+        segmentation.asset_classes = {TradePairCategory.FOREX}
+
+        # When filtering for FOREX, should not include CRYPTO pairs
+        subset = segmentation.ledger_subset(TradePairCategory.FOREX)
+
+        # Both miners have forex pairs
+        self.assertIn("miner1", subset)
+        self.assertIn("miner2", subset)
 
     def test_aggregate_miner_subledgers_empty(self):
         """Test aggregate_miner_subledgers with empty sub_ledgers"""
@@ -265,32 +252,36 @@ class TestAssetSegmentation(TestBase):
 
     @patch.object(AssetSegmentation, 'ledger_subset')
     @patch.object(AssetSegmentation, 'aggregate_miner_subledgers')
-    def test_segmentation_valid_subcategory(self, mock_aggregate, mock_subset):
-        """Test segmentation method with valid subcategory"""
+    def test_segmentation_valid_asset_class(self, mock_aggregate, mock_subset):
+        """Test segmentation method with valid asset class"""
         btc_ledger = self.test_ledgers["miner1"]["BTCUSD"]
-        
+
         mock_subset.return_value = {
             "miner1": {"BTCUSD": btc_ledger}
         }
         mock_aggregate.return_value = btc_ledger
-        
+
         segmentation = AssetSegmentation(self.test_ledgers)
-        segmentation.asset_subcategories = {"crypto_majors"}
-        
-        result = segmentation.segmentation("crypto_majors")
-        
+        segmentation.asset_classes = {TradePairCategory.CRYPTO}
+
+        result = segmentation.segmentation(TradePairCategory.CRYPTO)
+
         self.assertIn("miner1", result)
-        mock_subset.assert_called_once_with("crypto_majors")
+        mock_subset.assert_called_once_with(TradePairCategory.CRYPTO)
         mock_aggregate.assert_called_once()
 
-    def test_segmentation_invalid_subcategory(self):
-        """Test segmentation method with invalid subcategory"""
+    def test_segmentation_invalid_asset_class(self):
+        """Test segmentation method with invalid asset class"""
         segmentation = AssetSegmentation(self.test_ledgers)
-        
+
+        # Create a mock invalid category
+        invalid_category = Mock()
+        invalid_category.value = "invalid_category"
+
         with self.assertRaises(ValueError) as context:
-            segmentation.segmentation("invalid_subcategory")
-        
-        self.assertIn("Asset class invalid_subcategory is not recognized", str(context.exception))
+            segmentation.segmentation(invalid_category)
+
+        self.assertIn("Asset class", str(context.exception))
 
     def test_segment_competitiveness_base_cases(self):
         """Test segment_competitiveness with empty incentive distribution"""
@@ -329,42 +320,42 @@ class TestAssetSegmentation(TestBase):
     def test_asset_competitiveness_dictionary_empty(self):
         """Test asset_competitiveness_dictionary with empty distributions"""
         distributions = {
-            "crypto_majors": {},
-            "forex_group1": {}
+            TradePairCategory.CRYPTO: {},
+            TradePairCategory.FOREX: {}
         }
-        
+
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
 
-        self.assertIsNone(result["crypto_majors"])
-        self.assertIsNone(result["forex_group1"])
+        self.assertIsNone(result[TradePairCategory.CRYPTO])
+        self.assertIsNone(result[TradePairCategory.FOREX])
 
     def test_asset_competitiveness_dictionary_valid(self):
         """Test asset_competitiveness_dictionary with valid distributions"""
         distributions = {
-            "crypto_majors": {"miner1": 1.0, "miner2": 2.0, "miner3": 3.0},
-            "forex_group1": {"miner1": 2.0, "miner2": 2.0}
+            TradePairCategory.CRYPTO: {"miner1": 1.0, "miner2": 2.0, "miner3": 3.0},
+            TradePairCategory.FOREX: {"miner1": 2.0, "miner2": 2.0}
         }
-        
+
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
-        
-        self.assertIn("crypto_majors", result)
-        self.assertIn("forex_group1", result)
-        self.assertGreater(result["crypto_majors"], 0.0)  # Should show inequality
-        self.assertAlmostEqual(result["forex_group1"], 0.0, places=5)  # Equal distribution
+
+        self.assertIn(TradePairCategory.CRYPTO, result)
+        self.assertIn(TradePairCategory.FOREX, result)
+        self.assertGreater(result[TradePairCategory.CRYPTO], 0.0)  # Should show inequality
+        self.assertAlmostEqual(result[TradePairCategory.FOREX], 0.0, places=5)  # Equal distribution
 
     def test_asset_competitiveness_dictionary_mixed(self):
         """Test asset_competitiveness_dictionary with mixed distributions"""
         distributions = {
-            "crypto_majors": {"miner1": 1.0, "miner2": 5.0},
-            "forex_group1": {},
-            "indices_group1": {"miner1": 3.0}
+            TradePairCategory.CRYPTO: {"miner1": 1.0, "miner2": 5.0},
+            TradePairCategory.FOREX: {},
+            TradePairCategory.INDICES: {"miner1": 3.0}
         }
-        
+
         result = AssetSegmentation.asset_competitiveness_dictionary(distributions)
-        
-        self.assertGreater(result["crypto_majors"], 0.0)
-        self.assertIsNone(result["forex_group1"])
-        self.assertAlmostEqual(result["indices_group1"], 0.0, places=5)
+
+        self.assertGreater(result[TradePairCategory.CRYPTO], 0.0)
+        self.assertIsNone(result[TradePairCategory.FOREX])
+        self.assertAlmostEqual(result[TradePairCategory.INDICES], 0.0, places=5)
 
     def test_aggregation_preserves_checkpoint_order(self):
         """Test that aggregation preserves chronological order of checkpoints"""
@@ -396,10 +387,10 @@ class TestAssetSegmentation(TestBase):
         """Test that days_in_year_from_asset_category returns correct value for CRYPTO"""
         # Create segmentation machine similar to score_miners initialization
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
-        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
-        
+        asset_classes = AssetSegmentation.distill_asset_classes(asset_class_breakdown)
+
         segmentation_machine = AssetSegmentation(self.test_ledgers)
-        
+
         # Test crypto asset category
         days_in_year = segmentation_machine.days_in_year_from_asset_category(TradePairCategory.CRYPTO)
         self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_CRYPTO)
@@ -409,32 +400,32 @@ class TestAssetSegmentation(TestBase):
         """Test that days_in_year_from_asset_category returns correct value for FOREX"""
         # Create segmentation machine similar to score_miners initialization
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
-        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
-        
+        asset_classes = AssetSegmentation.distill_asset_classes(asset_class_breakdown)
+
         segmentation_machine = AssetSegmentation(self.test_ledgers)
-        
+
         # Test forex asset category
         days_in_year = segmentation_machine.days_in_year_from_asset_category(TradePairCategory.FOREX)
         self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_FOREX)
         self.assertEqual(days_in_year, 252)
 
-    def test_days_in_year_matches_subcategory_asset_class(self):
-        """Test that days_in_year matches the subcategory's asset class in score_miners pattern"""
+    def test_days_in_year_matches_asset_class(self):
+        """Test that days_in_year matches the asset class in score_miners pattern"""
         # Initialize similar to score_miners function
         asset_class_breakdown = ValiConfig.ASSET_CLASS_BREAKDOWN
-        asset_subcategories = AssetSegmentation.distill_asset_subcategories(asset_class_breakdown)
-        
+        asset_classes = AssetSegmentation.distill_asset_classes(asset_class_breakdown)
+
         segmentation_machine = AssetSegmentation(self.test_ledgers)
-        
-        # Test each subcategory to ensure it gets the correct days_in_year
-        for asset_subcategory in asset_subcategories:
+
+        # Test each asset class to ensure it gets the correct days_in_year
+        for asset_class in asset_classes:
             # Get the days_in_year the same way as in score_miners
-            days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_subcategory.asset_class)
-            
+            days_in_year = segmentation_machine.days_in_year_from_asset_category(asset_class)
+
             # Verify the correct days_in_year based on asset class
-            if asset_subcategory.asset_class == TradePairCategory.CRYPTO:
+            if asset_class == TradePairCategory.CRYPTO:
                 self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_CRYPTO)
-            elif asset_subcategory.asset_class == TradePairCategory.FOREX:
+            elif asset_class == TradePairCategory.FOREX:
                 self.assertEqual(days_in_year, ValiConfig.DAYS_IN_YEAR_FOREX)
             # Add other asset classes if they exist in the future
             

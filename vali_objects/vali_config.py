@@ -137,22 +137,11 @@ class ValiConfig:
     ASSET_CLASS_BREAKDOWN = {
         TradePairCategory.CRYPTO: {
             "emission": 0.5,  # Total emission for crypto
-            "subcategory_weights": {
-                CryptoSubcategory.MAJORS: 0.8,  # 80% of crypto emission for majors
-                CryptoSubcategory.ALTS: 0.2,  # 20% of crypto emission for alts
-            },
             "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
         # These are based on margin requirements on brokerage accounts
         TradePairCategory.FOREX: {
             "emission": 0.5,  # Total emission for forex
-            "subcategory_weights": {
-                ForexSubcategory.G1: 0.2927,  # 29.27% of forex emission for group 1
-                ForexSubcategory.G2: 0.1463,  # 14.63% of forex emission for group 2
-                ForexSubcategory.G3: 0.2073,  # 20.73% of forex emission for group 3
-                ForexSubcategory.G4: 0.0976,  # 9.76% of forex emission for group 4
-                ForexSubcategory.G5: 0.2561,  # 25.61% of forex emission for group 5
-            },
             "days_in_year": DAYS_IN_YEAR_FOREX,
         },
     }
@@ -263,6 +252,18 @@ class ValiConfig:
     DRAWDOWN_MAXVALUE_PERCENTAGE = 10
     DRAWDOWN_MINVALUE_PERCENTAGE = 0.5
 
+    # Risk Adjusted Performance Penalty
+    CRYPTO_RAT = {'sharpe': 1.0, 'sortino': 1.0, 'calmar': 2.0, 'omega': 1.4}
+    FOREX_RAT = {'sharpe': 0.5, 'sortino': 0.5, 'calmar': 2.0, 'omega': 1.2}
+
+    # Maximum metric value for capping individual metrics in RAS calculation
+    RISK_ADJUSTED_MAX_METRIC_VALUE = 10
+
+    # Sigmoid parameters for risk-adjusted performance penalty (range: 0.2 to 1.0)
+    RISK_ADJUSTED_SIGMOID_SHIFT = 0.6
+    RISK_ADJUSTED_SIGMOID_SPREAD = -14
+    RISK_ADJUSTED_PERFORMANCE_PENALTY_MIN = 0.2
+
     # Challenge period
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
@@ -348,6 +349,10 @@ class TradePair(Enum):
                 TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
     ADAUSD = ["ADAUSD", "ADA/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+
+    # TAO (data-only, not tradeable - used for emissions ledger calculations)
+    TAOUSD = ["TAOUSD", "TAO/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
 
 
     # forex
@@ -479,9 +484,21 @@ class TradePair(Enum):
     @property
     def is_equities(self):
         return self.trade_pair_category == TradePairCategory.EQUITIES
+
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if this trade pair is blocked from trading"""
+        BLOCKED_TRADE_PAIR_IDS = {
+            'SPX', 'DJI', 'NDX', 'VIX', 'FTSE', 'GDAXI',  # Indices
+            'XAUUSD', 'XAGUSD',  # Commodities
+            'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOG', 'META',  # Equities
+            'AUDJPY', 'CADJPY', 'CHFJPY', 'EURJPY', 'NZDJPY', 'GBPJPY', 'USDJPY'  # Forex JPY pairs
+        }
+        return self.trade_pair_id in BLOCKED_TRADE_PAIR_IDS
 
     @property
     def leverage_multiplier(self) -> int:

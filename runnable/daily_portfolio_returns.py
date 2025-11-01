@@ -35,6 +35,7 @@ from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.vali_config import TradePair, TradePairCategory, CryptoSubcategory, ForexSubcategory
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.utils.position_filter import PositionFilter, FilterStats
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -352,7 +353,7 @@ def process_miner_with_main_logic(
             continue
         
         # Filter positions and identify required trade pairs using date string
-        filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+        filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilterAnalyzer.filter_and_analyze_positions_for_date(
             all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
         )
         
@@ -389,8 +390,8 @@ def process_miner_with_main_logic(
             bt.logging.debug(f"✅ Calculated {len(daily_returns)} returns for {current_date_str}")
         else:
             bt.logging.warning(f"⚠️  No returns calculated for {current_date_str}")
-        
-        current_ms += MS_IN_24_HOURS
+
+        current_ms -= MS_IN_24_HOURS
     
     # Handle collect_only mode (for auto-backfill optimization)
     if collect_only:
@@ -685,20 +686,6 @@ class DatabaseManager:
 
 
 @dataclass
-class FilterStats:
-    """Statistics for position filtering operations."""
-    total_positions_before_filter: int = 0
-    equities_positions_skipped: int = 0
-    indices_positions_skipped: int = 0
-    date_filtered_out: int = 0
-    final_positions: int = 0
-    
-    def has_skipped_assets(self) -> bool:
-        """Check if any equities or indices were skipped."""
-        return self.equities_positions_skipped > 0 or self.indices_positions_skipped > 0
-
-
-@dataclass
 class DailyStats:
     """Statistics for a single day's return calculations."""
     successful_miners: int = 0
@@ -728,51 +715,12 @@ class DailyStats:
             self.elimination_stats = {"total_hotkeys": 0, "eliminated_hotkeys": 0}
 
 
-class PositionFilter:
-    """Handles filtering of positions by date and asset type."""
-    
-    @staticmethod
-    def filter_single_position(position: Position, cutoff_date_ms: int, live_price_fetcher) -> Tuple[Optional[Position], str]:
-        """
-        Filter a single position by date and asset type.
-        
-        Returns:
-            Tuple of (filtered_position, skip_reason). Position is None if skipped.
-        """
-        # Skip positions for equities and indices assets
-        if position.trade_pair.is_equities:
-            return None, "equities"
-        elif position.trade_pair.is_indices:
-            return None, "indices"
-        
-        # Filter orders to only include those before cutoff
-        # Note: cutoff_date_ms should be the END of the day we want to include
-        # So use < instead of <= to include all orders within the day
-        filtered_orders = [
-            order for order in position.orders 
-            if order.processed_ms < cutoff_date_ms  # Use < for end-of-day cutoff
-        ]
-        
-        if not filtered_orders:
-            return None, "date_filtered"
+class PositionFilterAnalyzer:
+    """Extended position filtering with analysis capabilities for daily_portfolio_returns.py
 
-        if len(filtered_orders) == len(position.orders) and position.is_closed_position:
-            return deepcopy(position), "kept"
-        
-        # Create a copy of the position with filtered orders
-        filtered_position = Position(
-            miner_hotkey=position.miner_hotkey,
-            position_uuid=position.position_uuid,
-            open_ms=position.open_ms,
-            close_ms=position.close_ms if position.close_ms and position.close_ms <= cutoff_date_ms else None,
-            trade_pair=position.trade_pair,
-            orders=filtered_orders,
-            position_type=position.position_type,
-            is_closed_position=position.is_closed_position and position.close_ms and position.close_ms <= cutoff_date_ms,
-        )
-        filtered_position.rebuild_position_with_updated_orders(live_price_fetcher)
-        return filtered_position, "kept"
-    
+    Uses PositionFilter from position_filter.py for the core filtering logic.
+    """
+
     @staticmethod
     def filter_and_analyze_positions(
         all_positions: Dict[str, List[Position]],
@@ -1329,41 +1277,43 @@ class DateUtils:
             raise ValueError("Elimination timestamps are required for date bounds calculation")
 
         first_order_ms = float('inf')
-        last_order_ms = 0
-        elim_time = None
+        has_active_miner = False  # Track if any miner is not eliminated
+        latest_elimination_ms = 0  # Track the latest elimination date
 
+        # First pass: find earliest order and check elimination status
         for hotkey, positions in positions_dict.items():
             for position in positions:
                 first_order_ms = min(position.orders[0].processed_ms, first_order_ms)
-                
-                # If miner has elimination timestamp, use elimination_time + 1 day as their end date
-                if hotkey in elimination_timestamps:
-                    elimination_ms = elimination_timestamps[hotkey]
-                    # Process through elimination day + 1, then stop
-                    # Example: elimination March 18 01:31 -> process March 18, March 19, stop before March 20
-                    elimination_day_start = (elimination_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS  # March 18 00:00
-                    final_end_ms = elimination_day_start + MS_IN_24_HOURS  # March 19 00:00 (will process March 18 and March 19)
-                else:
-                    # No elimination, use current time
-                    last_order_ms = max(last_order_ms, position.orders[0].processed_ms)
-                    # Use the greater of last_date_ms or today_start_ms
-                    # Cap end date at today (beginning of current UTC day) to avoid processing future dates
-                    today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                    final_end_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+
+            # Check elimination status once per hotkey (not per position)
+            if hotkey in elimination_timestamps:
+                elimination_ms = elimination_timestamps[hotkey]
+                latest_elimination_ms = max(latest_elimination_ms, elimination_ms)
+            else:
+                has_active_miner = True
 
         if first_order_ms == float('inf'):
             raise ValueError("No valid orders found in positions")
 
-        # If we only found first_order_ms but no last order, use first as both
-        if last_order_ms == 0:
-            last_order_ms = first_order_ms
+        # Determine final end date based on whether any miner is still active
+        if has_active_miner:
+            # If any miner is active, process through today for all miners
+            today_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            final_end_ms = (today_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+            elim_time = None
+        else:
+            # All miners eliminated, use latest elimination + 1 day
+            elimination_day_start = (latest_elimination_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
+            final_end_ms = elimination_day_start + MS_IN_24_HOURS
+            elim_time = latest_elimination_ms
 
         # Round to start of UTC day
         first_date_ms = (first_order_ms // MS_IN_24_HOURS) * MS_IN_24_HOURS
 
         bt.logging.info(f"Date bounds determined: "
                         f"{TimeUtil.millis_to_formatted_date_str(first_date_ms)} to "
-                        f"{TimeUtil.millis_to_formatted_date_str(final_end_ms)}. elim time ({TimeUtil.millis_to_formatted_date_str(elim_time) if elim_time else 'N/A'})")
+                        f"{TimeUtil.millis_to_formatted_date_str(final_end_ms)}. "
+                        f"elim time ({TimeUtil.millis_to_formatted_date_str(elim_time) if elim_time else 'N/A'})")
 
         return first_date_ms, final_end_ms
 
@@ -1916,7 +1866,7 @@ def main():
         
         try:
             # Step 1: Filter positions and identify required trade pairs using date string
-            filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilter.filter_and_analyze_positions_for_date(
+            filtered_positions_by_hotkey, required_trade_pair_ids, skip_stats = PositionFilterAnalyzer.filter_and_analyze_positions_for_date(
                 all_positions, current_ms, current_date_str, live_price_fetcher, elimination_tracker
             )
 

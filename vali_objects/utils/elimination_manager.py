@@ -155,8 +155,7 @@ class EliminationManager(CacheController):
                                                                               only_open_positions=True)
         for hotkey, open_positions in hotkey_to_positions.items():
             if not open_positions:
-                bt.logging.info(
-                    f"Hotkey {hotkey} has been eliminated but has no open positions. Not adding flat orders")
+                continue
             for p in open_positions:
                 self.add_manual_flat_order(hotkey, p, self.hotkey_in_eliminations(hotkey), position_locks, None)
 

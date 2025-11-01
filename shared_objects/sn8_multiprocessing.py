@@ -9,6 +9,11 @@ def get_ipc_metagraph(manager: Manager):
     metagraph.hotkeys = manager.list()
     metagraph.uids = manager.list()
     metagraph.block_at_registration = manager.list()
+    # Substrate reserve balances (refreshed periodically by MetagraphUpdater)
+    # Use manager.Value() for thread-safe float synchronization with internal locking
+    metagraph.tao_reserve_rao = manager.Value('d', 0.0)  # 'd' = ctypes double (float64)
+    metagraph.alpha_reserve_rao = manager.Value('d', 0.0)
+    metagraph.emission = manager.list()  # TAO emission per tempo for each UID
     return metagraph
 
 def managerize_objects(cls, manager, obj_dict) -> None:

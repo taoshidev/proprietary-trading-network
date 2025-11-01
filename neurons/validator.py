@@ -47,6 +47,8 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.vali_dataclasses.debt_ledger import DebtLedgerManager
+from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
@@ -169,16 +171,19 @@ class Validator:
         # Create single weight request queue (validator only)
         weight_request_queue = self.ipc_manager.Queue()
 
-        # Create MetagraphUpdater which manages the subtensor connection
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  False, position_manager=None,
-                                                  shutdown_dict=shutdown_dict,
-                                                  slack_notifier=self.slack_notifier,
-                                                  weight_request_queue=weight_request_queue)
+        # Create MetagraphUpdater with simple parameters (no PTNManager)
+        # This will run in a thread in the main process
+        self.metagraph_updater = MetagraphUpdater(
+            self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+            False, position_manager=None,
+            shutdown_dict=shutdown_dict,
+            slack_notifier=self.slack_notifier,
+            weight_request_queue=weight_request_queue,
+            live_price_fetcher=self.live_price_fetcher
+        )
+        self.subtensor = self.metagraph_updater.subtensor
+        bt.logging.info(f"Subtensor: {self.subtensor}")
 
-        # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
-        # This ensures we always have the current subtensor instance even after round-robin switches
-        bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
 
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
@@ -259,6 +264,12 @@ class Validator:
 
         self.position_manager.pre_run_setup()
         self.uuid_tracker.add_initial_uuids(self.position_manager.get_positions_for_all_miners())
+
+        self.debt_ledger_manager = DebtLedgerManager(self.perf_ledger_manager, self.position_manager, self.contract_manager,
+                                     self.asset_selection_manager, challengeperiod_manager=self.challengeperiod_manager,
+                                     slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
+                                     ipc_manager=self.ipc_manager, validator_hotkey=self.wallet.hotkey.ss58_address)
+
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
@@ -366,7 +377,7 @@ class Validator:
             f"Serving attached axons on network:"
             f" {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
-        self.axon.serve(netuid=self.config.netuid, subtensor=self.metagraph_updater.get_subtensor())
+        self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
         # Starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
@@ -380,72 +391,235 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
-        self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
-                                                      position_manager=self.position_manager)
-        # Start the plagiarism detector in its own thread
-        self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
-        self.plagiarism_thread.start()
 
-        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict)
+        # Watchdog thread to detect hung initialization steps
+        init_watchdog = {'current_step': 0, 'start_time': time.time(), 'step_desc': 'Starting', 'alerted': False}
 
-        self.weight_setter = SubtensorWeightSetter(
-            self.metagraph,
-            position_manager=self.position_manager,
-            use_slack_notifier=True,
-            shutdown_dict=shutdown_dict,
-            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
-            config=self.config,
-            hotkey=self.wallet.hotkey.ss58_address,
-            contract_manager=self.contract_manager
-        )
+        def initialization_watchdog():
+            """Background thread that monitors for hung initialization steps"""
+            HANG_TIMEOUT = 60  # Alert after 60 seconds on a single step
+            while init_watchdog['current_step'] <= 10:
+                time.sleep(5)  # Check every 5 seconds
+                if init_watchdog['current_step'] > 10:
+                    break  # Initialization complete
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, asset_selection_manager=self.asset_selection_manager)
-        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager)
+                elapsed = time.time() - init_watchdog['start_time']
+                if elapsed > HANG_TIMEOUT and not init_watchdog['alerted']:
+                    init_watchdog['alerted'] = True
+                    hang_msg = (
+                        f"⚠️ Validator Initialization Hang Detected!\n"
+                        f"Step {init_watchdog['current_step']}/10 has been running for {elapsed:.1f}s\n"
+                        f"Step: {init_watchdog['step_desc']}\n"
+                        f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                        f"Timeout threshold: {HANG_TIMEOUT}s\n"
+                        f"The validator may be stuck and require manual restart."
+                    )
+                    bt.logging.error(hang_msg)
+                    if self.slack_notifier:
+                        self.slack_notifier.send_message(hang_msg, level="error")
 
-        # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
-        self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
-        self.perf_ledger_updater_thread.start()
+        # Start watchdog thread
+        watchdog_thread = threading.Thread(target=initialization_watchdog, daemon=True)
+        watchdog_thread.start()
 
-        # Start the weight setter loop in its own process
-        self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
-        self.weight_setter_process.start()
+        # Helper function to run initialization steps with timeout and error handling
+        def run_init_step_with_monitoring(step_num, step_desc, step_func, timeout_seconds=30):
+            """Execute an initialization step with timeout monitoring and error handling"""
+            # Update watchdog state
+            init_watchdog['current_step'] = step_num
+            init_watchdog['step_desc'] = step_desc
+            init_watchdog['start_time'] = time.time()
+            init_watchdog['alerted'] = False
 
-        # Start dedicated weight processing thread in MetagraphUpdater (validators only)
-        if self.metagraph_updater.weight_request_queue:
-            self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
-            self.weight_processing_thread.start()
+            bt.logging.info(f"[INIT] Step {step_num}/10: {step_desc}...")
+            start_time = time.time()
+            try:
+                result = step_func()
+                elapsed = time.time() - start_time
+                bt.logging.info(f"[INIT] Step {step_num}/10 complete: {step_desc} (took {elapsed:.2f}s)")
+                return result
+            except Exception as e:
+                elapsed = time.time() - start_time
+                error_msg = f"[INIT] Step {step_num}/10 FAILED: {step_desc} after {elapsed:.2f}s - {str(e)}"
+                bt.logging.error(error_msg)
+                bt.logging.error(traceback.format_exc())
 
-        if self.config.start_generate:
-            self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
-            self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
-            self.rog_thread.start()
-        else:
-            self.rog_thread = None
+                # Send Slack alert
+                if self.slack_notifier:
+                    self.slack_notifier.send_message(
+                        f"🚨 Validator Initialization Failed!\n"
+                        f"Step: {step_num}/10 - {step_desc}\n"
+                        f"Error: {str(e)}\n"
+                        f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                        f"Time elapsed: {elapsed:.2f}s\n"
+                        f"The validator may be hung or unable to start properly.",
+                        level="error"
+                    )
+                raise
 
-        if self.config.serve:
-            # Create API Manager with configuration options
-            self.api_manager = APIManager(
-                shared_queue=self.shared_queue_websockets,
-                ws_host=self.config.api_host,
-                ws_port=self.config.api_ws_port,
-                rest_host=self.config.api_host,
-                rest_port=self.config.api_rest_port,
+        # Step 1: Initialize PlagiarismDetector
+        def step1():
+            self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
+                                                          position_manager=self.position_manager)
+            return self.plagiarism_detector
+        run_init_step_with_monitoring(1, "Initializing PlagiarismDetector", step1)
+
+        # Step 2: Start plagiarism detector process
+        def step2():
+            self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
+            self.plagiarism_thread.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.plagiarism_thread.is_alive():
+                raise RuntimeError("Plagiarism detector process failed to start")
+            bt.logging.info(f"Process started with PID: {self.plagiarism_thread.pid}")
+            return self.plagiarism_thread
+        run_init_step_with_monitoring(2, "Starting plagiarism detector process", step2)
+
+        # Step 3: Initialize MDDChecker
+        def step3():
+            self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
+                                          shutdown_dict=shutdown_dict)
+            return self.mdd_checker
+        run_init_step_with_monitoring(3, "Initializing MDDChecker", step3)
+
+        # Step 4: Initialize SubtensorWeightSetter
+        def step4():
+            # Pass shared metagraph which contains substrate reserves refreshed by MetagraphUpdater
+            # Pass debt_ledger_manager for encapsulated access to debt ledger data
+            self.weight_setter = SubtensorWeightSetter(
+                self.metagraph,
                 position_manager=self.position_manager,
+                use_slack_notifier=True,
+                shutdown_dict=shutdown_dict,
+                weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+                config=self.config,
+                hotkey=self.wallet.hotkey.ss58_address,
                 contract_manager=self.contract_manager,
-                miner_statistics_manager=self.miner_statistics_manager,
-                request_core_manager=self.request_core_manager,
-                asset_selection_manager=self.asset_selection_manager,
-                slack_webhook_url=self.config.slack_webhook_url
+                debt_ledger_manager=self.debt_ledger_manager,
+                is_mainnet=self.is_mainnet
+            )
+            return self.weight_setter
+        run_init_step_with_monitoring(4, "Initializing SubtensorWeightSetter", step4)
+
+        # Step 5: Initialize RequestCoreManager and MinerStatisticsManager
+        def step5():
+            self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector,
+                                                          self.contract_manager, ipc_manager=self.ipc_manager,
+                                                          asset_selection_manager=self.asset_selection_manager)
+            self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter,
+                                                                   self.plagiarism_detector, contract_manager=self.contract_manager,
+                                                                   ipc_manager=self.ipc_manager)
+            return (self.request_core_manager, self.miner_statistics_manager)
+        run_init_step_with_monitoring(5, "Initializing RequestCoreManager and MinerStatisticsManager", step5)
+
+        # Step 6: Start perf ledger updater process
+        def step6():
+            self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
+            self.perf_ledger_updater_thread.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.perf_ledger_updater_thread.is_alive():
+                raise RuntimeError("Perf ledger updater process failed to start")
+            bt.logging.info(f"Process started with PID: {self.perf_ledger_updater_thread.pid}")
+            return self.perf_ledger_updater_thread
+        run_init_step_with_monitoring(6, "Starting perf ledger updater process", step6)
+
+        # Step 7: Start weight setter process
+        def step7():
+            self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
+            self.weight_setter_process.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.weight_setter_process.is_alive():
+                raise RuntimeError("Weight setter process failed to start")
+            bt.logging.info(f"Process started with PID: {self.weight_setter_process.pid}")
+            return self.weight_setter_process
+        run_init_step_with_monitoring(7, "Starting weight setter process", step7)
+
+        # Step 8: Start weight processing thread
+        def step8():
+            if self.metagraph_updater.weight_request_queue:
+                self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
+                self.weight_processing_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.weight_processing_thread.is_alive():
+                    raise RuntimeError("Weight processing thread failed to start")
+                return self.weight_processing_thread
+            else:
+                bt.logging.info("No weight request queue - skipping")
+                return None
+        run_init_step_with_monitoring(8, "Starting weight processing thread", step8)
+
+        # Step 9: Start request output generator (if enabled)
+        def step9():
+            if self.config.start_generate:
+                self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
+                self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
+                self.rog_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.rog_thread.is_alive():
+                    raise RuntimeError("Request output generator thread failed to start")
+                return self.rog_thread
+            else:
+                self.rog_thread = None
+                bt.logging.info("Request output generator not enabled - skipping")
+                return None
+        run_init_step_with_monitoring(9, "Starting request output generator (if enabled)", step9)
+
+        # Step 10: Start API services (if enabled)
+        def step10():
+            if self.config.serve:
+                # Create API Manager with configuration options
+                self.api_manager = APIManager(
+                    shared_queue=self.shared_queue_websockets,
+                    ws_host=self.config.api_host,
+                    ws_port=self.config.api_ws_port,
+                    rest_host=self.config.api_host,
+                    rest_port=self.config.api_rest_port,
+                    position_manager=self.position_manager,
+                    contract_manager=self.contract_manager,
+                    miner_statistics_manager=self.miner_statistics_manager,
+                    request_core_manager=self.request_core_manager,
+                    asset_selection_manager=self.asset_selection_manager,
+                    slack_webhook_url=self.config.slack_webhook_url,
+                    debt_ledger_manager=self.debt_ledger_manager,
+                    validator_hotkey=self.wallet.hotkey.ss58_address
+                )
+
+                # Start the API Manager in a separate thread
+                self.api_thread = threading.Thread(target=self.api_manager.run, daemon=True)
+                self.api_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.api_thread.is_alive():
+                    raise RuntimeError("API thread failed to start")
+                bt.logging.info(
+                    f"API services thread started - REST: {self.config.api_host}:{self.config.api_rest_port}, "
+                    f"WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
+                return self.api_thread
+            else:
+                self.api_thread = None
+                bt.logging.info("API services not enabled - skipping")
+                return None
+        run_init_step_with_monitoring(10, "Starting API services (if enabled)", step10)
+
+        # Signal watchdog that initialization is complete
+        init_watchdog['current_step'] = 11
+        bt.logging.info("[INIT] All 10 initialization steps completed successfully!")
+
+        # Send success notification to Slack
+        if self.slack_notifier:
+            self.slack_notifier.send_message(
+                f"✅ Validator Initialization Complete!\n"
+                f"All 10 initialization steps completed successfully\n"
+                f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                f"API services: {'Enabled' if self.config.serve else 'Disabled'}",
+                level="info"
             )
 
-            # Start the API Manager in a separate process
-            self.api_thread = threading.Thread(target=self.api_manager.run, daemon=True)
-            self.api_thread.start()
-            bt.logging.info(
-                f"API services started - REST: {self.config.api_host}:{self.config.api_rest_port}, WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
-        else:
-            self.api_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -493,14 +667,8 @@ class Validator:
         )
         return priority
 
-    @property
-    def subtensor(self):
-        """
-        Property that always returns the current subtensor instance from MetagraphUpdater.
-        This ensures we're always using the active subtensor connection, even after
-        round-robin network switches in the MetagraphUpdater.
-        """
-        return self.metagraph_updater.get_subtensor()
+    # subtensor is now a simple instance variable (no property needed)
+    # It's created in __init__ and used directly throughout validator
 
     def get_config(self):
         # Step 2: Set up the configuration parser
@@ -809,6 +977,11 @@ class Validator:
 
             elif tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
+                       f"Please try again with a different trade pair.")
+                synapse.error_message = msg
+
+            elif tp.is_blocked:
+                msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked"
                        f"Please try again with a different trade pair.")
                 synapse.error_message = msg
 
