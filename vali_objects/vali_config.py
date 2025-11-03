@@ -326,6 +326,13 @@ class ValiConfig:
     SLASH_PROPORTION = 0.5
     CHALLENGEPERIOD_SLASH_PROPORTION = 0.1  # 10% slashed upon challenge period elimination
 
+    BLOCKED_TRADE_PAIR_IDS = {
+        'SPX', 'DJI', 'NDX', 'VIX', 'FTSE', 'GDAXI',  # Indices
+        'XAUUSD', 'XAGUSD',  # Commodities
+        'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOG', 'META',  # Equities
+        'AUDJPY', 'CADJPY', 'CHFJPY', 'EURJPY', 'NZDJPY', 'GBPJPY', 'USDJPY'  # Forex JPY pairs
+    }
+
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
 assert ValiConfig.FOREX_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
@@ -492,13 +499,7 @@ class TradePair(Enum):
     @property
     def is_blocked(self) -> bool:
         """Check if this trade pair is blocked from trading"""
-        BLOCKED_TRADE_PAIR_IDS = {
-            'SPX', 'DJI', 'NDX', 'VIX', 'FTSE', 'GDAXI',  # Indices
-            'XAUUSD', 'XAGUSD',  # Commodities
-            'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOG', 'META',  # Equities
-            'AUDJPY', 'CADJPY', 'CHFJPY', 'EURJPY', 'NZDJPY', 'GBPJPY', 'USDJPY'  # Forex JPY pairs
-        }
-        return self.trade_pair_id in BLOCKED_TRADE_PAIR_IDS
+        return self.trade_pair_id in ValiConfig.BLOCKED_TRADE_PAIR_IDS
 
     @property
     def leverage_multiplier(self) -> int:
