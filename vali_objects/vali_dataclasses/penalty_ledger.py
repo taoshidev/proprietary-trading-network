@@ -304,6 +304,9 @@ class PenaltyLedgerManager:
         # Daemon control
         self.running = False
 
+        # Track last full rebuild timestamp (48-day cycle)
+        self.last_full_rebuild_ms = 0
+
         # Slack notifications
         self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
 
@@ -374,6 +377,7 @@ class PenaltyLedgerManager:
         data = {
             "format_version": "1.0",
             "last_update_ms": int(time.time() * 1000),
+            "last_full_rebuild_ms": self.last_full_rebuild_ms,
             "ledgers": {}
         }
 
@@ -404,8 +408,12 @@ class PenaltyLedgerManager:
         # Extract metadata
         metadata = {
             "last_update_ms": data.get("last_update_ms"),
+            "last_full_rebuild_ms": data.get("last_full_rebuild_ms", 0),
             "format_version": data.get("format_version", "1.0")
         }
+
+        # Load last full rebuild timestamp
+        self.last_full_rebuild_ms = metadata["last_full_rebuild_ms"]
 
         # Reconstruct ledgers
         for hotkey, ledger_dict in data.get("ledgers", {}).items():
@@ -415,7 +423,8 @@ class PenaltyLedgerManager:
         bt.logging.info(
             f"[PENALTY_LEDGER] Loaded {len(self.penalty_ledgers)} penalty ledgers, "
             f"metadata: {metadata}, "
-            f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}"
+            f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}, "
+            f"last full rebuild: {TimeUtil.millis_to_formatted_date_str(self.last_full_rebuild_ms)}"
         )
 
         return len(self.penalty_ledgers)
@@ -551,14 +560,33 @@ class PenaltyLedgerManager:
         # Main loop
         while self.running:
             try:
-                bt.logging.info("[PENALTY_LEDGER] Starting penalty ledger delta update...")
-                start_time = time.time()
+                # Determine if we need a full rebuild (every 48 days)
+                current_time_ms = int(time.time() * 1000)
+                days_since_last_rebuild = (current_time_ms - self.last_full_rebuild_ms) / (1000 * 60 * 60 * 24)
+                should_full_rebuild = (self.last_full_rebuild_ms == 0) or (days_since_last_rebuild >= 48)
 
-                # Perform delta update (only new checkpoints)
-                self.build_penalty_ledgers(verbose=verbose, delta_update=True)
+                if should_full_rebuild:
+                    bt.logging.info(
+                        f"[PENALTY_LEDGER] Triggering FULL REBUILD "
+                        f"(days since last rebuild: {days_since_last_rebuild:.1f}, "
+                        f"last rebuild: {TimeUtil.millis_to_formatted_date_str(self.last_full_rebuild_ms)})"
+                    )
+                    start_time = time.time()
+                    self.build_penalty_ledgers(verbose=verbose, delta_update=False)
+                    elapsed = time.time() - start_time
 
-                elapsed = time.time() - start_time
-                bt.logging.info(f"[PENALTY_LEDGER] Delta update completed in {elapsed:.2f}s")
+                    # Update last full rebuild timestamp
+                    self.last_full_rebuild_ms = current_time_ms
+                    bt.logging.info(f"[PENALTY_LEDGER] Full rebuild completed in {elapsed:.2f}s")
+                else:
+                    bt.logging.info(
+                        f"[PENALTY_LEDGER] Starting delta update "
+                        f"(days until next full rebuild: {48 - days_since_last_rebuild:.1f})"
+                    )
+                    start_time = time.time()
+                    self.build_penalty_ledgers(verbose=verbose, delta_update=True)
+                    elapsed = time.time() - start_time
+                    bt.logging.info(f"[PENALTY_LEDGER] Delta update completed in {elapsed:.2f}s")
 
                 # Success - reset failure counter
                 if consecutive_failures > 0:
@@ -712,13 +740,17 @@ class PenaltyLedgerManager:
 
         Supports delta updates: only processes checkpoints after the last processed checkpoint.
 
+        For full rebuilds, preserves challenge_period_status from old ledgers where available.
+
         Args:
             verbose: Enable detailed logging
             delta_update: If True, only process new checkpoints since last update. If False, rebuild from scratch.
         """
+        # Create separate candidate ledgers for full rebuild (don't clear old ledgers yet)
+        new_penalty_ledgers = {} if not delta_update else None
+
         if not delta_update:
-            self.penalty_ledgers.clear()
-            bt.logging.info("[PENALTY_LEDGER] Full rebuild mode: clearing existing penalty ledgers")
+            bt.logging.info("[PENALTY_LEDGER] Full rebuild mode: building new ledgers while preserving old ones")
 
         # Read all perf ledgers from perf ledger manager
         all_perf_ledgers: Dict[str, Dict[str, PerfLedger]] = self.perf_ledger_manager.get_perf_ledgers(
@@ -760,10 +792,16 @@ class PenaltyLedgerManager:
                 raise ValueError(f"No portfolio ledger found for miner {miner_hotkey}")
 
             # Get or create penalty ledger for this miner
-            is_first_time_seen = miner_hotkey not in self.penalty_ledgers
-            if miner_hotkey in self.penalty_ledgers:
-                penalty_ledger = self.penalty_ledgers[miner_hotkey]
+            if delta_update:
+                # Delta update: work directly with self.penalty_ledgers
+                is_first_time_seen = miner_hotkey not in self.penalty_ledgers
+                if miner_hotkey in self.penalty_ledgers:
+                    penalty_ledger = self.penalty_ledgers[miner_hotkey]
+                else:
+                    penalty_ledger = PenaltyLedger(miner_hotkey)
             else:
+                # Full rebuild: work with new_penalty_ledgers (keep old ledgers intact)
+                is_first_time_seen = miner_hotkey not in new_penalty_ledgers
                 penalty_ledger = PenaltyLedger(miner_hotkey)
 
             # Determine starting point for delta updates using helper method
@@ -857,13 +895,32 @@ class PenaltyLedgerManager:
                     penalties[penalty_name] = penalty_value
                     total_penalty *= penalty_value
 
-                # Get challenge period status using timestamp-based backfilling
+                # Get challenge period status
+                # For full rebuilds: first try to copy from old ledger, then fall back to backfilling
+                # For delta updates: always use backfilling logic
                 challenge_period_status = MinerBucket.UNKNOWN.value
-                if challenge_period_data and miner_hotkey in challenge_period_data:
-                    # Use helper method to determine status based on checkpoint timestamp
-                    # and bucket transition timestamps
-                    bucket_data = challenge_period_data[miner_hotkey]
-                    challenge_period_status = self._get_status_for_checkpoint(checkpoint_ms, bucket_data)
+
+                if not delta_update:
+                    # Full rebuild: try to preserve challenge_period_status from old ledger
+                    old_ledger = self.penalty_ledgers.get(miner_hotkey)
+                    if old_ledger:
+                        old_checkpoint = old_ledger.get_checkpoint_at_time(checkpoint_ms, portfolio_ledger.target_cp_duration_ms)
+                        if old_checkpoint:
+                            # Copy status from old checkpoint
+                            challenge_period_status = old_checkpoint.challenge_period_status
+                            if verbose:
+                                bt.logging.info(
+                                    f"Preserved challenge_period_status={challenge_period_status} "
+                                    f"from old ledger for {miner_hotkey} at {TimeUtil.millis_to_formatted_date_str(checkpoint_ms)}"
+                                )
+
+                # If no old checkpoint found (or delta update), use timestamp-based backfilling
+                if challenge_period_status == MinerBucket.UNKNOWN.value:
+                    if challenge_period_data and miner_hotkey in challenge_period_data:
+                        # Use helper method to determine status based on checkpoint timestamp
+                        # and bucket transition timestamps
+                        bucket_data = challenge_period_data[miner_hotkey]
+                        challenge_period_status = self._get_status_for_checkpoint(checkpoint_ms, bucket_data)
 
                 # Create penalty checkpoint
                 penalty_checkpoint = PenaltyCheckpoint(
@@ -880,10 +937,17 @@ class PenaltyLedgerManager:
                 penalty_ledger.add_checkpoint(penalty_checkpoint, portfolio_ledger.target_cp_duration_ms)
                 checkpoints_processed += 1
 
-            # IMPORTANT: For IPC-managed dicts, we must retrieve, mutate, and reassign
-            # to propagate changes (managed dicts don't track nested mutations)
+            # Store the ledger (different target for delta vs full rebuild)
             if checkpoints_processed > 0:
-                self.penalty_ledgers[miner_hotkey] = penalty_ledger  # Reassign to trigger IPC update
+                if delta_update:
+                    # Delta update: update self.penalty_ledgers directly
+                    # IMPORTANT: For IPC-managed dicts, we must retrieve, mutate, and reassign
+                    # to propagate changes (managed dicts don't track nested mutations)
+                    self.penalty_ledgers[miner_hotkey] = penalty_ledger
+                else:
+                    # Full rebuild: store in new_penalty_ledgers (keep old ledgers intact)
+                    new_penalty_ledgers[miner_hotkey] = penalty_ledger
+
                 hotkeys_processed += 1
                 total_checkpoints_added += checkpoints_processed
                 if verbose:
@@ -898,6 +962,38 @@ class PenaltyLedgerManager:
                     f"[PENALTY_LEDGER] [{current_hotkey_index}/{total_hotkeys}] {miner_hotkey}: "
                     f"+{checkpoints_processed} new checkpoints (total: {len(penalty_ledger.checkpoints)})"
                 )
+
+        # For full rebuilds: atomically replace old ledgers with new ones (ONLY at the very end)
+        if not delta_update:
+            bt.logging.info(
+                f"[PENALTY_LEDGER] Full rebuild completed: {len(new_penalty_ledgers)} candidate ledgers built. "
+                f"Atomically replacing old ledgers..."
+            )
+
+            # IMPORTANT: For IPC-managed dicts, we need to update each key individually to trigger IPC updates
+            # To avoid race condition where dict is momentarily empty, we:
+            # 1. Delete obsolete keys first (keys in old but not in new)
+            # 2. Then add/update new keys
+            # This way the dict is never empty - it always has at least the keys being kept
+            if hasattr(self.penalty_ledgers, '_getvalue'):
+                # IPC managed dict - atomic update without clear()
+                old_hotkeys = set(self.penalty_ledgers.keys())
+                new_hotkeys = set(new_penalty_ledgers.keys())
+
+                # Delete obsolete hotkeys first
+                hotkeys_to_delete = old_hotkeys - new_hotkeys
+                for hotkey in hotkeys_to_delete:
+                    del self.penalty_ledgers[hotkey]
+
+                # Then add/update all new hotkeys
+                for hotkey, ledger in new_penalty_ledgers.items():
+                    self.penalty_ledgers[hotkey] = ledger
+            else:
+                # Regular dict - clear and update
+                self.penalty_ledgers.clear()
+                self.penalty_ledgers.update(new_penalty_ledgers)
+
+            bt.logging.info(f"[PENALTY_LEDGER] Successfully replaced with {len(self.penalty_ledgers)} new ledgers")
 
         bt.logging.info(
             f"[PENALTY_LEDGER] Built penalty ledgers: {hotkeys_processed} hotkeys processed, "
