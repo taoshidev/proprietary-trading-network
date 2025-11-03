@@ -39,6 +39,17 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Mock TAO/USD price (set by MetagraphUpdater via live_price_fetcher)
         self.mock_metagraph.tao_to_usd_rate = 500.0  # $500/TAO
 
+        # Calculate expected dynamic dust value with mocked data
+        # - Total TAO per day: 72,000 TAO
+        # - ALPHA per day: 72,000 / 0.5 = 144,000 ALPHA
+        # - $0.01 in ALPHA: (0.01 / 500) / 0.5 = 0.00004 ALPHA
+        # - Dynamic dust: 0.00004 / 144,000 = 2.777...e-10
+        self.expected_dynamic_dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=self.mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
         # Mock challengeperiod_manager
         self.mock_challengeperiod_manager = Mock()
         # Default to MAINCOMP for all miners
@@ -120,7 +131,7 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         # Verify dust weights based on status
         weights_dict = dict(result)
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
         self.assertAlmostEqual(weights_dict["hotkey1"], 3 * dust)  # MAINCOMP = 3x dust
         self.assertAlmostEqual(weights_dict["hotkey2"], 1 * dust)  # CHALLENGE = 1x dust
 
@@ -203,7 +214,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create miners with different statuses and ZERO/NEGATIVE performance
         # This ensures remaining_payout = 0, so minimum weights dominate
@@ -398,7 +409,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Miner with negative performance (gets minimum dust weight)
         ledger_negative = DebtLedger(hotkey="negative_miner", checkpoints=[])
@@ -756,7 +767,7 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         # 4. Verify weights approach zero (or minimum dust) by day 25
         # By day 25, remaining payouts should be close to zero, so weights should be minimal
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
         expected_minimum_sum = 3 * (3 * dust)  # 3 miners * 3x dust (MAINCOMP)
 
         # Day 25 weights should be close to minimum (within 10%)
@@ -890,7 +901,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create miners with different PnL in MAINCOMP bucket
         ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
@@ -943,7 +954,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create 3 miners in MAINCOMP bucket with different 30-day PnL
         # Use a single checkpoint within 30-day window for clarity
@@ -1049,7 +1060,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create worst MAINCOMP (0 PnL) and best PROBATION (high PnL)
         # Worst MAINCOMP should still get >= best PROBATION due to bucket floors
@@ -1145,7 +1156,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create 3 miners with all 0 PnL
         ledgers = {}
@@ -1194,7 +1205,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Create 2 miners: one with negative PnL, one with 0 PnL
         ledger_negative = DebtLedger(hotkey="negative_miner", checkpoints=[])
@@ -1263,7 +1274,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Miner 1: Has old checkpoint with high PnL (should be IGNORED)
         ledger1 = DebtLedger(hotkey="miner1", checkpoints=[])
@@ -1332,7 +1343,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
         prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
 
-        dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        dust = self.expected_dynamic_dust
 
         # Miner 1: 10,000 PnL with no penalty
         ledger1 = DebtLedger(hotkey="no_penalty", checkpoints=[])
@@ -1412,6 +1423,388 @@ class TestDebtBasedScoring(unittest.TestCase):
 
         # Miner with no penalty should have higher weight
         self.assertGreater(weights_dict["no_penalty"], weights_dict["with_penalty"])
+
+    # ========================================================================
+    # CALCULATE_DYNAMIC_DUST UNIT TESTS
+    # ========================================================================
+
+    def test_calculate_dynamic_dust_success(self):
+        """Test successful dynamic dust calculation with valid metagraph data"""
+        # Expected calculation with mocked data:
+        # - Total TAO per tempo: 10 * 360 = 3600 TAO
+        # - TAO per block: 3600 / 360 = 10 TAO
+        # - TAO per day: 10 * 7200 = 72,000 TAO
+        # - ALPHA per day: 72,000 / 0.5 = 144,000 ALPHA
+        # - $0.01 in TAO: 0.01 / 500 = 0.00002 TAO
+        # - $0.01 in ALPHA: 0.00002 / 0.5 = 0.00004 ALPHA
+        # - Dust weight: 0.00004 / 144,000 = 2.777...e-10
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=self.mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=True
+        )
+
+        expected_dust = 0.00004 / 144000.0  # 2.777...e-10
+        self.assertAlmostEqual(dust, expected_dust, places=12)
+
+        # Verify dust is in reasonable range
+        self.assertGreater(dust, 0)
+        self.assertLess(dust, 0.001)
+
+    def test_calculate_dynamic_dust_missing_emission_attr(self):
+        """Test fallback when metagraph is missing emission attribute"""
+        mock_metagraph = Mock()
+        # Don't set emission attribute
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        # Should fallback to static dust
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_emission_none(self):
+        """Test fallback when emission is None"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = None
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_emission_not_summable(self):
+        """Test fallback when emission cannot be summed"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = "not_a_list"  # Will fail on sum()
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_zero_emissions(self):
+        """Test fallback when total emissions are zero"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [0] * 10  # All zeros
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_negative_emissions(self):
+        """Test fallback when total emissions are negative"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [-100]  # Negative (shouldn't happen but test anyway)
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_missing_reserves(self):
+        """Test fallback when reserve attributes are missing"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+        # Don't set tao_reserve_rao or alpha_reserve_rao
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_zero_reserves(self):
+        """Test fallback when reserves are zero"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        # Set reserves to zero
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 0.0
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 0.0
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_invalid_alpha_to_tao_rate(self):
+        """Test fallback when ALPHA-to-TAO rate is > 1.0"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        # Set reserves so alpha_to_tao_rate > 1.0 (invalid)
+        # alpha_to_tao_rate = tao_reserve / alpha_reserve
+        # To get > 1.0: tao_reserve > alpha_reserve
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 2_000_000 * 1e9  # 2M TAO
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 1_000_000 * 1e9  # 1M ALPHA (rate = 2.0, invalid)
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_missing_tao_usd_price(self):
+        """Test fallback when TAO/USD price is missing"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        # Don't set tao_to_usd_rate
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_zero_tao_usd_price(self):
+        """Test fallback when TAO/USD price is zero"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = 0.0  # Zero price
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_negative_tao_usd_price(self):
+        """Test fallback when TAO/USD price is negative"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = -100.0  # Negative price
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_tao_price_out_of_range_low(self):
+        """Test fallback when TAO/USD price is below $1"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = 0.5  # Below $1
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_tao_price_out_of_range_high(self):
+        """Test fallback when TAO/USD price is above $10,000"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = 15000.0  # Above $10,000
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_invalid_tao_usd_type(self):
+        """Test fallback when TAO/USD price has invalid type"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = "not_a_number"  # Invalid type
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_weight_exceeds_maximum(self):
+        """Test fallback when calculated dust weight exceeds 0.001"""
+        mock_metagraph = Mock()
+        # Very low emissions to create high dust weight (> 0.001)
+        # With emission = [0.0005], dust will be 0.002 which exceeds 0.001
+        mock_metagraph.emission = [0.0005]  # Extremely low to create dust > 0.001
+
+        mock_tao_reserve = Mock()
+        mock_tao_reserve.value = 1_000_000 * 1e9
+        mock_alpha_reserve = Mock()
+        mock_alpha_reserve.value = 2_000_000 * 1e9
+        mock_metagraph.tao_reserve_rao = mock_tao_reserve
+        mock_metagraph.alpha_reserve_rao = mock_alpha_reserve
+        mock_metagraph.tao_to_usd_rate = 500.0
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    def test_calculate_dynamic_dust_different_target_amounts(self):
+        """Test that dynamic dust scales linearly with target amount"""
+        # Calculate dust for $0.01
+        dust_1_cent = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=self.mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        # Calculate dust for $0.02 (should be exactly 2x)
+        dust_2_cent = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=self.mock_metagraph,
+            target_daily_usd=0.02,
+            verbose=False
+        )
+
+        # Should be exactly 2x
+        self.assertAlmostEqual(dust_2_cent / dust_1_cent, 2.0, places=10)
+
+    def test_calculate_dynamic_dust_market_responsive(self):
+        """Test that dust adjusts when TAO price changes"""
+        # Calculate with $500/TAO
+        dust_high_price = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=self.mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        # Create metagraph with $250/TAO (half the price)
+        mock_metagraph_low_price = Mock()
+        mock_metagraph_low_price.emission = self.mock_metagraph.emission
+        mock_metagraph_low_price.tao_reserve_rao = self.mock_metagraph.tao_reserve_rao
+        mock_metagraph_low_price.alpha_reserve_rao = self.mock_metagraph.alpha_reserve_rao
+        mock_metagraph_low_price.tao_to_usd_rate = 250.0  # Half the price
+
+        dust_low_price = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph_low_price,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        # Lower TAO price means need more ALPHA for same USD amount
+        # So dust weight should be higher (approximately 2x)
+        self.assertGreater(dust_low_price, dust_high_price)
+        self.assertAlmostEqual(dust_low_price / dust_high_price, 2.0, places=1)
+
+    def test_calculate_dynamic_dust_reserve_value_extraction(self):
+        """Test that dust calculation works with direct float values (no .value accessor)"""
+        mock_metagraph = Mock()
+        mock_metagraph.emission = [360] * 10
+
+        # Use direct float values instead of Mock with .value
+        mock_metagraph.tao_reserve_rao = 1_000_000 * 1e9  # Direct float
+        mock_metagraph.alpha_reserve_rao = 2_000_000 * 1e9  # Direct float
+        mock_metagraph.tao_to_usd_rate = 500.0
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        # Should work and return valid dust (not fallback)
+        self.assertNotEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+        self.assertGreater(dust, 0)
+        self.assertLess(dust, 0.001)
+
+    def test_calculate_dynamic_dust_exception_handling(self):
+        """Test fallback when unexpected exception occurs"""
+        mock_metagraph = Mock()
+        # Make emission raise an exception when accessed
+        mock_metagraph.emission = Mock(side_effect=RuntimeError("Unexpected error"))
+
+        dust = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=mock_metagraph,
+            target_daily_usd=0.01,
+            verbose=False
+        )
+
+        self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
 
 
 if __name__ == '__main__':

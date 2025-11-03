@@ -101,6 +101,221 @@ class DebtBasedScoring:
         return DebtBasedScoring.BURN_UID_TESTNET if is_testnet else DebtBasedScoring.BURN_UID_MAINNET
 
     @staticmethod
+    def calculate_dynamic_dust(
+        metagraph: 'bt.metagraph',
+        target_daily_usd: float = 0.01,
+        verbose: bool = False
+    ) -> float:
+        """
+        Calculate dynamic dust weight that yields target daily USD earnings.
+
+        The calculation ensures that a miner receiving only dust weight will earn
+        approximately target_daily_usd per day in ALPHA emissions.
+
+        Formula:
+            dust_weight = (ALPHA equivalent of target_daily_usd) / (total ALPHA per day)
+
+        This provides market-responsive minimum rewards that automatically adjust as:
+        - TAO/USD price changes
+        - ALPHA/TAO conversion rate changes
+        - Total subnet emission rate changes
+
+        Args:
+            metagraph: Shared IPC metagraph with emission data and substrate reserves
+            target_daily_usd: Target daily USD earnings for dust weight (default: $0.01)
+            verbose: Enable detailed logging
+
+        Returns:
+            Dynamic dust weight (unitless proportion)
+            Falls back to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT on any error
+
+        Fallback Triggers:
+            - Missing metagraph attributes (emission, reserves, tao_to_usd_rate)
+            - Zero or negative values in any calculation step
+            - Invalid conversion rates (reserves = 0, tao_to_usd_rate <= 0)
+            - Dust weight outside reasonable range (0, 0.001]
+            - Any exception during calculation
+        """
+        try:
+            # Fallback detection: Check if metagraph has emission data
+            if not hasattr(metagraph, 'emission') or metagraph.emission is None:
+                bt.logging.warning(
+                    "Metagraph missing 'emission' attribute. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Step 1: Calculate total ALPHA emissions per day
+            try:
+                total_tao_per_tempo = sum(metagraph.emission)  # TAO per tempo (360 blocks)
+            except (TypeError, AttributeError) as e:
+                bt.logging.warning(
+                    f"Failed to sum metagraph.emission: {e}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Fallback detection: Check for zero/negative emissions
+            if total_tao_per_tempo <= 0:
+                bt.logging.warning(
+                    f"Total TAO per tempo is non-positive: {total_tao_per_tempo}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            total_tao_per_block = total_tao_per_tempo / 360
+            total_tao_per_day = total_tao_per_block * DebtBasedScoring.BLOCKS_PER_DAY_FALLBACK
+
+            if verbose:
+                bt.logging.info(f"Total subnet emissions: {total_tao_per_day:.6f} TAO/day")
+
+            # Step 2: Get conversion rates from metagraph with comprehensive fallback detection
+            tao_reserve_obj = getattr(metagraph, 'tao_reserve_rao', None)
+            alpha_reserve_obj = getattr(metagraph, 'alpha_reserve_rao', None)
+
+            # Fallback detection: Check for missing reserve attributes
+            if tao_reserve_obj is None or alpha_reserve_obj is None:
+                bt.logging.warning(
+                    f"Substrate reserve attributes not found in metagraph "
+                    f"(tao_reserve_rao={tao_reserve_obj is not None}, "
+                    f"alpha_reserve_rao={alpha_reserve_obj is not None}). "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Extract values with fallback detection
+            try:
+                tao_reserve_rao = tao_reserve_obj.value if hasattr(tao_reserve_obj, 'value') else float(tao_reserve_obj)
+                alpha_reserve_rao = alpha_reserve_obj.value if hasattr(alpha_reserve_obj, 'value') else float(alpha_reserve_obj)
+            except (AttributeError, TypeError, ValueError) as e:
+                bt.logging.warning(
+                    f"Failed to extract reserve values: {e}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Fallback detection: Check for zero/negative reserves
+            if tao_reserve_rao <= 0 or alpha_reserve_rao <= 0:
+                bt.logging.warning(
+                    f"Substrate reserve data not available or invalid for dynamic dust calculation "
+                    f"(TAO={tao_reserve_rao} RAO, ALPHA={alpha_reserve_rao} RAO). "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Calculate ALPHA-to-TAO rate
+            alpha_to_tao_rate = tao_reserve_rao / alpha_reserve_rao
+
+            # Fallback detection: Sanity check on conversion rate
+            if alpha_to_tao_rate <= 0 or alpha_to_tao_rate > 1.0:
+                bt.logging.warning(
+                    f"ALPHA-to-TAO rate outside expected range (0, 1.0]: {alpha_to_tao_rate}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Convert TAO/day to ALPHA/day
+            total_alpha_per_day = total_tao_per_day / alpha_to_tao_rate
+
+            if verbose:
+                bt.logging.info(
+                    f"Total subnet emissions: {total_alpha_per_day:.2f} ALPHA/day "
+                    f"(conversion rate: {alpha_to_tao_rate:.6f} TAO/ALPHA)"
+                )
+
+            # Step 3: Get TAO/USD price with fallback detection
+            tao_to_usd_rate_raw = getattr(metagraph, 'tao_to_usd_rate', None)
+
+            # Fallback detection: Check for missing TAO/USD price
+            if tao_to_usd_rate_raw is None:
+                bt.logging.warning(
+                    "TAO/USD price not available in metagraph for dynamic dust calculation. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Fallback detection: Validate TAO/USD price type and value
+            try:
+                tao_to_usd_rate = float(tao_to_usd_rate_raw)
+            except (TypeError, ValueError) as e:
+                bt.logging.warning(
+                    f"TAO/USD price has invalid type: {type(tao_to_usd_rate_raw).__name__}, error: {e}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            if tao_to_usd_rate <= 0:
+                bt.logging.warning(
+                    f"TAO/USD price is non-positive: {tao_to_usd_rate}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Fallback detection: Sanity check on TAO price (should be between $1 and $10,000)
+            if tao_to_usd_rate < 1.0 or tao_to_usd_rate > 10000.0:
+                bt.logging.warning(
+                    f"TAO/USD price outside reasonable range [$1, $10,000]: ${tao_to_usd_rate}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Step 4: Calculate ALPHA equivalent of target USD amount
+            target_in_tao = target_daily_usd / tao_to_usd_rate
+            target_in_alpha = target_in_tao / alpha_to_tao_rate
+
+            if verbose:
+                bt.logging.info(
+                    f"${target_daily_usd:.2f} USD = {target_in_tao:.6f} TAO = "
+                    f"{target_in_alpha:.6f} ALPHA"
+                )
+
+            # Step 5: Calculate dust weight as proportion of daily emissions
+            # Fallback detection: Check for zero/negative total emissions
+            if total_alpha_per_day <= 0:
+                bt.logging.warning(
+                    f"Total ALPHA per day is non-positive: {total_alpha_per_day}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            dust_weight = target_in_alpha / total_alpha_per_day
+
+            if verbose:
+                bt.logging.info(
+                    f"Dynamic dust weight: {dust_weight:.8f} "
+                    f"(yields ${target_daily_usd:.2f}/day at current emission rates)"
+                )
+
+            # Fallback detection: Sanity check on dust weight range
+            # Should be small but not zero (typical range: 1e-8 to 1e-3)
+            if dust_weight <= 0:
+                bt.logging.warning(
+                    f"Dynamic dust weight is non-positive: {dust_weight}. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            if dust_weight > 0.001:
+                bt.logging.warning(
+                    f"Dynamic dust weight ({dust_weight:.8f}) exceeds reasonable maximum (0.001). "
+                    f"This suggests anomalous market conditions. "
+                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
+                )
+                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+            # Success! Return dynamic dust weight
+            return dust_weight
+
+        except Exception as e:
+            # Fallback detection: Catch-all for any unexpected errors
+            bt.logging.error(
+                f"Unexpected error calculating dynamic dust: {e}. "
+                f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}",
+                exc_info=True
+            )
+            return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+
+    @staticmethod
     def log_projections(metagraph, days_until_target, verbose, total_remaining_payout_usd):
         # Query current emission rate and project availability
         # Get projected ALPHA emissions
@@ -366,12 +581,14 @@ class DebtBasedScoring:
 
         # Step 10: Enforce minimum weights based on challenge period status
         # All miners get minimum "dust" weights based on their current status
+        # Dust is calculated dynamically to yield $0.01/day in emissions
         # Weights are dynamically scaled by 30-day performance within each bucket
         # NOTE: Weights are unitless proportions, but derived from USD payouts
         miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
             miner_remaining_payouts_usd=miner_remaining_payouts_usd,
             challengeperiod_manager=challengeperiod_manager,
+            metagraph=metagraph,
             current_time_ms=current_time_ms,
             verbose=verbose
         )
@@ -734,6 +951,7 @@ class DebtBasedScoring:
         ledger_dict: dict[str, DebtLedger],
         miner_remaining_payouts_usd: dict[str, float],
         challengeperiod_manager: 'ChallengePeriodManager',
+        metagraph: 'bt.metagraph',
         current_time_ms: int = None,
         verbose: bool = False
     ) -> dict[str, float]:
@@ -741,25 +959,36 @@ class DebtBasedScoring:
         Enforce minimum weights based on challenge period status with dynamic dust scaling.
 
         All miners receive minimum "dust" weights based on their current status:
-        - CHALLENGE/PLAGIARISM: 1x dust = CHALLENGE_PERIOD_MIN_WEIGHT
-        - PROBATION: 2x dust = 2 * CHALLENGE_PERIOD_MIN_WEIGHT
-        - MAINCOMP: 3x dust = 3 * CHALLENGE_PERIOD_MIN_WEIGHT
+        - CHALLENGE/PLAGIARISM: 1x dust
+        - PROBATION: 2x dust
+        - MAINCOMP: 3x dust
         - UNKNOWN: 0x dust (no weight)
 
-        Dynamic dust is always enabled: miners are scaled within bucket based on 30-day
+        Dust value is calculated dynamically to yield $0.01/day in emissions,
+        automatically adjusting for TAO price, ALPHA conversion rate, and emission rate changes.
+        Falls back to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT if dynamic calculation fails.
+
+        Dynamic dust scaling is always enabled: miners are scaled within bucket based on 30-day
         penalty-adjusted PnL (in USD), with range [floor, floor+1 DUST].
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts_usd: Dict of {hotkey: remaining_payout_usd} in USD
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            metagraph: Shared IPC metagraph (required for dynamic dust calculation)
             current_time_ms: Current timestamp (required for dynamic dust calculation)
             verbose: Enable detailed logging
 
         Returns:
             Dict of {hotkey: weight} with minimums applied (weights are unitless proportions)
         """
-        DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        # Calculate dynamic dust weight ($0.01/day target)
+        # Falls back to static dust if metagraph data is unavailable
+        DUST = DebtBasedScoring.calculate_dynamic_dust(
+            metagraph=metagraph,
+            target_daily_usd=0.01,
+            verbose=verbose
+        )
 
         # Calculate dynamic dust weights (always enabled)
         if current_time_ms is None:
@@ -957,6 +1186,7 @@ class DebtBasedScoring:
             ledger_dict=ledger_dict,
             miner_remaining_payouts_usd={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
             challengeperiod_manager=challengeperiod_manager,
+            metagraph=metagraph,
             current_time_ms=current_time_ms,
             verbose=verbose
         )
