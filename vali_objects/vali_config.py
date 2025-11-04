@@ -268,15 +268,15 @@ class ValiConfig:
     CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
     CHALLENGE_PERIOD_MINIMUM_DAYS = 61
-    CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
-    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = 90
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
-    PROBATION_MAXIMUM_DAYS = 30
+    PROBATION_MAXIMUM_DAYS = 60
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
     ASSET_SPLIT_GRACE_DATE = "2025-10-02"
 
-    PROMOTION_THRESHOLD_RANK = 15 # Number of MAINCOMP miners per asset class
+    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINCOMP miners per asset class
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
@@ -309,16 +309,16 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
-    MIN_COLLATERAL_BALANCE_TESTNET = 0
+    MIN_COLLATERAL_BALANCE_THETA = 300  # Required minimum total collateral balance per miner in Theta. Approx $150k capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
+    MIN_COLLATERAL_BALANCE_TESTNET = 100
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
     # Account Size
-    COST_PER_THETA = 175  # Account size USD value per theta of collateral
-    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
+    COST_PER_THETA = 500  # Account size USD value per theta of collateral
+    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $150k
     MIN_CAPITAL = 5_000   # USD minimum capital account size
-    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    DEFAULT_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     # Miner will get a base of 50% collateral returned upon elimination
     BASE_COLLATERAL_RETURNED = 0.5
