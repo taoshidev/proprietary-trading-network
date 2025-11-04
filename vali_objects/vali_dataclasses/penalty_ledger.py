@@ -304,8 +304,10 @@ class PenaltyLedgerManager:
         # Daemon control
         self.running = False
 
-        # Track last full rebuild timestamp (48-day cycle)
-        self.last_full_rebuild_ms = 0
+        # Track accumulated daemon runtime (in seconds) - only count time actually running
+        # This accumulates across restarts and is persisted to disk
+        self.accumulated_runtime_seconds = 0
+        self.daemon_start_time = None  # Set when daemon starts
 
         # Slack notifications
         self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
@@ -377,7 +379,7 @@ class PenaltyLedgerManager:
         data = {
             "format_version": "1.0",
             "last_update_ms": int(time.time() * 1000),
-            "last_full_rebuild_ms": self.last_full_rebuild_ms,
+            "accumulated_runtime_seconds": self.accumulated_runtime_seconds,
             "ledgers": {}
         }
 
@@ -408,12 +410,12 @@ class PenaltyLedgerManager:
         # Extract metadata
         metadata = {
             "last_update_ms": data.get("last_update_ms"),
-            "last_full_rebuild_ms": data.get("last_full_rebuild_ms", 0),
+            "accumulated_runtime_seconds": data.get("accumulated_runtime_seconds", 0),
             "format_version": data.get("format_version", "1.0")
         }
 
-        # Load last full rebuild timestamp
-        self.last_full_rebuild_ms = metadata["last_full_rebuild_ms"]
+        # Load accumulated runtime
+        self.accumulated_runtime_seconds = metadata["accumulated_runtime_seconds"]
 
         # Reconstruct ledgers
         for hotkey, ledger_dict in data.get("ledgers", {}).items():
@@ -424,7 +426,7 @@ class PenaltyLedgerManager:
             f"[PENALTY_LEDGER] Loaded {len(self.penalty_ledgers)} penalty ledgers, "
             f"metadata: {metadata}, "
             f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}, "
-            f"last full rebuild: {TimeUtil.millis_to_formatted_date_str(self.last_full_rebuild_ms)}"
+            f"accumulated runtime: {self.accumulated_runtime_seconds / 3600:.1f} hours"
         )
 
         return len(self.penalty_ledgers)
@@ -522,11 +524,16 @@ class PenaltyLedgerManager:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+        # Track daemon start time for runtime accumulation
+        self.daemon_start_time = time.time()
+
         bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
         bt.logging.info("[PENALTY_LEDGER] Penalty Ledger Manager - Daemon Mode (UTC-Aligned)")
         bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
         bt.logging.info("[PENALTY_LEDGER] Refresh Schedule: 00:00 UTC and 12:00 UTC (12-hour intervals)")
         bt.logging.info(f"[PENALTY_LEDGER] Delta Update Mode: Enabled (resumes from last checkpoint)")
+        bt.logging.info(f"[PENALTY_LEDGER] Full Rebuild: Enabled after 48 hours of accumulated runtime")
+        bt.logging.info(f"[PENALTY_LEDGER] Accumulated Runtime: {self.accumulated_runtime_seconds / 3600:.1f} hours")
         bt.logging.info(f"[PENALTY_LEDGER] Slack Notifications: {'Enabled' if self.slack_notifier.webhook_url else 'Disabled'}")
         bt.logging.info("[PENALTY_LEDGER] " + "=" * 80)
 
@@ -539,53 +546,63 @@ class PenaltyLedgerManager:
         time.sleep(120) # Initial delay to stagger large ipc reads
 
         # FIRST-BOOT OPTIMIZATION: If no ledgers exist, build immediately instead of waiting up to 12 hours
+        # Use delta_update=True to avoid triggering expensive full rebuild on boot
         if len(self.penalty_ledgers) == 0:
             bt.logging.warning(
                 "[PENALTY_LEDGER] No existing penalty ledgers found! "
-                "Performing initial build immediately (not waiting for UTC alignment)"
+                "Performing initial delta build immediately (not waiting for UTC alignment)"
             )
             try:
                 start_time = time.time()
-                self.build_penalty_ledgers(verbose=verbose, delta_update=False)
+                self.build_penalty_ledgers(verbose=verbose, delta_update=True)
                 elapsed = time.time() - start_time
                 bt.logging.info(
-                    f"[PENALTY_LEDGER] Initial build completed in {elapsed:.2f}s. "
+                    f"[PENALTY_LEDGER] Initial delta build completed in {elapsed:.2f}s. "
                     f"Built {len(self.penalty_ledgers)} ledgers."
                 )
             except Exception as e:
-                bt.logging.error(f"[PENALTY_LEDGER] Initial build failed: {e}", exc_info=True)
+                bt.logging.error(f"[PENALTY_LEDGER] Initial delta build failed: {e}", exc_info=True)
                 # Don't exit - will retry on next cycle with backoff
                 consecutive_failures = 1
 
         # Main loop
         while self.running:
             try:
-                # Determine if we need a full rebuild (every 48 days)
-                current_time_ms = int(time.time() * 1000)
-                days_since_last_rebuild = (current_time_ms - self.last_full_rebuild_ms) / (1000 * 60 * 60 * 24)
-                should_full_rebuild = (self.last_full_rebuild_ms == 0) or (days_since_last_rebuild >= 48)
+                # Calculate accumulated runtime
+                current_runtime_seconds = time.time() - self.daemon_start_time
+                total_runtime_seconds = self.accumulated_runtime_seconds + current_runtime_seconds
+                total_runtime_hours = total_runtime_seconds / 3600
+
+                # Determine if we need a full rebuild (after 48 hours of accumulated runtime)
+                FULL_REBUILD_THRESHOLD_HOURS = 48
+                should_full_rebuild = total_runtime_hours >= FULL_REBUILD_THRESHOLD_HOURS
 
                 if should_full_rebuild:
                     bt.logging.info(
                         f"[PENALTY_LEDGER] Triggering FULL REBUILD "
-                        f"(days since last rebuild: {days_since_last_rebuild:.1f}, "
-                        f"last rebuild: {TimeUtil.millis_to_formatted_date_str(self.last_full_rebuild_ms)})"
+                        f"(accumulated runtime: {total_runtime_hours:.1f} hours, threshold: {FULL_REBUILD_THRESHOLD_HOURS} hours)"
                     )
                     start_time = time.time()
                     self.build_penalty_ledgers(verbose=verbose, delta_update=False)
                     elapsed = time.time() - start_time
 
-                    # Update last full rebuild timestamp
-                    self.last_full_rebuild_ms = current_time_ms
-                    bt.logging.info(f"[PENALTY_LEDGER] Full rebuild completed in {elapsed:.2f}s")
+                    # Reset accumulated runtime after successful full rebuild
+                    self.accumulated_runtime_seconds = 0
+                    self.daemon_start_time = time.time()  # Reset start time
+                    bt.logging.info(f"[PENALTY_LEDGER] Full rebuild completed in {elapsed:.2f}s. Runtime counter reset.")
                 else:
                     bt.logging.info(
                         f"[PENALTY_LEDGER] Starting delta update "
-                        f"(days until next full rebuild: {48 - days_since_last_rebuild:.1f})"
+                        f"(runtime: {total_runtime_hours:.1f}h / {FULL_REBUILD_THRESHOLD_HOURS}h for full rebuild)"
                     )
                     start_time = time.time()
                     self.build_penalty_ledgers(verbose=verbose, delta_update=True)
                     elapsed = time.time() - start_time
+
+                    # Update accumulated runtime after successful delta update
+                    self.accumulated_runtime_seconds = total_runtime_seconds
+                    self.daemon_start_time = time.time()  # Reset start time for next cycle
+
                     bt.logging.info(f"[PENALTY_LEDGER] Delta update completed in {elapsed:.2f}s")
 
                 # Success - reset failure counter
