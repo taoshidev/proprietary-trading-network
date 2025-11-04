@@ -360,21 +360,6 @@ class EliminationManager(CacheController):
                 self.append_elimination_row(hotkey=hotkey, current_dd=None, reason=EliminationReason.ZOMBIE.value)
                 self.handle_eliminated_miner(hotkey, {}, position_locks)
 
-    def _is_anomalous_metagraph_change(self, lost_hotkeys: set, total_hotkeys_before: int) -> bool:
-        """
-        Detect anomalous drops in miner counts to avoid false positives.
-        Uses shared anomaly detection logic from metagraph_utils.
-
-        Args:
-            lost_hotkeys: Set of hotkeys that were lost
-            total_hotkeys_before: Total number of hotkeys before the change
-
-        Returns:
-            True if the change is anomalous (likely a network issue), False otherwise
-        """
-        is_anomalous, _ = is_anomalous_hotkey_loss(lost_hotkeys, total_hotkeys_before)
-        return is_anomalous
-
     def _update_departed_hotkeys(self):
         """
         Track hotkeys that have departed from the metagraph (de-registered).
@@ -405,7 +390,8 @@ class EliminationManager(CacheController):
             )
 
         # Only track legitimate departures (not anomalous drops)
-        if lost_hotkeys and not self._is_anomalous_metagraph_change(lost_hotkeys, len(self.previous_metagraph_hotkeys)):
+        is_anomalous, _ = is_anomalous_hotkey_loss(lost_hotkeys, len(self.previous_metagraph_hotkeys))
+        if lost_hotkeys and not is_anomalous:
             # Add lost hotkeys to departed tracking
             new_departures = lost_hotkeys - departed_hotkeys_set
             if new_departures:
