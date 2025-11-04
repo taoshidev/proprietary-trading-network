@@ -23,6 +23,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -1827,6 +1828,34 @@ class PerfLedgerManager(CacheController):
                 # Sanity check for each position
                 n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
                 n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
+
+                # Diagnostic logging for assertion violations
+                if n_open_positions > 1 or (n_open_positions == 1 and not tp_to_historical_positions[symbol][-1].is_open_position):
+                    open_positions = [p for p in tp_to_historical_positions[symbol] if p.is_open_position]
+                    last_position = tp_to_historical_positions[symbol][-1]
+
+                    bt.logging.error(f"ASSERTION VIOLATION DIAGNOSTICS for hotkey {hotkey} trade_pair {symbol}:")
+                    bt.logging.error(f"  n_open_positions: {n_open_positions}, n_closed_positions: {n_closed_positions}")
+                    bt.logging.error(f"  last_position.is_open_position: {last_position.is_open_position}")
+                    bt.logging.error(f"  last_position.is_closed_position: {last_position.is_closed_position}")
+                    bt.logging.error(f"  last_position.close_ms: {last_position.close_ms}")
+                    bt.logging.error(f"  last_position.position_type: {last_position.position_type}")
+                    bt.logging.error(f"  last_position.n_orders: {len(last_position.orders)}")
+
+                    # Check for inconsistent state: close_ms set but is_open_position=True
+                    for i, p in enumerate(open_positions):
+                        has_flat_order = any(o.order_type == OrderType.FLAT for o in p.orders)
+                        bt.logging.error(f"  open_position[{i}]:")
+                        bt.logging.error(f"    position_uuid: {p.position_uuid}")
+                        bt.logging.error(f"    close_ms: {p.close_ms} (INCONSISTENT: should be None for open positions)")
+                        bt.logging.error(f"    is_closed_position: {p.is_closed_position}")
+                        bt.logging.error(f"    position_type: {p.position_type}")
+                        bt.logging.error(f"    n_orders: {len(p.orders)}")
+                        bt.logging.error(f"    has_flat_order: {has_flat_order}")
+                        bt.logging.error(f"    order_types: {[o.order_type.value for o in p.orders]}")
+                        bt.logging.error(f"    order_sources: {[o.src for o in p.orders]}")
+                        if not has_flat_order:
+                            bt.logging.error(f"    THEORY CONFIRMED: Open position WITHOUT FLAT order but likely manually closed!")
 
                 assert n_open_positions == 0 or n_open_positions == 1, (n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
                 if n_open_positions == 1:
