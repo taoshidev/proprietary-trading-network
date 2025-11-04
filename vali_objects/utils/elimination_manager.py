@@ -450,6 +450,9 @@ class EliminationManager(CacheController):
     def _get_departed_hotkeys_from_disk(self) -> dict:
         """Load departed hotkeys from disk.
 
+        Tries to load from validation/departed_hotkeys.json (runtime file).
+        If not found, falls back to data/default_departed_hotkeys.json (committed default).
+
         Returns:
             Dict mapping hotkey -> metadata dict with key: detected_ms
         """
@@ -465,7 +468,35 @@ class EliminationManager(CacheController):
             bt.logging.trace(f"Loaded {len(departed_data)} departed hotkeys from disk. Dir: {location}")
             return departed_data
         except Exception as e:
-            bt.logging.warning(f"Could not load departed hotkeys from disk: {e}. Starting with empty dict.")
+            bt.logging.warning(f"Could not load departed hotkeys from disk: {e}. Trying default file...")
+            # Fall back to default file committed to repo
+            return self._get_departed_hotkeys_from_default_file()
+
+    def _get_departed_hotkeys_from_default_file(self) -> dict:
+        """Load departed hotkeys from the default file committed to the repository.
+
+        This file (data/default_departed_hotkeys.json) contains all historically departed
+        hotkeys and serves as a fallback when the runtime file doesn't exist.
+
+        Returns:
+            Dict mapping hotkey -> metadata dict with key: detected_ms
+        """
+        import os
+        base_dir = ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests).replace('/validation/', '')
+        default_location = os.path.join(base_dir, 'data', 'default_departed_hotkeys.json')
+
+        try:
+            departed_data = ValiUtils.get_vali_json_file(default_location, DEPARTED_HOTKEYS_KEY)
+            if departed_data is None:
+                departed_data = {}
+            # Handle legacy list format for backwards compatibility
+            if isinstance(departed_data, list):
+                bt.logging.info(f"Converting legacy default departed hotkeys list to dict format")
+                departed_data = {hotkey: {"detected_ms": 0} for hotkey in departed_data}
+            bt.logging.info(f"Loaded {len(departed_data)} departed hotkeys from default file: {default_location}")
+            return departed_data
+        except Exception as e:
+            bt.logging.warning(f"Could not load departed hotkeys from default file: {e}. Starting with empty dict.")
             return {}
 
     def _save_departed_hotkeys(self):
