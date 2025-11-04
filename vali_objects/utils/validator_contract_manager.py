@@ -14,7 +14,7 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
-TARGET_MS = 1762293600000
+TARGET_MS = 1762300800000
 NOV_1_MS = 1761951599000
 
 class CollateralRecord:
