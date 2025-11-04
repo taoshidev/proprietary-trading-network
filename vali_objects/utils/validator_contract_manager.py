@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List
 import traceback
 import asyncio
 import json
+import time
 from time_util.time_util import TimeUtil
 from vali_objects.utils.ledger_utils import LedgerUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -14,7 +15,7 @@ from vali_objects.vali_config import ValiConfig
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 import template.protocol
 
-TARGET_MS = 1762300800000
+TARGET_MS = 1762308000000
 NOV_1_MS = 1761951599000
 
 class CollateralRecord:
@@ -137,18 +138,25 @@ class ValidatorContractManager:
         # for miner, amount in miners_to_reinstate.items():
         #     self.force_deposit(amount, miner)
 
-        # update of all miner account sizes when COST_PER_THETA changes
-        bt.logging.info(f"Starting COST_PER_THETA update for all miners (including eliminated) at {now_ms}...")
-        migration_count = 0
+        update_thread = threading.Thread(target=self.refresh_miner_account_sizes, daemon=True)
+        update_thread.start()
+        bt.logging.info("COST_PER_THETA migration started in background thread")
+
+    def refresh_miner_account_sizes(self):
+        """
+        refresh miner account sizes for new CPT
+        """
+        update_count = 0
         for hotkey in list(self.miner_account_sizes.keys()):
             try:
                 prev_acct_size = self.get_miner_account_size(hotkey)
-                bt.logging.info(f"Current account size for {hotkey}: {prev_acct_size}")
+                bt.logging.info(f"Current account size for {hotkey}: ${prev_acct_size:,.2f}")
                 self.set_miner_account_size(hotkey, NOV_1_MS)
-                migration_count += 1
+                update_count += 1
+                time.sleep(0.5)
             except Exception as e:
                 bt.logging.error(f"Failed to update account size for {hotkey}: {e}")
-        bt.logging.info(f"COST_PER_THETA update completed for {migration_count} miners")
+        bt.logging.info(f"COST_PER_THETA update completed for {update_count} miners")
 
     def load_contract_owner(self):
         """
@@ -671,22 +679,31 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to execute slashing for {miner_hotkey}: {e}")
             return False
 
-    def get_miner_collateral_balance(self, miner_address: str) -> Optional[float]:
+    def get_miner_collateral_balance(self, miner_address: str, max_retries: int=4) -> Optional[float]:
         """
         Get a miner's current collateral balance in theta tokens.
 
         Args:
             miner_address (str): Miner's SS58 address
+            max_retries (int): Maximum number of retry attempts
 
         Returns:
             Optional[float]: Balance in theta tokens, or None if error
         """
-        try:
-            rao_balance = self.collateral_manager.balance_of(miner_address)
-            return self.to_theta(rao_balance)
-        except Exception as e:
-            bt.logging.error(f"Failed to get collateral balance for {miner_address}: {e}")
-            return None
+        for attempt in range(max_retries):
+            try:
+                rao_balance = self.collateral_manager.balance_of(miner_address)
+                return self.to_theta(rao_balance)
+            except Exception as e:
+                # Check if this is a rate limiting error (429)
+                if "429" in str(e) and attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s, 8s
+                    bt.logging.warning(f"Rate limited getting balance for {miner_address}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    bt.logging.error(f"Failed to get collateral balance for {miner_address}: {e}")
+                    return None
+        return None
 
     def get_total_collateral(self) -> int:
         """Get total collateral in the contract in theta."""
@@ -704,7 +721,7 @@ class ValidatorContractManager:
             bt.logging.error(f"Failed to get slashed collateral: {e}")
             return 0
 
-    def set_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> None:
+    def set_miner_account_size(self, hotkey: str, timestamp_ms: int=None) -> bool:
         """
         Set the account size for a miner. Saves to memory and disk.
         Records are kept in chronological order.
@@ -719,7 +736,7 @@ class ValidatorContractManager:
         collateral_balance = self.get_miner_collateral_balance(hotkey)
         if collateral_balance is None:
             bt.logging.warning(f"Could not retrieve collateral balance for {hotkey}")
-            return
+            return False
 
         account_size = min(ValiConfig.MAX_COLLATERAL_BALANCE_THETA, collateral_balance) * ValiConfig.COST_PER_THETA
         collateral_record = CollateralRecord(account_size, collateral_balance, timestamp_ms)
@@ -730,7 +747,7 @@ class ValidatorContractManager:
             if (last_record.account_size == collateral_record.account_size and
                 last_record.account_size_theta == collateral_record.account_size_theta):
                 bt.logging.info(f"Skipping save for {hotkey} - new record matches last record")
-                return
+                return True
 
         if hotkey not in self.miner_account_sizes:
             self.miner_account_sizes[hotkey] = []
@@ -751,6 +768,7 @@ class ValidatorContractManager:
         else:
             bt.logging.info(
                 f"Updated account size for {hotkey}: ${account_size:,.2f} (valid from {collateral_record.valid_date_str})")
+        return True
 
     def get_miner_account_size(self, hotkey: str, timestamp_ms: int=None, most_recent: bool=False, records_dict: dict=None) -> float | None:
         """
