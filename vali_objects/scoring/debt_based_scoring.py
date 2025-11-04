@@ -405,13 +405,9 @@ class DebtBasedScoring:
 
         # Handle edge cases
         if not ledger_dict:
-            bt.logging.info("No debt ledgers provided, returning empty weights")
-            return []
-
-        if len(ledger_dict) == 1:
-            hotkey = list(ledger_dict.keys())[0]
-            bt.logging.info(f"Only one miner: {hotkey}, returning weight 1.0")
-            return [(hotkey, 1.0)]
+            bt.logging.info("No debt ledgers provided, setting burn address weight to 1.0")
+            burn_hotkey = DebtBasedScoring._get_burn_address_hotkey(metagraph, is_testnet)
+            return [(burn_hotkey, 1.0)]
 
         # Step 1: Get current month and year
         current_dt = TimeUtil.millis_to_datetime(current_time_ms)
