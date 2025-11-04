@@ -80,10 +80,10 @@ class PositionManager(CacheController):
             bt.logging.info("Started run_closed_position_daemon_forever process.")
 
     def run_closed_position_daemon_forever(self):
-        try:
-            self.ensure_position_consistency_serially()
-        except Exception as e:
-            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        #try:
+        #    self.ensure_position_consistency_serially()
+        #except Exception as e:
+        #    bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
         while True:
             try:
                 t0 = time.time()
