@@ -820,12 +820,14 @@ class PenaltyLedgerManager:
             # Iterate through checkpoints in the portfolio ledger (only new ones if delta_update)
             checkpoints_processed = 0
             for checkpoint in portfolio_ledger.cps:
+                # Skip incomplete checkpoints (applies to both delta updates AND full rebuilds)
+                if checkpoint.accum_ms != portfolio_ledger.target_cp_duration_ms:
+                    # This is still an active checkpoint - skip it
+                    continue
+
                 # Skip checkpoints we've already processed in delta update mode
                 if delta_update:
                     if checkpoint.last_update_ms <= last_processed_ms: # We have already processed this checkpoint
-                        continue
-                    if checkpoint.accum_ms != portfolio_ledger.target_cp_duration_ms:
-                        # This is still an active checkpoint - skip it
                         continue
 
                 checkpoint_ms = checkpoint.last_update_ms
