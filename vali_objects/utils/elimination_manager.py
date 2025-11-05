@@ -70,7 +70,7 @@ class EliminationManager(CacheController):
             self._save_departed_hotkeys()
 
         # Track previous metagraph hotkeys to detect changes
-        self.previous_metagraph_hotkeys = set(self.metagraph.hotkeys) if self.metagraph.hotkeys else set()
+        self.previous_metagraph_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
 
     def handle_perf_ledger_eliminations(self, position_locks):
         perf_ledger_eliminations = self.position_manager.perf_ledger_manager.get_perf_ledger_eliminations()
@@ -223,7 +223,7 @@ class EliminationManager(CacheController):
         # self.eliminations were just refreshed in process_eliminations
         any_challenege_period_changes = False
         now_ms = TimeUtil.now_in_millis()
-        metagraph_hotkeys_set = set(self.metagraph.hotkeys)
+        metagraph_hotkeys_set = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
         for x in self.eliminations:
             if self.shutdown_dict:
                 return
@@ -349,7 +349,7 @@ class EliminationManager(CacheController):
             return
 
         all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        all_hotkeys_set = set(self.metagraph.hotkeys)
+        all_hotkeys_set = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
 
         for hotkey in CacheController.get_directory_names(all_miners_dir):
             corresponding_elimination = self.hotkey_in_eliminations(hotkey)
@@ -369,7 +369,7 @@ class EliminationManager(CacheController):
         if self.is_backtesting:
             return
 
-        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph.hotkeys else set()
+        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
         lost_hotkeys = self.previous_metagraph_hotkeys - current_hotkeys
         gained_hotkeys = current_hotkeys - self.previous_metagraph_hotkeys
 
@@ -428,7 +428,7 @@ class EliminationManager(CacheController):
         if not hotkey:
             return False
 
-        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph.hotkeys else set()
+        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
 
         # Re-registered if currently in metagraph AND previously departed (O(1) dict lookup)
         return hotkey in current_hotkeys and hotkey in self.departed_hotkeys
