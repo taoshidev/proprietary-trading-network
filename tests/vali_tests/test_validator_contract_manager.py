@@ -120,7 +120,11 @@ class TestValidatorContractManager(TestBase):
         
         # Mock collateral balance for consistent account size calculation
         with patch.object(self.contract_manager, '_save_miner_account_sizes_to_disk'):
-            self.mock_collateral_manager_instance.balance_of.return_value = 1000000  # 1M rao
+            self.mock_collateral_manager_instance.balance_of.side_effect = [
+                1_000_000,  # First call
+                2_000_000,  # Second call
+                3_000_000,  # Third call
+            ]
             
             # Add multiple records with different timestamps
             self.contract_manager.set_miner_account_size(self.MINER_1, base_time)
@@ -135,6 +139,23 @@ class TestValidatorContractManager(TestBase):
             for i in range(1, len(records)):
                 self.assertGreaterEqual(records[i].update_time_ms, records[i-1].update_time_ms)
 
+    def test_no_duplicate_account_size_records(self):
+        """Test that duplicate records are ignored"""
+        base_time = int(time.time() * 1000)
+
+        # Mock collateral balance for consistent account size calculation
+        with patch.object(self.contract_manager, '_save_miner_account_sizes_to_disk'):
+            self.mock_collateral_manager_instance.balance_of.return_value = 1000000  # 1M rao
+
+            # Add multiple records with different timestamps
+            self.contract_manager.set_miner_account_size(self.MINER_1, base_time)
+            self.contract_manager.set_miner_account_size(self.MINER_1, base_time + 1000)
+            self.contract_manager.set_miner_account_size(self.MINER_1, base_time + 2000)
+
+            # Verify records are stored
+            records = self.contract_manager.miner_account_sizes[self.MINER_1]
+            self.assertEqual(len(records), 1)
+
     def test_sync_miner_account_sizes_data(self):
         """Test syncing miner account sizes from external data"""
         # Create test data in the format expected by sync method
@@ -142,6 +163,7 @@ class TestValidatorContractManager(TestBase):
             self.MINER_1: [
                 {
                     "account_size": 15000.0,
+                    "account_size_theta": 1000.0,
                     "update_time_ms": int(time.time() * 1000) - 1000,
                     "valid_date_timestamp": CollateralRecord.valid_from_ms(int(time.time() * 1000) - 1000)
                 }
@@ -149,6 +171,7 @@ class TestValidatorContractManager(TestBase):
             self.MINER_2: [
                 {
                     "account_size": 25000.0,
+                    "account_size_theta": 2000.0,
                     "update_time_ms": int(time.time() * 1000),
                     "valid_date_timestamp": CollateralRecord.valid_from_ms(int(time.time() * 1000))
                 }
