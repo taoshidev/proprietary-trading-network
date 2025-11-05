@@ -300,26 +300,12 @@ class ValidatorSyncBase():
         deleted = stats['deleted']
         inserted = stats['inserted']
 
-        #for position, sync_status in position_to_sync_status.items():
-        #    position_debug_sting = f'---debug printing pos to ss: {position.trade_pair.trade_pair_id} n_orders {len(position.orders)}'
-        #    print(position_debug_sting)
-        #    self.debug_print_pos(position)
-        #    print('---status', sync_status)
-
         # Deletions happen first
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.DELETED:
                 deleted -= 1
                 if not self.is_mothership:
                     self.position_manager.delete_position(position)
-
-        # Updates happen next
-        # First close out contradicting positions that happen if a validator is left in a bad state
-        #for position, sync_status in position_to_sync_status.items():
-        #    if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-        #        if not self.is_mothership:
-        #            if position.is_closed_position:
-        #                self.position_manager.delete_open_position_if_exists(position)
 
         # Handle multiple open positions for a hotkey - track across ALL sync statuses to prevent duplicates
         prev_open_position = None
@@ -576,8 +562,6 @@ class ValidatorSyncBase():
             if matched:
                 print('  matched:')
                 print(f'  {len(matched)} matched orders')
-                #for x in matched:
-                #    self.debug_print_order(x)
 
         ans = ret
         ans.sort(key=lambda x: x.processed_ms)
@@ -598,10 +582,6 @@ class ValidatorSyncBase():
         matched = list()
         stats = defaultdict(int)
 
-        # There should only be one open position at a time. We trust the candidate data to be correct. Therefore, if
-        # there is an open position in the candidate data, we will delete all open positions in the existing data.
-
-        # open_postition_acked = False
         # First pass. Try to match 1:1 based on position_uuid
         for c in candidate_positions:
             if c.position_uuid in matched_candidates_by_uuid:
@@ -610,10 +590,6 @@ class ValidatorSyncBase():
                 if e.position_uuid in matched_existing_by_uuid:
                     continue
                 if e.position_uuid == c.position_uuid:
-                    # Block the match
-                    # if open_postition_acked and e.is_open_position:
-                    #     continue
-
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -625,7 +601,6 @@ class ValidatorSyncBase():
                         if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
-                    # open_postition_acked |= e.is_open_position
                     ret.append(e)
 
                     matched_candidates_by_uuid |= {c.position_uuid}
@@ -642,10 +617,6 @@ class ValidatorSyncBase():
                 if e.position_uuid in matched_existing_by_uuid:
                     continue
                 if self.positions_aligned(e, c):
-                    # Block the match
-                    # if open_postition_acked and e.is_open_position:
-                    #     continue
-
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -657,7 +628,6 @@ class ValidatorSyncBase():
                         if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
-                    # open_postition_acked |= e.is_open_position
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
                     ret.append(e)
@@ -665,20 +635,13 @@ class ValidatorSyncBase():
                     stats['matched'] += 1
                     break
 
-
-        # Handle insertions (unmatched candidates).
+        # Handle insertions (unmatched candidates)
         for p in candidate_positions:
             if p.position_uuid in matched_candidates_by_uuid:
                 continue
 
-            # Block the insert
-            # if open_postition_acked and p.is_open_position:
-            #     self.global_stats['blocked_insert_open_position_acked'] += 1
-            #     continue
-
             stats['inserted'] += 1
             position_to_sync_status[p] = PositionSyncResult.INSERTED
-            # open_postition_acked |= p.is_open_position
             min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             ret.append(p)
             inserted.append(p)
@@ -693,18 +656,8 @@ class ValidatorSyncBase():
                 position_to_sync_status[p] = PositionSyncResult.DELETED
                 min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             else:
-                # Block the keep and delete it
-                # if open_postition_acked and p.is_open_position:
-                #     stats['deleted'] += 1
-                #     deleted.append(p)
-                #     position_to_sync_status[p] = PositionSyncResult.DELETED
-                #     min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
-                #     self.global_stats['blocked_keep_open_position_acked'] += 1
-                #     continue
-
                 ret.append(p)
                 kept.append(p)
-                # open_postition_acked |= p.is_open_position
                 stats['kept'] += 1
                 position_to_sync_status[p] = PositionSyncResult.NOTHING
 
@@ -747,7 +700,6 @@ class ValidatorSyncBase():
                     self.debug_print_pos(x)
             if matched:
                 print('  matched positions:')
-                #print(f'  {len(matched)} matched positions')
                 for x in matched:
                     self.debug_print_pos(x)
             if kept:
@@ -755,8 +707,6 @@ class ValidatorSyncBase():
                 for x in kept:
                     self.debug_print_pos(x)
 
-        # n_open = len([p for p in ret if p.is_open_position])
-        # assert n_open < 2, f"n_open: {n_open}"
         return position_to_sync_status, min_timestamp_of_change, stats
 
     def _dedupe_candidate_positions(self, positions: list[Position]) -> list[Position]:
@@ -985,8 +935,8 @@ class ValidatorSyncBase():
         Detects:
         1. Multiple open positions for the same trade pair (should be at most 1)
         2. Open position exists but is NOT the last position chronologically
-        3. Positions with inconsistent state (e.g., close_ms set but is_open_position=True)
-        4. Open positions without FLAT orders in their order list
+        3. Positions with inconsistent state (treats both 0 and None as valid for open positions)
+        4. Closed positions without FLAT order as last order
 
         Args:
             positions: List of positions for a single trade pair
@@ -1036,44 +986,42 @@ class ValidatorSyncBase():
                 )
 
         # Violation 3: Check for positions with inconsistent state
-        # (e.g., is_open_position=True but has close_ms set, or vice versa)
+        # Treat both 0 and None as valid for open positions (defensive programming)
         for p in sorted_positions:
             # Skip if already marked for deletion
             if p.position_uuid in violation_uuids:
                 continue
 
             # Check for inconsistent state
-            if p.is_open_position and p.close_ms is not None:
+            # For open positions: close_ms can be None or 0 (both valid)
+            # For closed positions: close_ms must be a real timestamp (not None, not 0)
+            if p.is_open_position and p.close_ms is not None and p.close_ms != 0:
                 violation_uuids.add(p.position_uuid)
                 bt.logging.warning(
                     f"INVARIANT VIOLATION: Position {p.position_uuid} has is_open_position=True "
-                    f"but close_ms={p.close_ms} (should be None). Will delete."
+                    f"but close_ms={p.close_ms} (should be None or 0). Will delete."
                 )
-            elif p.is_closed_position and p.close_ms is None:
+            elif p.is_closed_position and (p.close_ms is None or p.close_ms == 0):
                 violation_uuids.add(p.position_uuid)
                 bt.logging.warning(
                     f"INVARIANT VIOLATION: Position {p.position_uuid} has is_closed_position=True "
-                    f"but close_ms=None (should be set). Will delete."
+                    f"but close_ms={p.close_ms} (should be a real timestamp). Will delete."
                 )
 
-        # Violation 4: Check for open positions without FLAT orders
-        # This is the root cause we identified earlier - positions manually closed without FLAT orders
+        # Violation 4: Check for closed positions without FLAT order as last order
         for p in sorted_positions:
             # Skip if already marked for deletion
             if p.position_uuid in violation_uuids:
                 continue
 
-            if p.is_open_position:
-                # Check if the position has any FLAT orders
-                has_flat_order = any(o.order_type == OrderType.FLAT for o in p.orders)
-                if not has_flat_order:
-                    # This is suspicious but not necessarily a violation YET
-                    # However, if we also see that it has been "artificially" closed (has close_ms),
-                    # then we know it will cause problems when rebuild_position_with_updated_orders is called
-                    # Actually, wait - if it's an open position without FLAT, that's expected
-                    # The problem is when it's marked as closed without FLAT
-                    # So this check is actually redundant with Violation 3
-                    # But we can still log it for debugging
-                    pass
+            # Closed positions must have a FLAT order as their last order
+            if p.is_closed_position:
+                if not p.orders or p.orders[-1].order_type != OrderType.FLAT:
+                    violation_uuids.add(p.position_uuid)
+                    last_order_type = p.orders[-1].order_type.name if p.orders else "NO_ORDERS"
+                    bt.logging.warning(
+                        f"INVARIANT VIOLATION: Position {p.position_uuid} is closed "
+                        f"but last order is {last_order_type} (should be FLAT). Will delete."
+                    )
 
         return violation_uuids
