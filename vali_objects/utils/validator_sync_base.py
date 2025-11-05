@@ -367,19 +367,28 @@ class ValidatorSyncBase():
     def close_older_open_position(self, p1: Position, p2: Position):
         """
         p1 and p2 are both open positions for a hotkey+trade pair, so we want to close the older one.
+        We add a synthetic FLAT order before closing to maintain position invariants.
         """
         if p2 is None:
             return p1
 
         self.global_stats['n_positions_closed_duplicate_opens_for_trade_pair'] += 1
 
+        close_time_ms = TimeUtil.now_in_millis()
+
         # if p2 is an older position, we close it and return p1 as the newest open position.
         if p2.open_ms < p1.open_ms:
-            p2.close_out_position(TimeUtil.now_in_millis())
+            # Add synthetic FLAT order to properly close the position
+            flat_order = Position.generate_fake_flat_order(p2, close_time_ms, self.live_price_fetcher)
+            p2.orders.append(flat_order)
+            p2.close_out_position(close_time_ms)
             self.position_manager.overwrite_position_on_disk(p2)
             return p1
         else:
-            p1.close_out_position(TimeUtil.now_in_millis())
+            # Add synthetic FLAT order to properly close the position
+            flat_order = Position.generate_fake_flat_order(p1, close_time_ms, self.live_price_fetcher)
+            p1.orders.append(flat_order)
+            p1.close_out_position(close_time_ms)
             self.position_manager.overwrite_position_on_disk(p1)
             return p2
 
