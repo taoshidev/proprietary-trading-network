@@ -41,6 +41,7 @@ class PositionManager(CacheController):
                  is_mothership=False, perf_ledger_manager=None,
                  challengeperiod_manager=None,
                  elimination_manager=None,
+                 contract_manager=None,
                  secrets=None,
                  ipc_manager=None,
                  live_price_fetcher=None,
@@ -66,6 +67,12 @@ class PositionManager(CacheController):
 
         # Track splitting statistics
         self.split_stats = defaultdict(self._default_split_stats)
+
+        self.contract_manager = contract_manager
+        if contract_manager:
+            self.cached_miner_account_sizes = deepcopy(self.contract_manager.miner_account_sizes)
+        else:
+            self.cached_miner_account_sizes = {}
 
         if ipc_manager:
             self.hotkey_to_positions = ipc_manager.dict()
@@ -787,16 +794,17 @@ class PositionManager(CacheController):
                     continue
                 if position.trade_pair in tps_to_eliminate:
                     price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(position.trade_pair, TARGET_MS)
-                    live_price = price_sources[0].parse_appropriate_price(TARGET_MS, position.trade_pair.is_forex, OrderType.FLAT, position)
+                    live_price = price_sources[0].parse_appropriate_price(TARGET_MS, position.trade_pair.is_forex, OrderType.FLAT, position.orders[0].order_type)
                     flat_order = Order(price=live_price,
                                        price_sources=price_sources,
                                        processed_ms=TARGET_MS,
-                                       order_uuid=position.position_uuid[::-1],
-                                       # determinstic across validators. Won't mess with p2p sync
+                                       order_uuid=position.position_uuid[::-1], # deterministic across validators. Won't mess with p2p sync
                                        trade_pair=position.trade_pair,
                                        order_type=OrderType.FLAT,
-                                       leverage=0,
+                                       leverage=-position.net_leverage,
                                        src=OrderSource.DEPRECATION_FLAT)
+                    flat_order.quote_usd_rate = self.live_price_fetcher.get_quote_usd_conversion(flat_order, position.position_type)
+                    flat_order.usd_base_rate = self.live_price_fetcher.get_usd_base_conversion(position.trade_pair, TARGET_MS, live_price, OrderType.FLAT, position.position_type)
 
                     position.add_order(flat_order, self.live_price_fetcher)
                     self.save_miner_position(position, delete_open_position_if_exists=True)
@@ -932,7 +940,8 @@ class PositionManager(CacheController):
     def verify_open_position_write(self, miner_dir, updated_position):
         all_files = ValiBkpUtils.get_all_files_in_dir(miner_dir)
         # Print all files found for dir
-        positions = [self._get_position_from_disk(file) for file in all_files]
+        # CRITICAL: Skip migration to avoid infinite recursion
+        positions = [self._get_position_from_disk(file, skip_migration=True) for file in all_files]
         if len(positions) == 0:
             return  # First time open position is being saved
         if len(positions) > 1:
@@ -953,7 +962,8 @@ class PositionManager(CacheController):
             return
 
         cdf = miner_dir[:-5] + 'closed/'
-        positions.extend([self._get_position_from_disk(file) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
+        # CRITICAL: Skip migration to avoid infinite recursion
+        positions.extend([self._get_position_from_disk(file, skip_migration=True) for file in ValiBkpUtils.get_all_files_in_dir(cdf)])
 
         temp = self.hotkey_to_positions.get(updated_position.miner_hotkey, [])
         positions_memory_by_position_uuid = {}
@@ -1189,8 +1199,54 @@ class PositionManager(CacheController):
             )
         return ans
 
+    def _get_account_size_for_order(self, position, order):
+        """
+        temp method:
+        Get the miner's account size for an order
+        """
+        COLLATERAL_START_TIME_MS = 1755302399000
+        if order.processed_ms < COLLATERAL_START_TIME_MS:
+            return ValiConfig.DEFAULT_CAPITAL
 
-    def _get_position_from_disk(self, file) -> Position:
+        if not self.contract_manager:
+            return ValiConfig.DEFAULT_CAPITAL
+
+        account_size = self.contract_manager.get_miner_account_size(
+                position.miner_hotkey, order.processed_ms, records_dict=self.cached_miner_account_sizes)
+        return account_size if account_size is not None else ValiConfig.MIN_CAPITAL
+
+    def _migrate_order_quantities(self, position: Position) -> int:
+        """
+        temp method:
+        Migrate old orders that only have leverage to include quantity.
+        Returns number of orders migrated.
+        """
+        migrated_count = 0
+
+        for order in position.orders:
+            if order.quote_usd_rate == 1 or order.usd_base_rate == 1:
+                order.quote_usd_rate = self.live_price_fetcher.get_quote_usd_conversion(order, position.orders[0].order_type)
+                order.usd_base_rate = self.live_price_fetcher.get_usd_base_conversion(order.trade_pair, order.processed_ms, order.price, order.order_type, position.orders[0].order_type)
+
+            if order.quantity is None and order.leverage is not None:
+                order.value = order.leverage * position.account_size
+                if order.price == 0:
+                    order.quantity = 0
+                else:
+                    order.quantity = (order.value * order.usd_base_rate) / position.trade_pair.lot_size
+
+                migrated_count += 1
+
+        if migrated_count > 0:
+            bt.logging.info(
+                f"Migrated order {position.orders[0].order_uuid}: "
+                f"leverage={position.orders[0].leverage} → quantity={position.orders[0].quantity}. "
+                f"Total order migrations for {position.position_uuid}: {migrated_count}"
+            )
+
+        return migrated_count
+
+    def _get_position_from_disk(self, file, skip_migration=False) -> Position:
         # wrapping here to allow simpler error handling & original for other error handling
         # Note one position always corresponds to one file.
         file_string = None
@@ -1199,6 +1255,36 @@ class PositionManager(CacheController):
             ans = Position.model_validate_json(file_string)
             if not ans.orders:
                 bt.logging.warning(f"Anomalous position has no orders: {ans.to_dict()}")
+            else:
+                # temp logic:
+                # populate order quantity and value field for historical orders.
+                needs_order_migration = any(o.quantity is None and o.leverage is not None for o in ans.orders)
+
+                # check if account_size needs migration
+                needs_account_size_migration = (ans.account_size == 0 or ans.account_size is None)
+
+                if not skip_migration and (needs_order_migration or needs_account_size_migration):
+                    # Fix account_size first (needed for order quantity calculation)
+                    if needs_account_size_migration and ans.orders:
+                        ans.account_size = self._get_account_size_for_order(ans, ans.orders[0])
+                        bt.logging.info(
+                            f"Migrated account_size for position {ans.position_uuid}: "
+                            f"0 → {ans.account_size}"
+                        )
+                    # migrate order quantities if needed
+                    if needs_order_migration:
+                        self._migrate_order_quantities(ans)
+
+                    # Rebuild to recalculate all position-level fields
+                    ans.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                    if not self.is_backtesting:
+                        miner_dir = ValiBkpUtils.get_partitioned_miner_positions_dir(
+                            ans.miner_hotkey, ans.trade_pair.trade_pair_id,
+                            order_status=OrderStatus.OPEN if ans.is_open_position else OrderStatus.CLOSED,
+                            running_unit_tests=self.running_unit_tests
+                        )
+                        ValiBkpUtils.write_file(miner_dir + ans.position_uuid, ans)
+                    # self.save_miner_position(ans, delete_open_position_if_exists=False)
             return ans
         except FileNotFoundError:
             raise ValiFileMissingException(f"Vali position file is missing {file}")
@@ -1296,6 +1382,84 @@ class PositionManager(CacheController):
 
     def get_miner_hotkeys_with_at_least_one_position(self) -> set[str]:
         return set(self.hotkey_to_positions.keys())
+
+    def compute_realtime_drawdown(self, hotkey: str) -> float:
+        """
+        Compute the realtime drawdown from positions.
+        Bypasses perf ledger, since perf ledgers are refreshed in 5 min intervals and may be out of date.
+        Used to enable realtime withdrawals based on drawdown.
+        """
+        # 1. Get existing perf ledger to access historical max portfolio value
+        existing_bundle = self.perf_ledger_manager.get_perf_ledgers(
+            portfolio_only=True,
+            from_disk=False
+        )
+        portfolio_ledger = existing_bundle.get(hotkey, {}).get('portfolio')
+
+        if not portfolio_ledger or not portfolio_ledger.cps:
+            bt.logging.warning(f"No perf ledger found for {hotkey}")
+            return 1.0
+
+        # 2. Get historical max portfolio value from existing checkpoints
+        portfolio_ledger.init_max_portfolio_value()  # Ensures max_return is set
+        max_portfolio_value = portfolio_ledger.max_return
+
+        # 3. Calculate current portfolio value with live prices
+        current_portfolio_value = self._calculate_current_portfolio_value(hotkey)
+
+        # 4. Calculate current drawdown
+        if max_portfolio_value <= 0:
+            return 1.0
+
+        drawdown = min(1.0, current_portfolio_value / max_portfolio_value)
+
+        print(f"Real-time drawdown for {hotkey}: "
+                f"{(1-drawdown)*100:.2f}% "
+                f"(current: {current_portfolio_value:.4f}, "
+                f"max: {max_portfolio_value:.4f})")
+
+        return drawdown
+
+    def _calculate_current_portfolio_value(self, miner_hotkey: str) -> float:
+        """
+        Calculate current portfolio value with live prices.
+        """
+        positions = self.get_positions_for_one_hotkey(
+            miner_hotkey,
+            only_open_positions=False
+        )
+
+        if not positions:
+            return 1.0  # No positions = starting value
+
+        portfolio_return = 1.0
+        now_ms = TimeUtil.now_in_millis()
+
+        for position in positions:
+            if position.is_open_position:
+                # Get live price for open positions
+                price_sources = self.live_price_fetcher.get_sorted_price_sources_for_trade_pair(
+                    position.trade_pair,
+                    now_ms
+                )
+
+                if price_sources and price_sources[0]:
+                    realtime_price = price_sources[0].close
+                    # Calculate return with fees at this moment
+                    position_return = position.get_open_position_return_with_fees(
+                        realtime_price,
+                        self.live_price_fetcher,
+                        now_ms
+                    )
+                    portfolio_return *= position_return
+                else:
+                    # Fallback to last known return
+                    portfolio_return *= position.return_at_close
+            else:
+                # Use stored return for closed positions
+                portfolio_return *= position.return_at_close
+
+        return portfolio_return
 
     def _log_split_stats(self):
         """Log statistics about position splitting."""
@@ -1471,7 +1635,8 @@ class PositionManager(CacheController):
                                         position_uuid=order_group[0].order_uuid,
                                         open_ms=0,
                                         trade_pair=position.trade_pair,
-                                        orders=order_group)
+                                        orders=order_group,
+                                        account_size=position.account_size)
                 new_position.rebuild_position_with_updated_orders(self.live_price_fetcher)
                 positions.append(new_position)
 

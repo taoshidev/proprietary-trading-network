@@ -16,6 +16,7 @@ from vali_objects.position import Position
 from vali_objects.utils.auto_sync import PositionSyncer
 from vali_objects.utils.elimination_manager import EliminationManager
 from vali_objects.utils.position_manager import PositionManager
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.validator_sync_base import AUTO_SYNC_ORDER_LAG_MS
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.order import Order
@@ -35,6 +36,12 @@ class TestAutoSyncTxtFiles(TestBase):
 
     def setUp(self):
         super().setUp()
+        # Clear ALL test miner positions BEFORE creating PositionManager
+        ValiBkpUtils.clear_directory(
+            ValiBkpUtils.get_miner_dir(running_unit_tests=True)
+        )
+
+        self.DEFAULT_ACCOUNT_SIZE = 100_000
         
         # Load test data files
         test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'test_data')
@@ -88,6 +95,7 @@ class TestAutoSyncTxtFiles(TestBase):
         for pos_dict in positions_data:
             try:
                 position = Position(**pos_dict)
+                position.account_size = self.DEFAULT_ACCOUNT_SIZE   # hotfix to add account size
                 positions.append(position)
             except Exception as e:
                 print(f"Failed to create position {pos_dict.get('position_uuid', 'unknown')}: {e}")
@@ -513,7 +521,8 @@ class TestAutoSyncTxtFiles(TestBase):
             orders=bogus_orders,
             position_type=OrderType.FLAT,
             close_ms=bogus_orders[-1].processed_ms,
-            is_closed_position=True
+            is_closed_position=True,
+            account_size=self.DEFAULT_ACCOUNT_SIZE
         )
         
         # Add to modified positions
