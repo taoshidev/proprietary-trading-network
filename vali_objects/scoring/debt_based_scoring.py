@@ -982,7 +982,7 @@ class DebtBasedScoring:
         # Falls back to static dust if metagraph data is unavailable
         DUST = DebtBasedScoring.calculate_dynamic_dust(
             metagraph=metagraph,
-            target_daily_usd=0.01,
+            target_daily_usd=0.10,
             verbose=verbose
         )
 
