@@ -33,7 +33,7 @@ A long position is a bet that the trade pair will increase, while a short positi
 10. A miner's order will be ignored if placing a trade outside of market hours.
 11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
 12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
-13. Avoid reusing hotkeys that have been previously deregistered.
+13. **CRITICAL**: Never reuse hotkeys that have been previously eliminated or deregistered. Once a hotkey is eliminated or deregistered, it is **permanently blacklisted** by the network. Validators internally track all departed hotkeys (both eliminated miners and voluntary deregistrations) and will reject orders from re-registered hotkeys. **Each registration must use a completely new, unused hotkey**. This policy ensures network integrity and prevents circumventing elimination penalties.
 
 ## Scoring Categories
 Our incentive is split into a number of subcategories, each of which is competitive using the same rules of logic as seen above. This helps to balance the spread of information which is generated on our network, without being too prescriptive in terms of what it means to score well within a specific subtopic. The incentive is split evenly between asset classes, with subcategories as follows:

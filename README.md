@@ -125,6 +125,17 @@ Miners who score less than the 15th highest ranking miner in each asset class wi
 
 After elimination, miners are not immediately deregistered from the network. They will undergo a waiting period, determined by registration timelines and the network's immunity policy, before official deregistration. Upon official deregistration, the miner forfeits registration fees paid.
 
+### Hotkey Blacklisting
+
+**IMPORTANT**: Once a hotkey is eliminated or deregistered from the network, it is **permanently blacklisted** and cannot be re-registered. The network internally tracks all departed hotkeys (both eliminated and voluntarily deregistered) in a frozen/blacklisted state.
+
+If you attempt to re-register a previously used hotkey after elimination or deregistration:
+- Your orders will be rejected by validators
+- You will not be able to participate in the network
+- You will need to create and register a **completely new hotkey** to participate again
+
+**Each registration requires a fresh, unused hotkey.** This policy ensures network integrity and prevents circumventing elimination penalties.
+
 
 
 # Get Started

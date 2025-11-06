@@ -785,6 +785,7 @@ class MetagraphUpdater(CacheController):
                     f"🚨 CRITICAL: {error_msg}",
                     level="error"
                 )
+            return  # Actually block the metagraph update
 
         self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
         self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
