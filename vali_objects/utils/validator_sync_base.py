@@ -11,6 +11,7 @@ import bittensor as bt
 
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
 from vali_objects.vali_config import TradePair
 
@@ -948,11 +949,9 @@ class ValidatorSyncBase():
         if len(positions) < 1:
             return set()
 
-        # Sort positions chronologically by close_ms (open positions have close_ms=None, treated as infinity)
-        sorted_positions = sorted(
-            positions,
-            key=lambda p: p.close_ms if p.close_ms is not None else float('inf')
-        )
+        # Sort positions chronologically by close_ms
+        # Use the canonical sorting method from PositionManager
+        sorted_positions = sorted(positions, key=PositionManager.sort_by_close_ms)
 
         violation_uuids = set()
 

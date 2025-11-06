@@ -1179,14 +1179,17 @@ class PositionManager(CacheController):
             ans["percentage_profitable"] = PositionManager.get_percent_profitable_positions(ps_all_time)
 
         for p in original_positions:
-            if p.close_ms is None:
-                p.close_ms = 0
-
+            # Don't modify the position object in-place
+            # Instead, create the dict representation and modify only the dict
             PositionManager.strip_old_price_sources(p, time_now_ms)
 
-            ans["positions"].append(
-                json.loads(str(p), cls=GeneralizedJSONDecoder)
-            )
+            position_dict = json.loads(str(p), cls=GeneralizedJSONDecoder)
+            # Convert None to 0 for JSON serialization (avoids null in JSON)
+            # This is safe because we're only modifying the dict, not the position object
+            if position_dict.get('close_ms') is None:
+                position_dict['close_ms'] = 0
+
+            ans["positions"].append(position_dict)
         return ans
 
 
@@ -1210,7 +1213,15 @@ class PositionManager(CacheController):
         except Exception as e:
             raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
-    def sort_by_close_ms(self, _position):
+    @staticmethod
+    def sort_by_close_ms(_position):
+        """
+        Sort key function for positions.
+        Closed positions are sorted by close_ms (ascending).
+        Open positions are sorted to the end (infinity).
+
+        This is the canonical sorting method used throughout the codebase.
+        """
         return (
             _position.close_ms if _position.is_closed_position else float("inf")
         )
