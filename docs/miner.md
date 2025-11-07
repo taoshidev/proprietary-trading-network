@@ -33,7 +33,7 @@ A long position is a bet that the trade pair will increase, while a short positi
 10. A miner's order will be ignored if placing a trade outside of market hours.
 11. A miner's order will be ignored if they are rate limited (maliciously sending too many requests)
 12. There is a 10-second cooldown period between orders of the same trade pair, during which the miner cannot place another order.
-13. Avoid reusing hotkeys that have been previously deregistered.
+13. **CRITICAL**: Never reuse hotkeys that have been previously eliminated or deregistered. Once a hotkey is eliminated or deregistered, it is **permanently blacklisted** by the network. Validators internally track all departed hotkeys (both eliminated miners and voluntary deregistrations) and will reject orders from re-registered hotkeys. **Each registration must use a completely new, unused hotkey**. This policy ensures network integrity and prevents circumventing elimination penalties.
 
 ## Scoring Categories
 Our incentive is split into a number of subcategories, each of which is competitive using the same rules of logic as seen above. This helps to balance the spread of information which is generated on our network, without being too prescriptive in terms of what it means to score well within a specific subtopic. The incentive is split evenly between asset classes, with subcategories as follows:
@@ -59,11 +59,22 @@ To achieve maximum reward as a miner, you will need to be competitive in all ass
 
 ## Scoring Details
 
-*Average Daily PnL* has more weight than any other individual metric and incentivizes miners to maintain high returns while increasing account sizes. 
+**Debt-Based Scoring System** (Active December 2025+)
 
-*Risk-Adjusted Returns* is a heavily weighted scoring mechanism in our system. We calculate this metric using a combination of average daily returns and a drawdown term, assessed over different lookback periods. This approach allows us to measure each miner’s returns while factoring in the level of risk undertaken to achieve those returns. 
+PTN uses a debt-based scoring system that pays miners proportionally based on their previous month's performance. The system tracks three key components for each miner:
 
-While PnL and risk-adjusted returns are significant scoring mechanics, consistency and statistical confidence each play a substantial role in scoring our miners as we look to prioritize miners with a consistent track record of success. Additionally, we have a layer of costs and penalties baked into PTN, to simulate the real costs of trading.
+1. **Emissions Ledger**: Records ALPHA/TAO/USD tokens earned in 12-hour checkpoints
+2. **Performance Ledger**: Tracks PnL, fees, drawdown, and portfolio returns
+3. **Penalty Ledger**: Applies multipliers for drawdown, risk profile, min collateral, and risk-adjusted performance
+
+These components are combined into a **Debt Ledger** that calculates:
+- **Needed Payout**: Previous month's PnL scaled by penalties (in USD)
+- **Actual Payout**: Current month's emissions already received (in USD)
+- **Remaining Payout**: Debt still owed to the miner (in USD)
+
+Weights are distributed proportionally to remaining payouts, targeting completion by **day 25 of each month**. The system uses an aggressive payout strategy that front-loads emissions early in the month while respecting the hard deadline.
+
+*Average Daily PnL* has the highest weight (90%) and incentivizes miners to maintain high returns while increasing account sizes. The remaining scoring metrics (Calmar, Sharpe, Omega, Sortino, Statistical Confidence) each contribute 2% to ensure well-rounded performance evaluation.
 
 We calculate daily returns for all positions and the entire portfolio, spanning from 12:00 AM UTC to 12:00 AM UTC the following day. However, if a trading day is still ongoing, we still monitor real-time performance and risks. 
 
@@ -186,11 +197,27 @@ We also implement a [portfolio level leverage limit](https://docs.taoshi.io/tips
 
 ## Incentive Distribution
 
-Miners are scored in each of the categories above based on their prior positions over the lookback period. Penalties are then applied to each score for exceeding max drawdown and their perceived risk profile. Each scores are ranked per category for each miner and multiplied by their rank percentile.
+**Debt-Based Weight Calculation** (Active December 2025+)
 
-For example, the lowest ranked miner in the long term realized returns category will receive a percentile score of 1/N, where N is the total number of miners scored in that category. In contrast, the highest-ranked miner will retain 100% of the score weight for that category.
+Starting in December 2025, PTN uses a debt-based scoring algorithm to calculate miner weights:
 
-We distribute using a [softmax function](https://docs.taoshi.io/tips/p11/), with a target of the top 50% of miners receiving 90% of emissions. The softmax function dynamically adjusts to the scores of miners, distributing more incentive to relatively high-performing miners.
+1. **Previous Month Performance**: Calculate each miner's needed payout from previous month (PnL × penalties in USD)
+2. **Current Month Emissions**: Sum emissions already received in current month (in USD)
+3. **Remaining Debt**: Calculate remaining payout = needed - actual (in USD)
+4. **Weight Assignment**: Weights are proportional to remaining debt, targeting payout completion by day 25
+5. **Dynamic Dust Weights**: All miners receive minimum weights based on their challenge period status:
+   - MAINCOMP: 3× dust floor (scaled up to +1 dust based on 30-day performance)
+   - PROBATION: 2× dust floor (scaled up to +1 dust based on 30-day performance)
+   - CHALLENGE/PLAGIARISM: 1× dust floor (scaled up to +1 dust based on 30-day performance)
+   - UNKNOWN: 0× dust (no weight)
+6. **Burn Address**: Excess weight (when sum < 1.0) goes to burn address (UID 229 mainnet / UID 5 testnet)
+
+**Aggressive Payout Strategy**:
+- Early month (days 1-20): Target 4-day completion to front-load emissions
+- Late month (days 21-24): Target actual remaining days until deadline
+- Day 25: Final payout deadline
+
+This system ensures miners are compensated fairly based on their performance while maintaining network security through minimum weights and preventing weight concentration through the burn mechanism.
 
 ## Holidays
 
