@@ -17,6 +17,21 @@ class TestLedgerPenalty(TestBase):
 
     def setUp(self):
         super().setUp()
+        # Clean up any existing penalty ledger file from previous test runs
+        import os
+        from vali_objects.vali_config import ValiConfig
+        penalty_ledger_path = ValiConfig.BASE_DIR + "/tests/validation/penalty_ledger.json.gz"
+        if os.path.exists(penalty_ledger_path):
+            os.remove(penalty_ledger_path)
+
+    def tearDown(self):
+        super().tearDown()
+        # Clean up penalty ledger file after each test
+        import os
+        from vali_objects.vali_config import ValiConfig
+        penalty_ledger_path = ValiConfig.BASE_DIR + "/tests/validation/penalty_ledger.json.gz"
+        if os.path.exists(penalty_ledger_path):
+            os.remove(penalty_ledger_path)
 
     def test_max_drawdown_threshold(self):
         l1 = generate_ledger(0.1, mdd=0.99)[TP_ID_PORTFOLIO]  # 1% drawdown
