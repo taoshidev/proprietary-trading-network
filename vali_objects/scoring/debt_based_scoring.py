@@ -400,6 +400,7 @@ class DebtBasedScoring:
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
         challengeperiod_manager: 'ChallengePeriodManager',
+        contract_manager: 'ValidatorContractManager',
         current_time_ms: int = None,
         verbose: bool = False,
         is_testnet: bool = False
@@ -424,6 +425,7 @@ class DebtBasedScoring:
             ledger_dict: Dict of {hotkey: DebtLedger} containing debt ledger data
             metagraph: Shared IPC metagraph with emission data and substrate reserves
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            contract_manager: Manager for querying miner collateral balances (required)
             current_time_ms: Current timestamp in milliseconds (defaults to now)
             verbose: Enable detailed logging
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
@@ -485,6 +487,7 @@ class DebtBasedScoring:
                 ledger_dict=ledger_dict,
                 metagraph=metagraph,
                 challengeperiod_manager=challengeperiod_manager,
+                contract_manager=contract_manager,
                 current_time_ms=current_time_ms,
                 is_testnet=is_testnet,
                 verbose=verbose
@@ -623,6 +626,7 @@ class DebtBasedScoring:
             ledger_dict=ledger_dict,
             miner_remaining_payouts_usd=miner_remaining_payouts_usd,
             challengeperiod_manager=challengeperiod_manager,
+            contract_manager=contract_manager,
             metagraph=metagraph,
             current_time_ms=current_time_ms,
             verbose=verbose
@@ -900,12 +904,149 @@ class DebtBasedScoring:
         return pnl_scores
 
     @staticmethod
+    def _calculate_collateral_priority_scores(
+        pnl_scores: dict[str, float],
+        collateral_balances: dict[str, float],
+        min_collateral_threshold: float = None
+    ) -> dict[str, tuple[int, float]]:
+        """
+        Calculate priority scores for CHALLENGE miners based on collateral + PnL.
+
+        Priority tiers (lower number = higher priority for 0 weight/dereg):
+        - Tier 0: Zero collateral (ALWAYS get 0 weight, no cap)
+        - Tier 1: Below MIN_COLLATERAL_VALUE (prioritized for 0 weight)
+        - Tier 2: Adequate collateral (use PnL as tiebreaker)
+
+        Args:
+            pnl_scores: Dict of hotkey -> PnL score (in USD)
+            collateral_balances: Dict of hotkey -> collateral balance (in USD)
+            min_collateral_threshold: Minimum required collateral (default: ValiConfig.MIN_COLLATERAL_VALUE)
+
+        Returns:
+            Dict mapping hotkey -> (priority_tier, pnl_score)
+            Lower priority_tier = higher priority for elimination
+        """
+        if min_collateral_threshold is None:
+            min_collateral_threshold = ValiConfig.MIN_COLLATERAL_VALUE
+
+        priority_scores = {}
+
+        for hotkey, pnl in pnl_scores.items():
+            collateral = collateral_balances.get(hotkey, 0.0)
+
+            if collateral == 0:
+                # Tier 0: Zero collateral - ALWAYS eliminate
+                priority_tier = 0
+            elif collateral < min_collateral_threshold:
+                # Tier 1: Below minimum - prioritize for elimination
+                priority_tier = 1
+            else:
+                # Tier 2: Adequate collateral - use PnL ranking
+                priority_tier = 2
+
+            priority_scores[hotkey] = (priority_tier, pnl)
+
+        return priority_scores
+
+    @staticmethod
+    def _calculate_challenge_zero_weight_miners(
+        pnl_scores: dict[str, float],
+        contract_manager: 'ValidatorContractManager',
+        percentile: float = 0.25,
+        max_zero_weight_miners: int = 10
+    ) -> set[str]:
+        """
+        Determine which CHALLENGE miners should get 0 weight (dereg candidates).
+
+        Prioritization logic:
+        1. ALL miners with 0 collateral get 0 weight (no cap)
+        2. Miners below MIN_COLLATERAL fill remaining slots (up to max_zero_weight_miners)
+        3. If slots remain, worst PnL performers with adequate collateral fill them
+
+        Args:
+            pnl_scores: Dict of hotkey -> PnL score
+            contract_manager: Contract manager for collateral queries
+            percentile: Target percentile for 0 weight (0.25 = 25%)
+            max_zero_weight_miners: Maximum total miners to assign 0 weight
+
+        Returns:
+            Set of hotkeys that should receive 0 weight
+        """
+        if len(pnl_scores) <= 1:
+            return set()
+
+        # Get cached collateral balances (in USD) for all miners
+        # Use cached data to avoid rate limiting on-chain queries
+        collateral_balances = {}
+        for hotkey in pnl_scores.keys():
+            collateral_usd = contract_manager.get_miner_account_size(hotkey, most_recent=True)
+            # Handle None or negative values
+            if collateral_usd is None or collateral_usd <= 0:
+                collateral_usd = 0.0
+            collateral_balances[hotkey] = collateral_usd
+
+        # Calculate priority scores (tier, pnl) for each miner
+        priority_scores = DebtBasedScoring._calculate_collateral_priority_scores(
+            pnl_scores=pnl_scores,
+            collateral_balances=collateral_balances
+        )
+
+        # Sort by priority: (tier ASC, pnl ASC)
+        # Lower tier = higher priority for elimination
+        # Within same tier, lower PnL = higher priority for elimination
+        sorted_miners = sorted(
+            priority_scores.items(),
+            key=lambda x: (x[1][0], x[1][1])  # Sort by (tier, pnl)
+        )
+
+        zero_weight_miners = set()
+
+        # Calculate target count: percentile of total miners, capped at max
+        target_zero_weight_count = min(int(len(pnl_scores) * percentile), max_zero_weight_miners)
+
+        # Phase 1: ALL zero-collateral miners get 0 weight (no cap)
+        zero_collateral_miners = [hk for hk, (tier, _) in sorted_miners if tier == 0]
+        zero_weight_miners.update(zero_collateral_miners)
+
+        if zero_collateral_miners:
+            bt.logging.warning(
+                f"Found {len(zero_collateral_miners)} CHALLENGE miners with ZERO collateral. "
+                f"All will receive 0 weight (priority dereg): {[hk[:16] for hk in zero_collateral_miners]}"
+            )
+
+        # Phase 2: Fill remaining slots (up to target_zero_weight_count total)
+        remaining_slots = target_zero_weight_count - len(zero_weight_miners)
+
+        if remaining_slots > 0:
+            # Get miners not yet assigned 0 weight, sorted by priority
+            remaining_miners = [hk for hk, _ in sorted_miners if hk not in zero_weight_miners]
+
+            # Fill slots with next-worst miners (low collateral first, then bad PnL)
+            additional_zero_weight = remaining_miners[:remaining_slots]
+            zero_weight_miners.update(additional_zero_weight)
+
+            if additional_zero_weight:
+                low_collateral_count = sum(
+                    1 for hk in additional_zero_weight
+                    if priority_scores[hk][0] == 1  # Tier 1 = below MIN_COLLATERAL
+                )
+                bt.logging.info(
+                    f"Assigned 0 weight to {len(additional_zero_weight)} additional CHALLENGE miners: "
+                    f"{low_collateral_count} with low collateral, "
+                    f"{len(additional_zero_weight) - low_collateral_count} with poor PnL"
+                )
+
+        return zero_weight_miners
+
+    @staticmethod
     def _calculate_challenge_percentile_threshold(
         pnl_scores: dict[str, float],
         percentile: float = 0.25,
         max_zero_weight_miners: int = 10
     ) -> float:
         """
+        DEPRECATED: Use _calculate_challenge_zero_weight_miners instead for collateral-aware selection.
+
         Calculate percentile threshold for CHALLENGE bucket miners.
 
         The threshold is calculated such that the bottom percentile get 0 weight,
@@ -939,13 +1080,13 @@ class DebtBasedScoring:
         bucket: int,
         floor: float,
         ceiling: float,
-        percentile_threshold: float = None,
+        zero_weight_miners: set[str] = None,
         verbose: bool = False
     ) -> dict[str, float]:
         """
         Assign weights to miners based on PnL scores with performance scaling.
 
-        For CHALLENGE bucket, bottom 25% (below percentile_threshold) get 0 weight.
+        For CHALLENGE bucket, miners in zero_weight_miners set get 0 weight (collateral-aware).
         Others are scaled from floor to ceiling based on normalized PnL.
 
         Args:
@@ -953,7 +1094,7 @@ class DebtBasedScoring:
             bucket: Bucket type (MinerBucket enum value)
             floor: Minimum weight for this bucket
             ceiling: Maximum weight for this bucket
-            percentile_threshold: Threshold for CHALLENGE bucket (miners below get 0)
+            zero_weight_miners: Set of miners that should receive 0 weight (collateral-aware)
             verbose: Enable detailed logging
 
         Returns:
@@ -962,18 +1103,19 @@ class DebtBasedScoring:
         weights = {}
         max_pnl = max(pnl_scores.values()) if pnl_scores else 0.0
 
+        if zero_weight_miners is None:
+            zero_weight_miners = set()
+
         if max_pnl > 0:
             # Scale each miner's PnL to [0, 1] then map to [floor, ceiling]
             for hotkey, pnl in pnl_scores.items():
-                # CHALLENGE bucket: bottom 25% get 0 weight
-                if (bucket == MinerBucket.CHALLENGE.value and
-                    percentile_threshold is not None and
-                    pnl < percentile_threshold):
+                # CHALLENGE bucket: miners in zero_weight_miners set get 0 weight
+                if bucket == MinerBucket.CHALLENGE.value and hotkey in zero_weight_miners:
                     weights[hotkey] = 0.0
                     if verbose:
                         bt.logging.debug(
                             f"  {hotkey[:16]}...{hotkey[-8:]}: "
-                            f"pnl_usd=${pnl:.2f} (bottom 25%, weight=0.0)"
+                            f"pnl_usd=${pnl:.2f} (collateral-aware 0 weight)"
                         )
                 else:
                     normalized = pnl / max_pnl
@@ -992,6 +1134,7 @@ class DebtBasedScoring:
                 pnl_scores=pnl_scores,
                 bucket=bucket,
                 floor=floor,
+                zero_weight_miners=zero_weight_miners,
                 verbose=verbose
             )
 
@@ -1002,46 +1145,44 @@ class DebtBasedScoring:
         pnl_scores: dict[str, float],
         bucket: int,
         floor: float,
-        verbose: bool = False,
-        max_zero_weight_miners: int = 10
+        zero_weight_miners: set[str] = None,
+        verbose: bool = False
     ) -> dict[str, float]:
         """
         Handle weight assignment when all miners in a bucket have 0 PnL.
 
-        For CHALLENGE bucket with multiple miners, up to max_zero_weight_miners get 0 weight
-        (by lexicographic order). If there's only 1 CHALLENGE miner, it gets floor weight.
-        Other buckets get floor weight.
+        For CHALLENGE bucket with multiple miners, uses zero_weight_miners set (collateral-aware)
+        to determine who gets 0 weight. If zero_weight_miners is not provided, falls back to
+        lexicographic order. Other buckets get floor weight.
 
         Args:
             pnl_scores: Dict of hotkey -> PnL score (all should be 0)
             bucket: Bucket type (MinerBucket enum value)
             floor: Minimum weight for this bucket
+            zero_weight_miners: Set of miners that should receive 0 weight (collateral-aware)
             verbose: Enable detailed logging
-            max_zero_weight_miners: Maximum number of miners to assign 0 weight (default: 10)
 
         Returns:
             Dict mapping hotkey -> assigned weight
         """
         weights = {}
 
-        # CHALLENGE bucket: up to max_zero_weight_miners get 0 weight when all have 0 PnL
+        if zero_weight_miners is None:
+            zero_weight_miners = set()
+
+        # CHALLENGE bucket: use zero_weight_miners set when all have 0 PnL
         # Only apply this penalty if there are multiple miners to compare
         if bucket == MinerBucket.CHALLENGE.value and len(pnl_scores) > 1:
-            # When all have 0 PnL, assign 0 weight to bottom 25% (by lexicographic order), capped at 10
-            sorted_hotkeys = sorted(pnl_scores.keys())
-            num_zero = min(int(len(sorted_hotkeys) * 0.25), max_zero_weight_miners)
-            zero_weight_hotkeys = set(sorted_hotkeys[:num_zero])
-
             for hotkey in pnl_scores.keys():
-                if hotkey in zero_weight_hotkeys:
+                if hotkey in zero_weight_miners:
                     weights[hotkey] = 0.0
                 else:
                     weights[hotkey] = floor
 
             if verbose:
                 bt.logging.debug(
-                    f"  All CHALLENGE miners have 0 PnL, assigning 0 weight to {num_zero} miners "
-                    f"(max: {max_zero_weight_miners}), floor weight to others"
+                    f"  All CHALLENGE miners have 0 PnL, assigning 0 weight to {len(zero_weight_miners)} "
+                    f"miners (collateral-aware), floor weight to others"
                 )
         else:
             # Other buckets or single CHALLENGE miner: all get floor weight
@@ -1056,6 +1197,7 @@ class DebtBasedScoring:
     def _calculate_dynamic_dust_weights(
         ledger_dict: dict[str, DebtLedger],
         challengeperiod_manager: 'ChallengePeriodManager',
+        contract_manager: 'ValidatorContractManager',
         current_time_ms: int,
         base_dust: float,
         verbose: bool = False
@@ -1081,6 +1223,7 @@ class DebtBasedScoring:
         Args:
             ledger_dict: All miner ledgers
             challengeperiod_manager: Bucket status manager
+            contract_manager: Manager for querying miner collateral balances (required)
             current_time_ms: Current timestamp
             base_dust: Static dust value from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
             verbose: Enable detailed logging
@@ -1133,19 +1276,19 @@ class DebtBasedScoring:
                 current_time_ms=current_time_ms
             )
 
-            # Calculate percentile threshold for CHALLENGE bucket
-            percentile_threshold = None
+            # Calculate zero-weight miners for CHALLENGE bucket (collateral-aware)
+            zero_weight_miners = set()
             if bucket == MinerBucket.CHALLENGE.value:
-                percentile_threshold = DebtBasedScoring._calculate_challenge_percentile_threshold(
+                zero_weight_miners = DebtBasedScoring._calculate_challenge_zero_weight_miners(
                     pnl_scores=pnl_scores,
+                    contract_manager=contract_manager,
                     percentile=0.25,
                     max_zero_weight_miners=10
                 )
-                if percentile_threshold is not None and verbose:
-                    num_below = sum(1 for pnl in pnl_scores.values() if pnl < percentile_threshold)
+                if zero_weight_miners and verbose:
                     bt.logging.info(
                         f"CHALLENGE bucket: {len(pnl_scores)} miners, "
-                        f"threshold=${percentile_threshold:.2f} ({num_below} miners get 0 weight, max 10)"
+                        f"{len(zero_weight_miners)} miners get 0 weight (collateral-aware prioritization)"
                     )
 
             # Assign weights based on PnL scores with performance scaling
@@ -1155,7 +1298,7 @@ class DebtBasedScoring:
                     bucket=bucket,
                     floor=floor,
                     ceiling=ceiling,
-                    percentile_threshold=percentile_threshold,
+                    zero_weight_miners=zero_weight_miners,
                     verbose=verbose
                 )
                 dynamic_weights.update(bucket_weights)
@@ -1170,6 +1313,7 @@ class DebtBasedScoring:
         ledger_dict: dict[str, DebtLedger],
         miner_remaining_payouts_usd: dict[str, float],
         challengeperiod_manager: 'ChallengePeriodManager',
+        contract_manager: 'ValidatorContractManager',
         metagraph: 'bt.metagraph',
         current_time_ms: int = None,
         verbose: bool = False
@@ -1193,6 +1337,7 @@ class DebtBasedScoring:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts_usd: Dict of {hotkey: remaining_payout_usd} in USD
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            contract_manager: Manager for querying miner collateral balances (required)
             metagraph: Shared IPC metagraph (not used for dust calculation)
             current_time_ms: Current timestamp (required for performance scaling)
             verbose: Enable detailed logging
@@ -1214,6 +1359,7 @@ class DebtBasedScoring:
                 dynamic_dust_weights = DebtBasedScoring._calculate_dynamic_dust_weights(
                     ledger_dict=ledger_dict,
                     challengeperiod_manager=challengeperiod_manager,
+                    contract_manager=contract_manager,
                     current_time_ms=current_time_ms,
                     base_dust=DUST,
                     verbose=verbose
@@ -1372,6 +1518,7 @@ class DebtBasedScoring:
         ledger_dict: dict[str, DebtLedger],
         metagraph: 'bt.metagraph',
         challengeperiod_manager: 'ChallengePeriodManager',
+        contract_manager: 'ValidatorContractManager',
         current_time_ms: int = None,
         is_testnet: bool = False,
         verbose: bool = False
@@ -1387,6 +1534,7 @@ class DebtBasedScoring:
             ledger_dict: Dict of {hotkey: DebtLedger}
             metagraph: Bittensor metagraph for accessing hotkeys
             challengeperiod_manager: Manager for querying current challenge period status (required)
+            contract_manager: Manager for querying miner collateral balances (required)
             current_time_ms: Current timestamp (required for performance-scaled dust calculation)
             is_testnet: True for testnet (uid 220), False for mainnet (uid 229)
             verbose: Enable detailed logging
@@ -1399,6 +1547,7 @@ class DebtBasedScoring:
             ledger_dict=ledger_dict,
             miner_remaining_payouts_usd={hotkey: 0.0 for hotkey in ledger_dict.keys()},  # No debt earnings
             challengeperiod_manager=challengeperiod_manager,
+            contract_manager=contract_manager,
             metagraph=metagraph,
             current_time_ms=current_time_ms,
             verbose=verbose

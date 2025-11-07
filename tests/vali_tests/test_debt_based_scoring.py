@@ -51,12 +51,20 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         self.mock_challengeperiod_manager.get_miner_bucket = Mock(side_effect=mock_get_miner_bucket)
 
+        # Mock contract_manager (for collateral-aware weight assignment)
+        self.mock_contract_manager = Mock()
+        # Default: return 0 collateral (USD) for all miners (can be overridden in specific tests)
+        def mock_get_miner_account_size(hotkey, most_recent=False):
+            return 0.0
+        self.mock_contract_manager.get_miner_account_size = Mock(side_effect=mock_get_miner_account_size)
+
     def test_empty_ledgers(self):
         """Test with no ledgers returns burn address with weight 1.0"""
         result = DebtBasedScoring.compute_results(
             {},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             is_testnet=False
         )
         # With no miners, burn address gets all weight
@@ -70,6 +78,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey": ledger},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             is_testnet=False
         )
         # Single miner with no performance gets dust weight
@@ -123,6 +132,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False
         )
@@ -195,6 +205,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False
         )
@@ -272,6 +283,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False,
             verbose=True
@@ -333,6 +345,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False
         )
@@ -385,6 +398,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey_1": ledger1, "test_hotkey_2": ledger2},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=True  # TESTNET
         )
@@ -438,6 +452,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False,
             verbose=True
@@ -498,6 +513,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False
         )
@@ -554,6 +570,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey": ledger},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms_day1,
                         is_testnet=False,
             verbose=True
@@ -571,6 +588,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey": ledger},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms_day23,
                         is_testnet=False,
             verbose=True
@@ -616,6 +634,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             {"test_hotkey": ledger},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False,
             verbose=True
@@ -702,6 +721,7 @@ class TestDebtBasedScoring(unittest.TestCase):
                 ledgers,
                 self.mock_metagraph,
                 self.mock_challengeperiod_manager,
+                self.mock_contract_manager,
                                 current_time_ms=current_time_ms,
                                 is_testnet=False,
                 verbose=False
@@ -853,6 +873,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
                         current_time_ms=current_time_ms,
                         is_testnet=False,
             verbose=True
@@ -930,6 +951,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1023,6 +1045,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1118,10 +1141,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners
+        mock_cm = Mock()
+        def custom_get_collateral(hotkey):
+            return 1000.0  # 1000 theta = adequate collateral
+        mock_cm.get_miner_collateral_balance = Mock(side_effect=custom_get_collateral)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1183,6 +1213,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1247,6 +1278,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1318,6 +1350,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1407,6 +1440,7 @@ class TestDebtBasedScoring(unittest.TestCase):
             ledgers,
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
+            self.mock_contract_manager,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1854,10 +1888,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners (so PnL-based ranking applies)
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,  # Use custom mock with adequate collateral
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -1868,7 +1909,7 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Filter out burn address from weights_dict for testing
         miner_weights = {k: v for k, v in weights_dict.items() if not k.startswith("burn_address") and not k.startswith("hotkey_")}
 
-        # Bottom 5 miners (0-4) should have 0 weight
+        # Bottom 5 miners (0-4) should have 0 weight (PnL-based, all have adequate collateral)
         for i in range(5):
             self.assertEqual(miner_weights[f"challenge_miner_{i}"], 0.0,
                            f"Miner {i} should have 0 weight (bottom 25%)")
@@ -1931,10 +1972,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners (so PnL-based ranking applies)
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -2012,10 +2060,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners (so PnL-based ranking applies)
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -2085,10 +2140,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners (so PnL-based ranking applies)
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -2150,10 +2212,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for the miner
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             {"solo_challenge_miner": ledger},
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True
@@ -2210,10 +2279,17 @@ class TestDebtBasedScoring(unittest.TestCase):
             return mock_bucket
         mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
 
+        # Mock adequate collateral for all miners (so PnL-based ranking applies)
+        mock_cm = Mock()
+        def custom_get_account_size(hotkey, most_recent=False):
+            return 175000.0  # $175k USD = adequate collateral (> $99,925 MIN_COLLATERAL_VALUE)
+        mock_cm.get_miner_account_size = Mock(side_effect=custom_get_account_size)
+
         result = DebtBasedScoring.compute_results(
             ledgers,
             self.mock_metagraph,
             mock_cpm,
+            mock_cm,
             current_time_ms=current_time_ms,
             is_testnet=False,
             verbose=True

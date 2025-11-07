@@ -163,6 +163,7 @@ class SubtensorWeightSetter(CacheController):
             ledger_dict=filtered_debt_ledgers,
             metagraph=self.metagraph,  # Shared metagraph with substrate reserves
             challengeperiod_manager=self.position_manager.challengeperiod_manager,
+            contract_manager=self.contract_manager,  # For collateral-aware weight assignment
             current_time_ms=current_time,
             verbose=True,
             is_testnet=not self.is_mainnet
