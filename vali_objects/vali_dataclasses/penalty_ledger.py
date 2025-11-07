@@ -309,6 +309,10 @@ class PenaltyLedgerManager:
         self.accumulated_runtime_seconds = 0
         self.daemon_start_time = None  # Set when daemon starts
 
+        # Track when last full rebuild occurred (in milliseconds)
+        # This is persisted to disk and used to schedule periodic full rebuilds
+        self.last_full_rebuild_ms = 0
+
         # Slack notifications
         self.slack_notifier = SlackNotifier(webhook_url=slack_webhook_url, hotkey=validator_hotkey)
 
@@ -380,6 +384,7 @@ class PenaltyLedgerManager:
             "format_version": "1.0",
             "last_update_ms": int(time.time() * 1000),
             "accumulated_runtime_seconds": self.accumulated_runtime_seconds,
+            "last_full_rebuild_ms": self.last_full_rebuild_ms,
             "ledgers": {}
         }
 
@@ -411,11 +416,13 @@ class PenaltyLedgerManager:
         metadata = {
             "last_update_ms": data.get("last_update_ms"),
             "accumulated_runtime_seconds": data.get("accumulated_runtime_seconds", 0),
+            "last_full_rebuild_ms": data.get("last_full_rebuild_ms", 0),
             "format_version": data.get("format_version", "1.0")
         }
 
-        # Load accumulated runtime
+        # Load accumulated runtime and last rebuild timestamp
         self.accumulated_runtime_seconds = metadata["accumulated_runtime_seconds"]
+        self.last_full_rebuild_ms = metadata["last_full_rebuild_ms"]
 
         # Reconstruct ledgers
         for hotkey, ledger_dict in data.get("ledgers", {}).items():
@@ -426,7 +433,8 @@ class PenaltyLedgerManager:
             f"[PENALTY_LEDGER] Loaded {len(self.penalty_ledgers)} penalty ledgers, "
             f"metadata: {metadata}, "
             f"last update: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_update_ms', 0))}, "
-            f"accumulated runtime: {self.accumulated_runtime_seconds / 3600:.1f} hours"
+            f"accumulated runtime: {self.accumulated_runtime_seconds / 3600:.1f} hours, "
+            f"last full rebuild: {TimeUtil.millis_to_formatted_date_str(metadata.get('last_full_rebuild_ms', 0))}"
         )
 
         return len(self.penalty_ledgers)
@@ -588,6 +596,7 @@ class PenaltyLedgerManager:
 
                     # Reset accumulated runtime after successful full rebuild
                     self.accumulated_runtime_seconds = 0
+                    self.last_full_rebuild_ms = int(time.time() * 1000)
                     self.daemon_start_time = time.time()  # Reset start time
                     bt.logging.info(f"[PENALTY_LEDGER] Full rebuild completed in {elapsed:.2f}s. Runtime counter reset.")
                 else:

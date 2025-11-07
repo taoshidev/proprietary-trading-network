@@ -39,16 +39,8 @@ class TestDebtBasedScoring(unittest.TestCase):
         # Mock TAO/USD price (set by MetagraphUpdater via live_price_fetcher)
         self.mock_metagraph.tao_to_usd_rate = 500.0  # $500/TAO
 
-        # Calculate expected dynamic dust value with mocked data
-        # - Total TAO per day: 72,000 TAO
-        # - ALPHA per day: 72,000 / 0.5 = 144,000 ALPHA
-        # - $0.01 in ALPHA: (0.01 / 500) / 0.5 = 0.00004 ALPHA
-        # - Dynamic dust: 0.00004 / 144,000 = 2.777...e-10
-        self.expected_dynamic_dust = DebtBasedScoring.calculate_dynamic_dust(
-            metagraph=self.mock_metagraph,
-            target_daily_usd=0.01,
-            verbose=False
-        )
+        # Use static dust value from config
+        self.expected_dynamic_dust = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
         # Mock challengeperiod_manager
         self.mock_challengeperiod_manager = Mock()
@@ -60,17 +52,19 @@ class TestDebtBasedScoring(unittest.TestCase):
         self.mock_challengeperiod_manager.get_miner_bucket = Mock(side_effect=mock_get_miner_bucket)
 
     def test_empty_ledgers(self):
-        """Test with no ledgers"""
+        """Test with no ledgers returns burn address with weight 1.0"""
         result = DebtBasedScoring.compute_results(
             {},
             self.mock_metagraph,
             self.mock_challengeperiod_manager,
             is_testnet=False
         )
-        self.assertEqual(result, [])
+        # With no miners, burn address gets all weight
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], ("burn_address_mainnet", 1.0))
 
     def test_single_miner(self):
-        """Test with single miner returns weight 1.0"""
+        """Test with single miner gets dust weight, burn address gets remainder"""
         ledger = DebtLedger(hotkey="test_hotkey", checkpoints=[])
         result = DebtBasedScoring.compute_results(
             {"test_hotkey": ledger},
@@ -78,8 +72,15 @@ class TestDebtBasedScoring(unittest.TestCase):
             self.mock_challengeperiod_manager,
             is_testnet=False
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], ("test_hotkey", 1.0))
+        # Single miner with no performance gets dust weight
+        # Burn address gets the rest
+        self.assertEqual(len(result), 2)
+        weights_dict = dict(result)
+        self.assertIn("test_hotkey", weights_dict)
+        self.assertIn("burn_address_mainnet", weights_dict)
+        # Verify sum is 1.0
+        total_weight = sum(w for _, w in result)
+        self.assertAlmostEqual(total_weight, 1.0, places=10)
 
     def test_before_activation_date(self):
         """Test that only dust weights + burn address before December 2025"""
@@ -1805,6 +1806,437 @@ class TestDebtBasedScoring(unittest.TestCase):
         )
 
         self.assertEqual(dust, ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+
+    # ========================================================================
+    # CHALLENGE BUCKET TESTS (Bottom 25% get 0 weight, capped at 10 miners)
+    # ========================================================================
+
+    def test_challenge_bucket_bottom_25_percent_gets_zero_weight(self):
+        """Test that bottom 25% of CHALLENGE miners get 0 weight"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        # Create checkpoint within 30-day window for dynamic dust
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = self.expected_dynamic_dust
+
+        # Create 20 CHALLENGE miners with varying PnL (bottom 5 should get 0 weight = 25% of 20)
+        ledgers = {}
+        for i in range(20):
+            ledger = DebtLedger(hotkey=f"challenge_miner_{i}", checkpoints=[])
+            # Distribute PnL from 0 to 19000 (miner_0 has lowest, miner_19 has highest)
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=float(i * 1000),
+                pnl_loss=0.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,  # Negative -> 0 remaining payout
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledgers[f"challenge_miner_{i}"] = ledger
+
+        # Create custom mock challengeperiod_manager (all CHALLENGE)
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Filter out burn address from weights_dict for testing
+        miner_weights = {k: v for k, v in weights_dict.items() if not k.startswith("burn_address") and not k.startswith("hotkey_")}
+
+        # Bottom 5 miners (0-4) should have 0 weight
+        for i in range(5):
+            self.assertEqual(miner_weights[f"challenge_miner_{i}"], 0.0,
+                           f"Miner {i} should have 0 weight (bottom 25%)")
+
+        # Remaining miners (5-19) should have non-zero weight
+        for i in range(5, 20):
+            self.assertGreater(miner_weights[f"challenge_miner_{i}"], 0.0,
+                             f"Miner {i} should have non-zero weight")
+
+        # Verify miner 5 has weight based on its normalized PnL
+        # PnL = 5000, max_pnl = 19000, normalized = 5000/19000
+        # weight = floor + (normalized * (ceiling - floor))
+        floor = dust
+        ceiling = 2 * dust
+        expected_miner_5 = floor + (5000.0 / 19000.0) * (ceiling - floor)
+        self.assertAlmostEqual(miner_weights["challenge_miner_5"], expected_miner_5, places=10)
+
+        # Verify highest miner gets ceiling (floor + dust)
+        self.assertAlmostEqual(miner_weights["challenge_miner_19"], ceiling, places=10)
+
+    def test_challenge_bucket_cap_at_10_miners(self):
+        """Test that maximum 10 CHALLENGE miners get 0 weight even with > 40 miners"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = self.expected_dynamic_dust
+
+        # Create 50 CHALLENGE miners (25% = 12.5, but capped at 10)
+        ledgers = {}
+        for i in range(50):
+            ledger = DebtLedger(hotkey=f"challenge_miner_{i}", checkpoints=[])
+            # Distribute PnL from 0 to 49000
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=float(i * 1000),
+                pnl_loss=0.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledgers[f"challenge_miner_{i}"] = ledger
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Filter out burn address
+        miner_weights = {k: v for k, v in weights_dict.items() if not k.startswith("burn_address") and not k.startswith("hotkey_")}
+
+        # Count how many miners have 0 weight
+        zero_weight_count = sum(1 for weight in miner_weights.values() if weight == 0.0)
+
+        # Should be exactly 10 (capped at max)
+        self.assertEqual(zero_weight_count, 10,
+                        "Should have exactly 10 miners with 0 weight (cap)")
+
+        # Bottom 10 miners (0-9) should have 0 weight
+        for i in range(10):
+            self.assertEqual(miner_weights[f"challenge_miner_{i}"], 0.0,
+                           f"Miner {i} should have 0 weight")
+
+        # Miner 10 onwards should have non-zero weight
+        for i in range(10, 50):
+            self.assertGreater(miner_weights[f"challenge_miner_{i}"], 0.0,
+                             f"Miner {i} should have non-zero weight")
+
+    def test_challenge_bucket_all_zero_pnl_lexicographic_selection(self):
+        """Test that when all CHALLENGE miners have 0 PnL, bottom 25% (capped at 10) get 0 weight by lexicographic order"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = self.expected_dynamic_dust
+
+        # Create 15 CHALLENGE miners all with 0 PnL
+        # Use specific hotkey names to test lexicographic order
+        hotkeys = [
+            "hotkey_alice", "hotkey_bob", "hotkey_charlie", "hotkey_david",
+            "hotkey_eve", "hotkey_frank", "hotkey_grace", "hotkey_henry",
+            "hotkey_iris", "hotkey_jack", "hotkey_kate", "hotkey_leo",
+            "hotkey_mary", "hotkey_nick", "hotkey_olivia"
+        ]
+
+        ledgers = {}
+        for hotkey in hotkeys:
+            ledger = DebtLedger(hotkey=hotkey, checkpoints=[])
+            # All have 0 PnL
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=0.0,
+                pnl_loss=0.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledgers[hotkey] = ledger
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Filter out burn address
+        miner_weights = {k: v for k, v in weights_dict.items() if k in hotkeys}
+
+        # Sort hotkeys lexicographically to determine which get 0 weight
+        # With 15 miners, 25% = 3.75 → 3 miners get 0 weight (capped at 10)
+        sorted_hotkeys = sorted(hotkeys)
+        num_zero = min(int(len(hotkeys) * 0.25), 10)  # Should be 3
+        zero_weight_hotkeys = sorted_hotkeys[:num_zero]  # First 3 lexicographically
+        non_zero_weight_hotkeys = sorted_hotkeys[num_zero:]  # Remaining 12
+
+        # First 3 (lexicographically) should have 0 weight
+        for hotkey in zero_weight_hotkeys:
+            self.assertEqual(miner_weights[hotkey], 0.0,
+                           f"{hotkey} should have 0 weight (bottom 25%)")
+
+        # Remaining 12 should have floor weight
+        for hotkey in non_zero_weight_hotkeys:
+            self.assertAlmostEqual(miner_weights[hotkey], dust, places=10,
+                                 msg=f"{hotkey} should have floor weight")
+
+    def test_challenge_bucket_small_group_all_zero_pnl(self):
+        """Test that with 8 CHALLENGE miners all at 0 PnL, bottom 2 get 0 weight (25% of 8)"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = self.expected_dynamic_dust
+
+        # Create 8 miners with 0 PnL (25% = 2 miners)
+        hotkeys = ["miner_a", "miner_b", "miner_c", "miner_d", "miner_e", "miner_f", "miner_g", "miner_h"]
+        ledgers = {}
+        for hotkey in hotkeys:
+            ledger = DebtLedger(hotkey=hotkey, checkpoints=[])
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=0.0,
+                pnl_loss=0.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledgers[hotkey] = ledger
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Filter out burn address
+        miner_weights = {k: v for k, v in weights_dict.items() if k in hotkeys}
+
+        # Count zero weight miners
+        zero_weight_count = sum(1 for weight in miner_weights.values() if weight == 0.0)
+        self.assertEqual(zero_weight_count, 2, "Should have exactly 2 miners with 0 weight (25% of 8)")
+
+        # Lexicographically first 2 should have 0 weight
+        sorted_hotkeys = sorted(hotkeys)
+        self.assertEqual(miner_weights[sorted_hotkeys[0]], 0.0)
+        self.assertEqual(miner_weights[sorted_hotkeys[1]], 0.0)
+
+        # Remaining 6 should have floor weight
+        for i in range(2, 8):
+            self.assertAlmostEqual(miner_weights[sorted_hotkeys[i]], dust, places=10)
+
+    def test_challenge_bucket_single_miner_zero_pnl_gets_floor_weight(self):
+        """Test that single CHALLENGE miner with 0 PnL gets floor weight (not 0)"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        dust = self.expected_dynamic_dust
+
+        # Single CHALLENGE miner with 0 PnL
+        ledger = DebtLedger(hotkey="solo_challenge_miner", checkpoints=[])
+        ledger.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=within_window_ms,
+            pnl_gain=0.0,
+            pnl_loss=0.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.CHALLENGE.value
+        ))
+        ledger.checkpoints.append(DebtCheckpoint(
+            timestamp_ms=prev_month_checkpoint_ms,
+            pnl_gain=0.0,
+            pnl_loss=-1.0,
+            total_penalty=1.0,
+            challenge_period_status=MinerBucket.CHALLENGE.value
+        ))
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            {"solo_challenge_miner": ledger},
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Single miner should get floor weight (1x dust for CHALLENGE), NOT 0
+        # Due to burn address logic, result will have 2 entries (miner + burn address)
+        # But the key assertion is that the miner gets floor weight, not 0
+        self.assertIn("solo_challenge_miner", weights_dict)
+        self.assertAlmostEqual(weights_dict["solo_challenge_miner"], dust, places=10,
+                             msg="Single CHALLENGE miner with 0 PnL should get floor weight, not 0")
+
+    def test_challenge_bucket_threshold_boundary(self):
+        """Test that miners exactly at the threshold get non-zero weight"""
+        current_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        current_time_ms = int(current_time.timestamp() * 1000)
+
+        within_window = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
+        within_window_ms = int(within_window.timestamp() * 1000)
+
+        prev_month_checkpoint = datetime(2025, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+        prev_month_checkpoint_ms = int(prev_month_checkpoint.timestamp() * 1000)
+
+        # Create 12 miners (25% = 3, so bottom 3 get 0 weight)
+        # Create specific PnL distribution to test boundary
+        ledgers = {}
+        pnl_values = [100, 200, 300, 400, 400, 500, 600, 700, 800, 900, 1000, 1100]
+
+        for i, pnl in enumerate(pnl_values):
+            ledger = DebtLedger(hotkey=f"miner_{i}", checkpoints=[])
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=within_window_ms,
+                pnl_gain=float(pnl),
+                pnl_loss=0.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledger.checkpoints.append(DebtCheckpoint(
+                timestamp_ms=prev_month_checkpoint_ms,
+                pnl_gain=0.0,
+                pnl_loss=-1.0,
+                total_penalty=1.0,
+                challenge_period_status=MinerBucket.CHALLENGE.value
+            ))
+            ledgers[f"miner_{i}"] = ledger
+
+        # Create custom mock challengeperiod_manager
+        mock_cpm = Mock()
+        def custom_get_miner_bucket(hotkey):
+            mock_bucket = Mock()
+            mock_bucket.value = MinerBucket.CHALLENGE.value
+            return mock_bucket
+        mock_cpm.get_miner_bucket = Mock(side_effect=custom_get_miner_bucket)
+
+        result = DebtBasedScoring.compute_results(
+            ledgers,
+            self.mock_metagraph,
+            mock_cpm,
+            current_time_ms=current_time_ms,
+            is_testnet=False,
+            verbose=True
+        )
+
+        weights_dict = dict(result)
+
+        # Filter out burn address
+        miner_weights = {k: v for k, v in weights_dict.items() if k.startswith("miner_")}
+
+        # Sort by PnL to identify threshold
+        # Bottom 3 should have 0 weight: miner_0 (100), miner_1 (200), miner_2 (300)
+        # Threshold is at sorted_pnls[3] = 400
+        # Miners at exactly 400 (miner_3, miner_4) should have non-zero weight
+        self.assertEqual(miner_weights["miner_0"], 0.0)
+        self.assertEqual(miner_weights["miner_1"], 0.0)
+        self.assertEqual(miner_weights["miner_2"], 0.0)
+
+        # Miners at threshold should NOT have 0 weight
+        self.assertGreater(miner_weights["miner_3"], 0.0,
+                         "Miner at threshold should have non-zero weight")
+        self.assertGreater(miner_weights["miner_4"], 0.0,
+                         "Miner at threshold should have non-zero weight")
 
 
 if __name__ == '__main__':

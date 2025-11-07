@@ -96,14 +96,17 @@ class ValidatorSyncBase():
         if self.is_mothership:
             bt.logging.info("Mothership detected")
 
+        # Check if disk_positions was explicitly provided
+        disk_positions_provided = disk_positions is not None
+
         if disk_positions is None:
             disk_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
 
         # Detect and delete overlapping positions before sync
         if not shadow_mode:
             overlap_stats = self.detect_and_delete_overlapping_positions(disk_positions)
-            # Reload positions after deletions
-            if overlap_stats['positions_deleted'] > 0:
+            # Reload positions after deletions ONLY if we loaded them ourselves
+            if overlap_stats['positions_deleted'] > 0 and not disk_positions_provided:
                 disk_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
 
         eliminations = candidate_data['eliminations']
@@ -361,23 +364,22 @@ class ValidatorSyncBase():
 
         self.global_stats['n_positions_closed_duplicate_opens_for_trade_pair'] += 1
 
-        close_time_ms = TimeUtil.now_in_millis()
-
-        # if p2 is an older position, we close it and return p1 as the newest open position.
+        # Determine which to close and which to keep
         if p2.open_ms < p1.open_ms:
-            # Add synthetic FLAT order to properly close the position
-            flat_order = Position.generate_fake_flat_order(p2, close_time_ms, self.live_price_fetcher)
-            p2.orders.append(flat_order)
-            p2.close_out_position(close_time_ms)
-            self.position_manager.overwrite_position_on_disk(p2)
-            return p1
+            position_to_close = p2
+            position_to_keep = p1
         else:
-            # Add synthetic FLAT order to properly close the position
-            flat_order = Position.generate_fake_flat_order(p1, close_time_ms, self.live_price_fetcher)
-            p1.orders.append(flat_order)
-            p1.close_out_position(close_time_ms)
-            self.position_manager.overwrite_position_on_disk(p1)
-            return p2
+            position_to_close = p1
+            position_to_keep = p2
+
+        # Add synthetic FLAT order to properly close the position
+        close_time_ms = position_to_close.orders[-1].processed_ms + 1
+        flat_order = Position.generate_fake_flat_order(position_to_close, close_time_ms, self.live_price_fetcher)
+        position_to_close.orders.append(flat_order)
+        position_to_close.close_out_position(close_time_ms)
+        self.position_manager.overwrite_position_on_disk(position_to_close)
+        return position_to_keep  # Return the one to keep open
+
 
 
     def debug_print_pos(self, p):

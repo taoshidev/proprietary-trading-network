@@ -38,15 +38,16 @@ Aggressive Payout Strategy:
 - This front-loads emissions early in the month while respecting the hard deadline
 
 Important Notes:
-- Debt-based scoring activates December 2025 (nominal payouts begin Dec 1)
-- Before December 2025, miners only receive minimum dust weights
-- Excess weight (when sum < 1.0) goes to burn address (uid 229 mainnet, uid 5 testnet)
+- Debt-based scoring activates January 2026 (pays for December 2025 performance)
+- Before January 2026, miners only receive minimum dust weights
+- Excess weight (when sum < 1.0) goes to burn address (uid 229 mainnet, uid 220 testnet)
 - Hard deadline: day 25 of each month
 - Checkpoints are 12-hour intervals (2 per day)
 - Uses real-time subtensor queries for emission rate estimation
 """
 
 import bittensor as bt
+import numpy as np
 from datetime import datetime, timezone
 from typing import List, Tuple, Optional
 from calendar import monthrange
@@ -67,7 +68,8 @@ class DebtBasedScoring:
     Uses real-time subtensor queries to estimate emission rates and project available ALPHA.
     """
 
-    # Activation date: December 2025 (nominal payouts begin Dec 1)
+    # Activation: First payouts in January 2026 for December 2025 performance
+    # (Previous month must be >= December 2025 to activate debt-based payouts)
     ACTIVATION_YEAR = 2025
     ACTIVATION_MONTH = 12
 
@@ -96,9 +98,39 @@ class DebtBasedScoring:
             is_testnet: True for testnet (netuid 116), False for mainnet (netuid 8)
 
         Returns:
-            229 for mainnet, 5 for testnet
+            229 for mainnet, 220 for testnet
         """
         return DebtBasedScoring.BURN_UID_TESTNET if is_testnet else DebtBasedScoring.BURN_UID_MAINNET
+
+    @staticmethod
+    def _safe_get_reserve_value(reserve_obj) -> float:
+        """
+        Safely extract reserve value from metagraph reserve object.
+
+        Handles both manager.Value() objects (with .value attribute) and
+        plain numeric values. Returns 0.0 if object is None or invalid.
+
+        Args:
+            reserve_obj: Reserve object from metagraph (tao_reserve_rao or alpha_reserve_rao)
+
+        Returns:
+            Reserve value as float, or 0.0 if invalid/missing
+        """
+        if reserve_obj is None:
+            return 0.0
+
+        # Try to access .value attribute (manager.Value() objects)
+        if hasattr(reserve_obj, 'value'):
+            try:
+                return float(reserve_obj.value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        # Try to convert directly to float
+        try:
+            return float(reserve_obj)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def calculate_dynamic_dust(
@@ -107,18 +139,17 @@ class DebtBasedScoring:
         verbose: bool = False
     ) -> float:
         """
-        Calculate dynamic dust weight that yields target daily USD earnings.
+        DEPRECATED: This function is no longer used. Dust is now a static value.
 
-        The calculation ensures that a miner receiving only dust weight will earn
-        approximately target_daily_usd per day in ALPHA emissions.
+        Dust weight is set to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT (static value).
+        This function remains for reference but is not called in the scoring system.
 
-        Formula:
-            dust_weight = (ALPHA equivalent of target_daily_usd) / (total ALPHA per day)
-
-        This provides market-responsive minimum rewards that automatically adjust as:
-        - TAO/USD price changes
-        - ALPHA/TAO conversion rate changes
-        - Total subnet emission rate changes
+        Historical Purpose:
+        This function previously calculated dynamic dust weight that yielded target daily USD earnings.
+        The calculation ensured that a miner receiving only dust weight would earn
+        approximately target_daily_usd per day in ALPHA emissions, providing market-responsive
+        minimum rewards that automatically adjusted as TAO/USD price, ALPHA/TAO conversion rate,
+        and total subnet emission rate changed.
 
         Args:
             metagraph: Shared IPC metagraph with emission data and substrate reserves
@@ -126,15 +157,12 @@ class DebtBasedScoring:
             verbose: Enable detailed logging
 
         Returns:
-            Dynamic dust weight (unitless proportion)
-            Falls back to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT on any error
+            Static dust weight from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+            (This function always returns the static fallback value)
 
-        Fallback Triggers:
-            - Missing metagraph attributes (emission, reserves, tao_to_usd_rate)
-            - Zero or negative values in any calculation step
-            - Invalid conversion rates (reserves = 0, tao_to_usd_rate <= 0)
-            - Dust weight outside reasonable range (0, 0.001]
-            - Any exception during calculation
+        Note:
+            This function always falls back to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT.
+            For the current static dust value, use ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT directly.
         """
         try:
             # Fallback detection: Check if metagraph has emission data
@@ -183,16 +211,9 @@ class DebtBasedScoring:
                 )
                 return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
-            # Extract values with fallback detection
-            try:
-                tao_reserve_rao = tao_reserve_obj.value if hasattr(tao_reserve_obj, 'value') else float(tao_reserve_obj)
-                alpha_reserve_rao = alpha_reserve_obj.value if hasattr(alpha_reserve_obj, 'value') else float(alpha_reserve_obj)
-            except (AttributeError, TypeError, ValueError) as e:
-                bt.logging.warning(
-                    f"Failed to extract reserve values: {e}. "
-                    f"Falling back to static dust: {ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT}"
-                )
-                return ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+            # Extract values using safe helper function
+            tao_reserve_rao = DebtBasedScoring._safe_get_reserve_value(tao_reserve_obj)
+            alpha_reserve_rao = DebtBasedScoring._safe_get_reserve_value(alpha_reserve_obj)
 
             # Fallback detection: Check for zero/negative reserves
             if tao_reserve_rao <= 0 or alpha_reserve_rao <= 0:
@@ -317,6 +338,23 @@ class DebtBasedScoring:
 
     @staticmethod
     def log_projections(metagraph, days_until_target, verbose, total_remaining_payout_usd):
+        """
+        Log emission projections and compare to remaining payout needs.
+
+        Args:
+            metagraph: Bittensor metagraph with emission data
+            days_until_target: Number of days until payout deadline
+            verbose: Enable detailed logging
+            total_remaining_payout_usd: Total remaining payout needed (must be > 0)
+        """
+        # Validate input to prevent division by zero
+        if total_remaining_payout_usd <= 0:
+            bt.logging.warning(
+                f"total_remaining_payout_usd must be > 0, got {total_remaining_payout_usd}. "
+                "Skipping projection log."
+            )
+            return
+
         # Query current emission rate and project availability
         # Get projected ALPHA emissions
         projected_alpha_available = DebtBasedScoring._estimate_alpha_emissions_until_target(
@@ -340,8 +378,7 @@ class DebtBasedScoring:
 
         # Check if projected emissions (in USD) are sufficient
         if projected_usd_available < total_remaining_payout_usd:
-            shortage_pct = ((
-                                        total_remaining_payout_usd - projected_usd_available) / total_remaining_payout_usd) * 100
+            shortage_pct = ((total_remaining_payout_usd - projected_usd_available) / total_remaining_payout_usd) * 100
             bt.logging.warning(
                 f"⚠️  INSUFFICIENT EMISSIONS: Projected USD value in next {days_until_target} days "
                 f"(${projected_usd_available:.2f}) is less than total remaining payout needed "
@@ -380,7 +417,7 @@ class DebtBasedScoring:
         7. Project total ALPHA available from now until day 25
         8. Set weights proportional to remaining_payout
         9. Warn if sum(remaining_payouts) > projected_emissions
-        10. Enforce minimum weights with dynamic dust (performance-scaled by 30-day PnL)
+        10. Enforce minimum weights with static dust (performance-scaled by 30-day PnL within buckets)
         11. Normalize weights with burn address logic (sum < 1.0 → burn gets excess)
 
         Args:
@@ -393,12 +430,13 @@ class DebtBasedScoring:
 
         Returns:
             List of (hotkey, weight) tuples sorted by weight (descending)
-            Includes burn address (uid 229 mainnet / uid 5 testnet) if sum of weights < 1.0
+            Includes burn address (uid 229 mainnet / uid 220 testnet) if sum of weights < 1.0
 
         Note:
-            Dynamic dust weights are always enabled. Miners receive dust weights scaled by
+            Dust is a static value from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT.
+            Performance-based scaling is always enabled. Miners receive dust weights scaled by
             30-day penalty-adjusted PnL within their bucket:
-            floor = original dust multiplier, ceiling = floor + 1 DUST
+            floor = bucket dust multiplier × static dust, ceiling = floor + static dust
         """
         if current_time_ms is None:
             current_time_ms = TimeUtil.now_in_millis()
@@ -432,7 +470,8 @@ class DebtBasedScoring:
         if verbose:
             bt.logging.info(f"Previous month: {prev_year}-{prev_month:02d}")
 
-        # Check activation date
+        # Check activation date: prev_month must be >= December 2025 for debt-based payouts
+        # This means first debt-based payouts occur in January 2026 (for Dec 2025 performance)
         if (prev_year < DebtBasedScoring.ACTIVATION_YEAR or
             (prev_year == DebtBasedScoring.ACTIVATION_YEAR and
              prev_month < DebtBasedScoring.ACTIVATION_MONTH)):
@@ -577,8 +616,8 @@ class DebtBasedScoring:
 
         # Step 10: Enforce minimum weights based on challenge period status
         # All miners get minimum "dust" weights based on their current status
-        # Dust is calculated dynamically to yield $0.01/day in emissions
-        # Weights are dynamically scaled by 30-day performance within each bucket
+        # Dust is a static value from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
+        # Weights are performance-scaled by 30-day PnL within each bucket
         # NOTE: Weights are unitless proportions, but derived from USD payouts
         miner_weights_with_minimums = DebtBasedScoring._apply_minimum_weights(
             ledger_dict=ledger_dict,
@@ -653,12 +692,12 @@ class DebtBasedScoring:
                 )
 
             # Get substrate reserves from shared metagraph (refreshed by MetagraphUpdater)
-            # Use .value accessor for manager.Value() objects (thread-safe IPC)
+            # Use safe helper to extract values from manager.Value() objects or plain numerics
             tao_reserve_obj = getattr(metagraph, 'tao_reserve_rao', None)
             alpha_reserve_obj = getattr(metagraph, 'alpha_reserve_rao', None)
 
-            tao_reserve_rao = tao_reserve_obj.value if tao_reserve_obj else 0.0
-            alpha_reserve_rao = alpha_reserve_obj.value if alpha_reserve_obj else 0.0
+            tao_reserve_rao = DebtBasedScoring._safe_get_reserve_value(tao_reserve_obj)
+            alpha_reserve_rao = DebtBasedScoring._safe_get_reserve_value(alpha_reserve_obj)
 
             if tao_reserve_rao == 0 or alpha_reserve_rao == 0:
                 bt.logging.warning(
@@ -721,11 +760,12 @@ class DebtBasedScoring:
             return 0.0
 
         # Get substrate reserves from shared metagraph
+        # Use safe helper to extract values from manager.Value() objects or plain numerics
         tao_reserve_obj = getattr(metagraph, 'tao_reserve_rao', None)
         alpha_reserve_obj = getattr(metagraph, 'alpha_reserve_rao', None)
 
-        tao_reserve_rao = tao_reserve_obj.value if tao_reserve_obj else 0.0
-        alpha_reserve_rao = alpha_reserve_obj.value if alpha_reserve_obj else 0.0
+        tao_reserve_rao = DebtBasedScoring._safe_get_reserve_value(tao_reserve_obj)
+        alpha_reserve_rao = DebtBasedScoring._safe_get_reserve_value(alpha_reserve_obj)
 
         if tao_reserve_rao == 0 or alpha_reserve_rao == 0:
             bt.logging.warning(
@@ -828,6 +868,191 @@ class DebtBasedScoring:
         return penalty_adjusted_pnl
 
     @staticmethod
+    def _calculate_pnl_scores_for_bucket(
+        miners: list[tuple[str, DebtLedger]],
+        lookback_start_ms: int,
+        current_time_ms: int
+    ) -> dict[str, float]:
+        """
+        Calculate 30-day penalty-adjusted PnL scores for miners in a bucket.
+
+        Args:
+            miners: List of (hotkey, ledger) tuples
+            lookback_start_ms: Start of 30-day lookback window
+            current_time_ms: Current timestamp
+
+        Returns:
+            Dict mapping hotkey -> PnL score (floored at 0)
+        """
+        pnl_scores = {}
+        all_statuses = {b.value for b in MinerBucket}
+
+        for hotkey, ledger in miners:
+            pnl = DebtBasedScoring._calculate_penalty_adjusted_pnl(
+                ledger,
+                start_time_ms=lookback_start_ms,
+                end_time_ms=current_time_ms,
+                earning_statuses=all_statuses  # Consider all recent performance
+            )
+            # Floor at 0 (negative PnL doesn't reduce dust below floor)
+            pnl_scores[hotkey] = max(0.0, pnl)
+
+        return pnl_scores
+
+    @staticmethod
+    def _calculate_challenge_percentile_threshold(
+        pnl_scores: dict[str, float],
+        percentile: float = 0.25,
+        max_zero_weight_miners: int = 10
+    ) -> float:
+        """
+        Calculate percentile threshold for CHALLENGE bucket miners.
+
+        The threshold is calculated such that the bottom percentile get 0 weight,
+        but capped at max_zero_weight_miners.
+
+        Args:
+            pnl_scores: Dict of hotkey -> PnL score
+            percentile: Percentile to calculate (0.25 = 25th percentile)
+            max_zero_weight_miners: Maximum number of miners to assign 0 weight (default: 10)
+
+        Returns:
+            PnL threshold value, or None if too few miners
+        """
+        if len(pnl_scores) <= 1:
+            return None
+
+        # Calculate how many miners should get 0 weight (bottom 25%, capped at 10)
+        num_zero_weight = min(int(len(pnl_scores) * percentile), max_zero_weight_miners)
+
+        if num_zero_weight == 0:
+            return None
+
+        # Sort PnL values and find the threshold
+        sorted_pnls = sorted(pnl_scores.values())
+        # Miners with PnL < threshold will get 0 weight
+        return sorted_pnls[num_zero_weight]
+
+    @staticmethod
+    def _assign_weights_with_performance_scaling(
+        pnl_scores: dict[str, float],
+        bucket: int,
+        floor: float,
+        ceiling: float,
+        percentile_threshold: float = None,
+        verbose: bool = False
+    ) -> dict[str, float]:
+        """
+        Assign weights to miners based on PnL scores with performance scaling.
+
+        For CHALLENGE bucket, bottom 25% (below percentile_threshold) get 0 weight.
+        Others are scaled from floor to ceiling based on normalized PnL.
+
+        Args:
+            pnl_scores: Dict of hotkey -> PnL score
+            bucket: Bucket type (MinerBucket enum value)
+            floor: Minimum weight for this bucket
+            ceiling: Maximum weight for this bucket
+            percentile_threshold: Threshold for CHALLENGE bucket (miners below get 0)
+            verbose: Enable detailed logging
+
+        Returns:
+            Dict mapping hotkey -> assigned weight
+        """
+        weights = {}
+        max_pnl = max(pnl_scores.values()) if pnl_scores else 0.0
+
+        if max_pnl > 0:
+            # Scale each miner's PnL to [0, 1] then map to [floor, ceiling]
+            for hotkey, pnl in pnl_scores.items():
+                # CHALLENGE bucket: bottom 25% get 0 weight
+                if (bucket == MinerBucket.CHALLENGE.value and
+                    percentile_threshold is not None and
+                    pnl < percentile_threshold):
+                    weights[hotkey] = 0.0
+                    if verbose:
+                        bt.logging.debug(
+                            f"  {hotkey[:16]}...{hotkey[-8:]}: "
+                            f"pnl_usd=${pnl:.2f} (bottom 25%, weight=0.0)"
+                        )
+                else:
+                    normalized = pnl / max_pnl
+                    # Scale to [floor, ceiling]
+                    weights[hotkey] = floor + (normalized * (ceiling - floor))
+
+                    if verbose:
+                        bt.logging.debug(
+                            f"  {hotkey[:16]}...{hotkey[-8:]}: "
+                            f"pnl_usd=${pnl:.2f}, norm={normalized:.4f}, "
+                            f"weight={weights[hotkey]:.8f}"
+                        )
+        else:
+            # All miners have 0 PnL
+            weights = DebtBasedScoring._handle_zero_pnl_weights(
+                pnl_scores=pnl_scores,
+                bucket=bucket,
+                floor=floor,
+                verbose=verbose
+            )
+
+        return weights
+
+    @staticmethod
+    def _handle_zero_pnl_weights(
+        pnl_scores: dict[str, float],
+        bucket: int,
+        floor: float,
+        verbose: bool = False,
+        max_zero_weight_miners: int = 10
+    ) -> dict[str, float]:
+        """
+        Handle weight assignment when all miners in a bucket have 0 PnL.
+
+        For CHALLENGE bucket with multiple miners, up to max_zero_weight_miners get 0 weight
+        (by lexicographic order). If there's only 1 CHALLENGE miner, it gets floor weight.
+        Other buckets get floor weight.
+
+        Args:
+            pnl_scores: Dict of hotkey -> PnL score (all should be 0)
+            bucket: Bucket type (MinerBucket enum value)
+            floor: Minimum weight for this bucket
+            verbose: Enable detailed logging
+            max_zero_weight_miners: Maximum number of miners to assign 0 weight (default: 10)
+
+        Returns:
+            Dict mapping hotkey -> assigned weight
+        """
+        weights = {}
+
+        # CHALLENGE bucket: up to max_zero_weight_miners get 0 weight when all have 0 PnL
+        # Only apply this penalty if there are multiple miners to compare
+        if bucket == MinerBucket.CHALLENGE.value and len(pnl_scores) > 1:
+            # When all have 0 PnL, assign 0 weight to bottom 25% (by lexicographic order), capped at 10
+            sorted_hotkeys = sorted(pnl_scores.keys())
+            num_zero = min(int(len(sorted_hotkeys) * 0.25), max_zero_weight_miners)
+            zero_weight_hotkeys = set(sorted_hotkeys[:num_zero])
+
+            for hotkey in pnl_scores.keys():
+                if hotkey in zero_weight_hotkeys:
+                    weights[hotkey] = 0.0
+                else:
+                    weights[hotkey] = floor
+
+            if verbose:
+                bt.logging.debug(
+                    f"  All CHALLENGE miners have 0 PnL, assigning 0 weight to {num_zero} miners "
+                    f"(max: {max_zero_weight_miners}), floor weight to others"
+                )
+        else:
+            # Other buckets or single CHALLENGE miner: all get floor weight
+            for hotkey in pnl_scores.keys():
+                weights[hotkey] = floor
+            if verbose:
+                bt.logging.debug(f"  All miners have 0 PnL, assigning floor weight")
+
+        return weights
+
+    @staticmethod
     def _calculate_dynamic_dust_weights(
         ledger_dict: dict[str, DebtLedger],
         challengeperiod_manager: 'ChallengePeriodManager',
@@ -838,11 +1063,16 @@ class DebtBasedScoring:
         """
         Calculate performance-scaled dust weights for all miners.
 
+        NOTE: Despite the function name, dust is a static value from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT.
+        This function scales the static dust based on 30-day performance within each bucket.
+
         Process:
         1. Group miners by bucket
         2. For each bucket, calculate 30-day penalty-adjusted PnL (in USD) for all miners
         3. Normalize PnL within bucket to [0, 1] range
-        4. Scale to [floor, ceiling] where ceiling = floor + base_dust
+        4. Scale to [floor, ceiling] where:
+           - floor = bucket multiplier × static dust (e.g., 3× for MAINCOMP)
+           - ceiling = floor + static dust amount
 
         This incentivizes recent performance while maintaining bucket hierarchy.
 
@@ -852,11 +1082,11 @@ class DebtBasedScoring:
             ledger_dict: All miner ledgers
             challengeperiod_manager: Bucket status manager
             current_time_ms: Current timestamp
-            base_dust: Base dust value (ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT)
+            base_dust: Static dust value from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
             verbose: Enable detailed logging
 
         Returns:
-            Dict mapping hotkey -> dynamic_dust_weight (unitless proportion)
+            Dict mapping hotkey -> performance_scaled_dust_weight (unitless proportion)
         """
         # Original dust floor multipliers (respecting existing system)
         BUCKET_DUST_FLOORS = {
@@ -879,8 +1109,8 @@ class DebtBasedScoring:
 
         if verbose:
             bt.logging.info(
-                f"Dynamic dust: Processing {len(ledger_dict)} miners across "
-                f"{len(bucket_groups)} buckets (30-day lookback)"
+                f"Performance-scaled dust: Processing {len(ledger_dict)} miners across "
+                f"{len(bucket_groups)} buckets (30-day lookback, static dust={base_dust:.8f})"
             )
 
         # Process each bucket independently
@@ -892,53 +1122,46 @@ class DebtBasedScoring:
             if verbose:
                 bucket_name = MinerBucket(bucket).name if bucket in [b.value for b in MinerBucket] else "UNKNOWN"
                 bt.logging.debug(
-                    f"Dynamic dust bucket {bucket_name}: {len(miners)} miners, "
+                    f"Performance-scaled dust bucket {bucket_name}: {len(miners)} miners, "
                     f"floor={floor:.8f}, ceiling={ceiling:.8f}"
                 )
 
             # Calculate 30-day PnL for all miners in bucket
-            # Use ALL statuses for lookback (not just earning statuses)
-            # This rewards miners who performed well even in CHALLENGE period
-            pnl_scores = {}
-            all_statuses = {b.value for b in MinerBucket}
+            pnl_scores = DebtBasedScoring._calculate_pnl_scores_for_bucket(
+                miners=miners,
+                lookback_start_ms=lookback_start,
+                current_time_ms=current_time_ms
+            )
 
-            for hotkey, ledger in miners:
-                pnl = DebtBasedScoring._calculate_penalty_adjusted_pnl(
-                    ledger,
-                    start_time_ms=lookback_start,
-                    end_time_ms=current_time_ms,
-                    earning_statuses=all_statuses  # Consider all recent performance
+            # Calculate percentile threshold for CHALLENGE bucket
+            percentile_threshold = None
+            if bucket == MinerBucket.CHALLENGE.value:
+                percentile_threshold = DebtBasedScoring._calculate_challenge_percentile_threshold(
+                    pnl_scores=pnl_scores,
+                    percentile=0.25,
+                    max_zero_weight_miners=10
                 )
-                # Floor at 0 (negative PnL doesn't reduce dust below floor)
-                pnl_scores[hotkey] = max(0.0, pnl)
+                if percentile_threshold is not None and verbose:
+                    num_below = sum(1 for pnl in pnl_scores.values() if pnl < percentile_threshold)
+                    bt.logging.info(
+                        f"CHALLENGE bucket: {len(pnl_scores)} miners, "
+                        f"threshold=${percentile_threshold:.2f} ({num_below} miners get 0 weight, max 10)"
+                    )
 
-            # Normalize within bucket [0, 1]
+            # Assign weights based on PnL scores with performance scaling
             if pnl_scores:
-                max_pnl = max(pnl_scores.values())
-
-                if max_pnl > 0:
-                    # Scale each miner's PnL to [0, 1] then map to [floor, ceiling]
-                    for hotkey, pnl in pnl_scores.items():
-                        normalized = pnl / max_pnl
-                        # Scale to [floor, ceiling]
-                        dynamic_weights[hotkey] = floor + (normalized * (ceiling - floor))
-
-                        if verbose:
-                            bt.logging.debug(
-                                f"  {hotkey[:16]}...{hotkey[-8:]}: "
-                                f"pnl_usd=${pnl:.2f}, norm={normalized:.4f}, "
-                                f"weight={dynamic_weights[hotkey]:.8f}"
-                            )
-                else:
-                    # All miners have 0 PnL -> all get floor
-                    for hotkey in pnl_scores.keys():
-                        dynamic_weights[hotkey] = floor
-
-                    if verbose:
-                        bt.logging.debug(f"  All miners have 0 PnL, assigning floor={floor:.8f}")
+                bucket_weights = DebtBasedScoring._assign_weights_with_performance_scaling(
+                    pnl_scores=pnl_scores,
+                    bucket=bucket,
+                    floor=floor,
+                    ceiling=ceiling,
+                    percentile_threshold=percentile_threshold,
+                    verbose=verbose
+                )
+                dynamic_weights.update(bucket_weights)
 
         if verbose:
-            bt.logging.info(f"Dynamic dust weights calculated for {len(dynamic_weights)} miners")
+            bt.logging.info(f"Performance-scaled dust weights calculated for {len(dynamic_weights)} miners")
 
         return dynamic_weights
 
@@ -952,7 +1175,7 @@ class DebtBasedScoring:
         verbose: bool = False
     ) -> dict[str, float]:
         """
-        Enforce minimum weights based on challenge period status with dynamic dust scaling.
+        Enforce minimum weights based on challenge period status with performance scaling.
 
         All miners receive minimum "dust" weights based on their current status:
         - CHALLENGE/PLAGIARISM: 1x dust
@@ -960,31 +1183,25 @@ class DebtBasedScoring:
         - MAINCOMP: 3x dust
         - UNKNOWN: 0x dust (no weight)
 
-        Dust value is calculated dynamically to yield $0.01/day in emissions,
-        automatically adjusting for TAO price, ALPHA conversion rate, and emission rate changes.
-        Falls back to ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT if dynamic calculation fails.
+        Dust value is a static constant taken from ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT.
 
-        Dynamic dust scaling is always enabled: miners are scaled within bucket based on 30-day
-        penalty-adjusted PnL (in USD), with range [floor, floor+1 DUST].
+        Performance scaling is always enabled: miners are scaled within bucket based on 30-day
+        penalty-adjusted PnL (in USD), with range [floor, floor+1 DUST], where floor is
+        the bucket's static dust multiplier and ceiling is floor + base dust amount.
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             miner_remaining_payouts_usd: Dict of {hotkey: remaining_payout_usd} in USD
             challengeperiod_manager: Manager for querying current challenge period status (required)
-            metagraph: Shared IPC metagraph (required for dynamic dust calculation)
-            current_time_ms: Current timestamp (required for dynamic dust calculation)
+            metagraph: Shared IPC metagraph (not used for dust calculation)
+            current_time_ms: Current timestamp (required for performance scaling)
             verbose: Enable detailed logging
 
         Returns:
             Dict of {hotkey: weight} with minimums applied (weights are unitless proportions)
         """
-        # Calculate dynamic dust weight ($0.01/day target)
-        # Falls back to static dust if metagraph data is unavailable
-        DUST = DebtBasedScoring.calculate_dynamic_dust(
-            metagraph=metagraph,
-            target_daily_usd=0.10,
-            verbose=verbose
-        )
+        # Use static dust weight from config
+        DUST = ValiConfig.CHALLENGE_PERIOD_MIN_WEIGHT
 
         # Calculate dynamic dust weights (always enabled)
         if current_time_ms is None:
@@ -1002,9 +1219,9 @@ class DebtBasedScoring:
                     verbose=verbose
                 )
                 if verbose:
-                    bt.logging.info("Using dynamic dust weights (30-day performance scaling)")
+                    bt.logging.info("Using performance-scaled dust weights (30-day PnL scaling within buckets)")
             except Exception as e:
-                bt.logging.error(f"Error calculating dynamic dust weights: {e}. Falling back to static.")
+                bt.logging.error(f"Error calculating performance-scaled dust weights: {e}. Falling back to static floor values.")
                 dynamic_dust_weights = None
 
         # Static minimum weights (fallback)
@@ -1065,10 +1282,10 @@ class DebtBasedScoring:
 
         Args:
             metagraph: Bittensor metagraph for accessing hotkeys
-            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
+            is_testnet: True for testnet (uid 220), False for mainnet (uid 229)
 
         Returns:
-            Hotkey string for burn address (uid 229 mainnet / uid 5 testnet)
+            Hotkey string for burn address (uid 229 mainnet / uid 220 testnet)
         """
         burn_uid = DebtBasedScoring.get_burn_uid(is_testnet)
 
@@ -1093,7 +1310,7 @@ class DebtBasedScoring:
         Normalize weights with special burn address logic.
 
         If sum of weights < 1.0:
-            - Assign remaining weight (1.0 - sum) to burn address (uid 229 mainnet / uid 5 testnet)
+            - Assign remaining weight (1.0 - sum) to burn address (uid 229 mainnet / uid 220 testnet)
         If sum of weights >= 1.0:
             - Normalize all weights to sum to 1.0
             - Burn address gets 0 (not included)
@@ -1101,7 +1318,7 @@ class DebtBasedScoring:
         Args:
             weights: Dict of {hotkey: weight}
             metagraph: Bittensor metagraph for accessing hotkeys
-            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
+            is_testnet: True for testnet (uid 220), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
         Returns:
@@ -1160,18 +1377,18 @@ class DebtBasedScoring:
         verbose: bool = False
     ) -> List[Tuple[str, float]]:
         """
-        Apply weights for pre-activation period (before Dec 2025).
+        Apply weights for pre-activation period (before January 2026).
 
         During pre-activation, miners only receive minimum dust weights based on
         their challenge period status. Excess weight goes to burn address.
-        Dynamic dust scaling is always enabled.
+        Performance-based scaling within buckets is always enabled (using static dust value).
 
         Args:
             ledger_dict: Dict of {hotkey: DebtLedger}
             metagraph: Bittensor metagraph for accessing hotkeys
             challengeperiod_manager: Manager for querying current challenge period status (required)
-            current_time_ms: Current timestamp (required for dynamic dust calculation)
-            is_testnet: True for testnet (uid 5), False for mainnet (uid 229)
+            current_time_ms: Current timestamp (required for performance-scaled dust calculation)
+            is_testnet: True for testnet (uid 220), False for mainnet (uid 229)
             verbose: Enable detailed logging
 
         Returns:
