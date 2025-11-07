@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+from zoneinfo import ZoneInfo
 
 import holidays
 import numpy as np
@@ -22,6 +23,7 @@ class PriceSlippageModel:
     slippage_estimates: dict = {}
     live_price_fetcher: LivePriceFetcher = None
     holidays_nyse = None
+    eastern_tz = ZoneInfo("America/New_York")
     is_backtesting = False
     fetch_slippage_data = False
     recalculate_slippage = False
@@ -111,14 +113,18 @@ class PriceSlippageModel:
     @classmethod
     def calc_slippage_forex(cls, bid:float, ask:float, order:Order) -> float:
         """
-        Using the direct BB+ model as a stand-in for forex
+        V2: 5 bps slippage daily from 5-6 pm EST, and 2 bps slippage otherwise
+
+        V1: Using the direct BB+ model as a stand-in for forex
         slippage percentage = 0.433 * spread/mid_price + 0.335 * sqrt(annualized_volatility**2 / 3 / 250) * sqrt(volume / (0.3 * estimated daily volume))
         """
         if order.processed_ms > SLIPPAGE_V2_TIME_MS:
-            if order.trade_pair.subcategory == ForexSubcategory.G1:
-                return 0.001    # 10 bps
+            order_datetime = TimeUtil.millis_to_datetime(order.processed_ms).astimezone(cls.eastern_tz)
+            hour = order_datetime.hour
+            if 17 <= hour < 18:    # Daily 5-6 pm EST. Higher slippage during market open/closing hours
+                return 0.0005       # 5 bps
             else:
-                return 0.0015   # 15 bps
+                return 0.0002       # 2 bps
 
         order_date = TimeUtil.millis_to_short_date_str(order.processed_ms)
         annualized_volatility = cls.features[order_date]["vol"][order.trade_pair.trade_pair_id]

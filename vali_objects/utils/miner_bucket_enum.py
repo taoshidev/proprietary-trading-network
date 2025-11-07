@@ -6,3 +6,4 @@ class MinerBucket(Enum):
     CHALLENGE = "CHALLENGE"
     PROBATION = "PROBATION"
     PLAGIARISM = "PLAGIARISM"
+    UNKNOWN = "unknown"

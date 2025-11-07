@@ -4,7 +4,7 @@ import math
 import bittensor as bt
 
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedger, PerfCheckpoint
-from vali_objects.vali_config import ValiConfig, TradePair, TradePairCategory, TradePairSubcategory
+from vali_objects.vali_config import ValiConfig, TradePair, TradePairCategory
 
 
 
@@ -12,32 +12,28 @@ class AssetSegmentation:
     def __init__(self, miner_ledgers: dict[str, dict[str, PerfLedger]]):
         self.overall_ledgers = miner_ledgers
         self.asset_breakdown: dict[TradePairCategory, dict] = ValiConfig.ASSET_CLASS_BREAKDOWN
-        self.asset_subcategories = AssetSegmentation.distill_asset_subcategories(self.asset_breakdown)
+        self.asset_classes = AssetSegmentation.distill_asset_classes(self.asset_breakdown)
 
     @staticmethod
-    def distill_asset_subcategories(
+    def distill_asset_classes(
             asset_breakdown: dict[TradePairCategory, dict]
-    ) -> set[TradePairSubcategory]:
+    ) -> set[TradePairCategory]:
         """
-        Distills the asset subcategories from the asset breakdown.
-        Returns a set of TradePairSubcategory.
+        Distills the asset classes from the asset breakdown.
+        Returns a set of TradePairCategory.
         """
-        asset_subcategories = set()
-        for data in asset_breakdown.values():
-            weights = data.get("subcategory_weights", {})
-            asset_subcategories.update(weights.keys())
-        return asset_subcategories
+        return set(asset_breakdown.keys())
 
-    def segmentation(self, asset_subcategory: str) -> dict[str, PerfLedger]:
+    def segmentation(self, asset_class: TradePairCategory) -> dict[str, PerfLedger]:
         """
         Segments the overall ledgers into asset classes and aggregates them.
         Returns a dictionary where keys are asset classes and values are aggregated PerfLedgers.
         """
-        if asset_subcategory not in self.asset_subcategories:
-            raise ValueError(f"Asset class {asset_subcategory} is not recognized.")
+        if asset_class not in self.asset_classes:
+            raise ValueError(f"Asset class {asset_class} is not recognized.")
 
         # Initialize segmented ledgers for the specified asset class
-        subset = self.ledger_subset(asset_subcategory)
+        subset = self.ledger_subset(asset_class)
 
         total_miner_ledgers = {}
         for hotkey, full_ledger in subset.items():
@@ -49,12 +45,12 @@ class AssetSegmentation:
 
         return total_miner_ledgers
 
-    def ledger_subset(self, asset_subcategory: str) -> dict[str, dict[str, PerfLedger]]:
+    def ledger_subset(self, asset_class: TradePairCategory) -> dict[str, dict[str, PerfLedger]]:
         """
         Only returns the subset of ledgers that match the specified asset class.
         """
-        if asset_subcategory not in self.asset_subcategories:
-            raise ValueError(f"Asset class {asset_subcategory} is not recognized.")
+        if asset_class not in self.asset_classes:
+            raise ValueError(f"Asset class {asset_class} is not recognized.")
 
         subset_ledger = {}
         for hotkey, full_ledger in self.overall_ledgers.items():
@@ -66,15 +62,7 @@ class AssetSegmentation:
                     continue
 
                 trade_pair = TradePair.from_trade_pair_id(asset_name)
-                trade_pair_category = trade_pair.subcategory
-                if trade_pair_category is None and trade_pair.trade_pair_category not in (TradePairCategory.INDICES, TradePairCategory.EQUITIES):
-                    # bt.logging.warning(
-                    #     f"Trade pair {asset_name} does not have a valid subcategory. "
-                    #     "This may lead to incorrect asset segmentation."
-                    # )
-                    continue
-
-                if trade_pair_category == asset_subcategory:
+                if trade_pair.trade_pair_category == asset_class:
                     miner_subset_ledger[asset_name] = ledger
 
             subset_ledger[hotkey] = miner_subset_ledger
@@ -110,6 +98,8 @@ class AssetSegmentation:
                     existing_checkpoint.loss += checkpoint.loss
                     existing_checkpoint.spread_fee_loss += checkpoint.spread_fee_loss
                     existing_checkpoint.carry_fee_loss += checkpoint.carry_fee_loss
+                    existing_checkpoint.pnl_gain += checkpoint.pnl_gain
+                    existing_checkpoint.pnl_loss += checkpoint.pnl_loss
 
                     aggregated_dict_ledger[checkpoint.last_update_ms] = existing_checkpoint
 

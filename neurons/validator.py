@@ -47,10 +47,12 @@ from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.utils.subtensor_weight_setter import SubtensorWeightSetter
 from vali_objects.utils.mdd_checker import MDDChecker
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.vali_dataclasses.debt_ledger import DebtLedgerManager
+from vali_objects.vali_dataclasses.emissions_ledger import EmissionsLedgerManager
 from vali_objects.vali_dataclasses.perf_ledger import PerfLedgerManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
-from vali_objects.vali_dataclasses.order import Order
+from vali_objects.vali_dataclasses.order import Order, OrderSource
 from vali_objects.position import Position
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.vali_utils import ValiUtils
@@ -169,16 +171,19 @@ class Validator:
         # Create single weight request queue (validator only)
         weight_request_queue = self.ipc_manager.Queue()
 
-        # Create MetagraphUpdater which manages the subtensor connection
-        self.metagraph_updater = MetagraphUpdater(self.config, self.metagraph, self.wallet.hotkey.ss58_address,
-                                                  False, position_manager=None,
-                                                  shutdown_dict=shutdown_dict,
-                                                  slack_notifier=self.slack_notifier,
-                                                  weight_request_queue=weight_request_queue)
+        # Create MetagraphUpdater with simple parameters (no PTNManager)
+        # This will run in a thread in the main process
+        self.metagraph_updater = MetagraphUpdater(
+            self.config, self.metagraph, self.wallet.hotkey.ss58_address,
+            False, position_manager=None,
+            shutdown_dict=shutdown_dict,
+            slack_notifier=self.slack_notifier,
+            weight_request_queue=weight_request_queue,
+            live_price_fetcher=self.live_price_fetcher
+        )
+        self.subtensor = self.metagraph_updater.subtensor
+        bt.logging.info(f"Subtensor: {self.subtensor}")
 
-        # We don't store a reference to subtensor; instead use the getter from MetagraphUpdater
-        # This ensures we always have the current subtensor instance even after round-robin switches
-        bt.logging.info(f"Subtensor: {self.metagraph_updater.get_subtensor()}")
 
         # Start the metagraph updater and wait for initial population
         self.metagraph_updater_thread = self.metagraph_updater.start_and_wait_for_initial_update(
@@ -224,7 +229,7 @@ class Validator:
 
 
         self.position_manager = PositionManager(metagraph=self.metagraph,
-                                                perform_order_corrections=False,
+                                                perform_order_corrections=True,
                                                 ipc_manager=self.ipc_manager,
                                                 perf_ledger_manager=self.perf_ledger_manager,
                                                 elimination_manager=self.elimination_manager,
@@ -259,6 +264,12 @@ class Validator:
 
         self.position_manager.pre_run_setup()
         self.uuid_tracker.add_initial_uuids(self.position_manager.get_positions_for_all_miners())
+
+        self.debt_ledger_manager = DebtLedgerManager(self.perf_ledger_manager, self.position_manager, self.contract_manager,
+                                     self.asset_selection_manager, challengeperiod_manager=self.challengeperiod_manager,
+                                     slack_webhook_url=self.config.slack_error_webhook_url, start_daemon=True,
+                                     ipc_manager=self.ipc_manager, validator_hotkey=self.wallet.hotkey.ss58_address)
+
 
         self.checkpoint_lock = threading.Lock()
         self.encoded_checkpoint = ""
@@ -366,7 +377,7 @@ class Validator:
             f"Serving attached axons on network:"
             f" {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
-        self.axon.serve(netuid=self.config.netuid, subtensor=self.metagraph_updater.get_subtensor())
+        self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
         # Starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
@@ -380,71 +391,235 @@ class Validator:
         # Eliminations are written in elimination_manager, mdd_checker
         # Since the mainloop is run synchronously, we just need to lock eliminations when writing to them and when
         # reading outside of the mainloop (validator).
-        self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
-                                                      position_manager=self.position_manager)
-        # Start the plagiarism detector in its own thread
-        self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
-        self.plagiarism_thread.start()
 
-        self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
-                                      shutdown_dict=shutdown_dict)
+        # Watchdog thread to detect hung initialization steps
+        init_watchdog = {'current_step': 0, 'start_time': time.time(), 'step_desc': 'Starting', 'alerted': False}
 
-        self.weight_setter = SubtensorWeightSetter(
-            self.metagraph,
-            position_manager=self.position_manager,
-            use_slack_notifier=True,
-            shutdown_dict=shutdown_dict,
-            weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
-            config=self.config,
-            hotkey=self.wallet.hotkey.ss58_address,
-            contract_manager=self.contract_manager
-        )
+        def initialization_watchdog():
+            """Background thread that monitors for hung initialization steps"""
+            HANG_TIMEOUT = 60  # Alert after 60 seconds on a single step
+            while init_watchdog['current_step'] <= 10:
+                time.sleep(5)  # Check every 5 seconds
+                if init_watchdog['current_step'] > 10:
+                    break  # Initialization complete
 
-        self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector, self.contract_manager, ipc_manager=self.ipc_manager, asset_selection_manager=self.asset_selection_manager)
-        self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter, self.plagiarism_detector, contract_manager=self.contract_manager, ipc_manager=self.ipc_manager, wallet=self.wallet)
+                elapsed = time.time() - init_watchdog['start_time']
+                if elapsed > HANG_TIMEOUT and not init_watchdog['alerted']:
+                    init_watchdog['alerted'] = True
+                    hang_msg = (
+                        f"⚠️ Validator Initialization Hang Detected!\n"
+                        f"Step {init_watchdog['current_step']}/10 has been running for {elapsed:.1f}s\n"
+                        f"Step: {init_watchdog['step_desc']}\n"
+                        f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                        f"Timeout threshold: {HANG_TIMEOUT}s\n"
+                        f"The validator may be stuck and require manual restart."
+                    )
+                    bt.logging.error(hang_msg)
+                    if self.slack_notifier:
+                        self.slack_notifier.send_message(hang_msg, level="error")
 
-        # Start the perf ledger updater loop in its own process. Make sure it happens after the position manager has chances to make any fixes
-        self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
-        self.perf_ledger_updater_thread.start()
+        # Start watchdog thread
+        watchdog_thread = threading.Thread(target=initialization_watchdog, daemon=True)
+        watchdog_thread.start()
 
-        # Start the weight setter loop in its own process
-        self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
-        self.weight_setter_process.start()
+        # Helper function to run initialization steps with timeout and error handling
+        def run_init_step_with_monitoring(step_num, step_desc, step_func, timeout_seconds=30):
+            """Execute an initialization step with timeout monitoring and error handling"""
+            # Update watchdog state
+            init_watchdog['current_step'] = step_num
+            init_watchdog['step_desc'] = step_desc
+            init_watchdog['start_time'] = time.time()
+            init_watchdog['alerted'] = False
 
-        # Start dedicated weight processing thread in MetagraphUpdater (validators only)
-        if self.metagraph_updater.weight_request_queue:
-            self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
-            self.weight_processing_thread.start()
+            bt.logging.info(f"[INIT] Step {step_num}/10: {step_desc}...")
+            start_time = time.time()
+            try:
+                result = step_func()
+                elapsed = time.time() - start_time
+                bt.logging.info(f"[INIT] Step {step_num}/10 complete: {step_desc} (took {elapsed:.2f}s)")
+                return result
+            except Exception as e:
+                elapsed = time.time() - start_time
+                error_msg = f"[INIT] Step {step_num}/10 FAILED: {step_desc} after {elapsed:.2f}s - {str(e)}"
+                bt.logging.error(error_msg)
+                bt.logging.error(traceback.format_exc())
 
-        if self.config.start_generate:
-            self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
-            self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
-            self.rog_thread.start()
-        else:
-            self.rog_thread = None
+                # Send Slack alert
+                if self.slack_notifier:
+                    self.slack_notifier.send_message(
+                        f"🚨 Validator Initialization Failed!\n"
+                        f"Step: {step_num}/10 - {step_desc}\n"
+                        f"Error: {str(e)}\n"
+                        f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                        f"Time elapsed: {elapsed:.2f}s\n"
+                        f"The validator may be hung or unable to start properly.",
+                        level="error"
+                    )
+                raise
 
-        if self.config.serve:
-            # Create API Manager with configuration options
-            self.api_manager = APIManager(
-                shared_queue=self.shared_queue_websockets,
-                ws_host=self.config.api_host,
-                ws_port=self.config.api_ws_port,
-                rest_host=self.config.api_host,
-                rest_port=self.config.api_rest_port,
+        # Step 1: Initialize PlagiarismDetector
+        def step1():
+            self.plagiarism_detector = PlagiarismDetector(self.metagraph, shutdown_dict=shutdown_dict,
+                                                          position_manager=self.position_manager)
+            return self.plagiarism_detector
+        run_init_step_with_monitoring(1, "Initializing PlagiarismDetector", step1)
+
+        # Step 2: Start plagiarism detector process
+        def step2():
+            self.plagiarism_thread = Process(target=self.plagiarism_detector.run_update_loop, daemon=True)
+            self.plagiarism_thread.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.plagiarism_thread.is_alive():
+                raise RuntimeError("Plagiarism detector process failed to start")
+            bt.logging.info(f"Process started with PID: {self.plagiarism_thread.pid}")
+            return self.plagiarism_thread
+        run_init_step_with_monitoring(2, "Starting plagiarism detector process", step2)
+
+        # Step 3: Initialize MDDChecker
+        def step3():
+            self.mdd_checker = MDDChecker(self.metagraph, self.position_manager, live_price_fetcher=self.live_price_fetcher,
+                                          shutdown_dict=shutdown_dict)
+            return self.mdd_checker
+        run_init_step_with_monitoring(3, "Initializing MDDChecker", step3)
+
+        # Step 4: Initialize SubtensorWeightSetter
+        def step4():
+            # Pass shared metagraph which contains substrate reserves refreshed by MetagraphUpdater
+            # Pass debt_ledger_manager for encapsulated access to debt ledger data
+            self.weight_setter = SubtensorWeightSetter(
+                self.metagraph,
                 position_manager=self.position_manager,
+                use_slack_notifier=True,
+                shutdown_dict=shutdown_dict,
+                weight_request_queue=weight_request_queue,  # Same queue as MetagraphUpdater
+                config=self.config,
+                hotkey=self.wallet.hotkey.ss58_address,
                 contract_manager=self.contract_manager,
-                miner_statistics_manager=self.miner_statistics_manager,
-                request_core_manager=self.request_core_manager,
-                asset_selection_manager=self.asset_selection_manager
+                debt_ledger_manager=self.debt_ledger_manager,
+                is_mainnet=self.is_mainnet
+            )
+            return self.weight_setter
+        run_init_step_with_monitoring(4, "Initializing SubtensorWeightSetter", step4)
+
+        # Step 5: Initialize RequestCoreManager and MinerStatisticsManager
+        def step5():
+            self.request_core_manager = RequestCoreManager(self.position_manager, self.weight_setter, self.plagiarism_detector,
+                                                          self.contract_manager, ipc_manager=self.ipc_manager,
+                                                          asset_selection_manager=self.asset_selection_manager)
+            self.miner_statistics_manager = MinerStatisticsManager(self.position_manager, self.weight_setter,
+                                                                   self.plagiarism_detector, contract_manager=self.contract_manager,
+                                                                   ipc_manager=self.ipc_manager)
+            return (self.request_core_manager, self.miner_statistics_manager)
+        run_init_step_with_monitoring(5, "Initializing RequestCoreManager and MinerStatisticsManager", step5)
+
+        # Step 6: Start perf ledger updater process
+        def step6():
+            self.perf_ledger_updater_thread = Process(target=self.perf_ledger_manager.run_update_loop, daemon=True)
+            self.perf_ledger_updater_thread.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.perf_ledger_updater_thread.is_alive():
+                raise RuntimeError("Perf ledger updater process failed to start")
+            bt.logging.info(f"Process started with PID: {self.perf_ledger_updater_thread.pid}")
+            return self.perf_ledger_updater_thread
+        run_init_step_with_monitoring(6, "Starting perf ledger updater process", step6)
+
+        # Step 7: Start weight setter process
+        def step7():
+            self.weight_setter_process = Process(target=self.weight_setter.run_update_loop, daemon=True)
+            self.weight_setter_process.start()
+            # Verify process started
+            time.sleep(0.1)  # Give process a moment to start
+            if not self.weight_setter_process.is_alive():
+                raise RuntimeError("Weight setter process failed to start")
+            bt.logging.info(f"Process started with PID: {self.weight_setter_process.pid}")
+            return self.weight_setter_process
+        run_init_step_with_monitoring(7, "Starting weight setter process", step7)
+
+        # Step 8: Start weight processing thread
+        def step8():
+            if self.metagraph_updater.weight_request_queue:
+                self.weight_processing_thread = threading.Thread(target=self.metagraph_updater.run_weight_processing_loop, daemon=True)
+                self.weight_processing_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.weight_processing_thread.is_alive():
+                    raise RuntimeError("Weight processing thread failed to start")
+                return self.weight_processing_thread
+            else:
+                bt.logging.info("No weight request queue - skipping")
+                return None
+        run_init_step_with_monitoring(8, "Starting weight processing thread", step8)
+
+        # Step 9: Start request output generator (if enabled)
+        def step9():
+            if self.config.start_generate:
+                self.rog = RequestOutputGenerator(rcm=self.request_core_manager, msm=self.miner_statistics_manager)
+                self.rog_thread = threading.Thread(target=self.rog.start_generation, daemon=True)
+                self.rog_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.rog_thread.is_alive():
+                    raise RuntimeError("Request output generator thread failed to start")
+                return self.rog_thread
+            else:
+                self.rog_thread = None
+                bt.logging.info("Request output generator not enabled - skipping")
+                return None
+        run_init_step_with_monitoring(9, "Starting request output generator (if enabled)", step9)
+
+        # Step 10: Start API services (if enabled)
+        def step10():
+            if self.config.serve:
+                # Create API Manager with configuration options
+                self.api_manager = APIManager(
+                    shared_queue=self.shared_queue_websockets,
+                    ws_host=self.config.api_host,
+                    ws_port=self.config.api_ws_port,
+                    rest_host=self.config.api_host,
+                    rest_port=self.config.api_rest_port,
+                    position_manager=self.position_manager,
+                    contract_manager=self.contract_manager,
+                    miner_statistics_manager=self.miner_statistics_manager,
+                    request_core_manager=self.request_core_manager,
+                    asset_selection_manager=self.asset_selection_manager,
+                    slack_webhook_url=self.config.slack_webhook_url,
+                    debt_ledger_manager=self.debt_ledger_manager,
+                    validator_hotkey=self.wallet.hotkey.ss58_address
+                )
+
+                # Start the API Manager in a separate thread
+                self.api_thread = threading.Thread(target=self.api_manager.run, daemon=True)
+                self.api_thread.start()
+                # Verify thread started
+                time.sleep(0.1)
+                if not self.api_thread.is_alive():
+                    raise RuntimeError("API thread failed to start")
+                bt.logging.info(
+                    f"API services thread started - REST: {self.config.api_host}:{self.config.api_rest_port}, "
+                    f"WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
+                return self.api_thread
+            else:
+                self.api_thread = None
+                bt.logging.info("API services not enabled - skipping")
+                return None
+        run_init_step_with_monitoring(10, "Starting API services (if enabled)", step10)
+
+        # Signal watchdog that initialization is complete
+        init_watchdog['current_step'] = 11
+        bt.logging.info("[INIT] All 10 initialization steps completed successfully!")
+
+        # Send success notification to Slack
+        if self.slack_notifier:
+            self.slack_notifier.send_message(
+                f"✅ Validator Initialization Complete!\n"
+                f"All 10 initialization steps completed successfully\n"
+                f"Hotkey: {self.wallet.hotkey.ss58_address}\n"
+                f"API services: {'Enabled' if self.config.serve else 'Disabled'}",
+                level="info"
             )
 
-            # Start the API Manager in a separate process
-            self.api_thread = threading.Thread(target=self.api_manager.run, daemon=True)
-            self.api_thread.start()
-            bt.logging.info(
-                f"API services started - REST: {self.config.api_host}:{self.config.api_rest_port}, WebSocket: {self.config.api_host}:{self.config.api_ws_port}")
-        else:
-            self.api_thread = None
         # Validators on mainnet net to be syned for the first time or after interruption need to resync their
         # positions. Assert there are existing orders that occurred > 24hrs in the past. Assert that the newest order
         # was placed within 24 hours.
@@ -492,14 +667,8 @@ class Validator:
         )
         return priority
 
-    @property
-    def subtensor(self):
-        """
-        Property that always returns the current subtensor instance from MetagraphUpdater.
-        This ensures we're always using the active subtensor connection, even after
-        round-robin network switches in the MetagraphUpdater.
-        """
-        return self.metagraph_updater.get_subtensor()
+    # subtensor is now a simple instance variable (no property needed)
+    # It's created in __init__ and used directly throughout validator
 
     def get_config(self):
         # Step 2: Set up the configuration parser
@@ -681,70 +850,54 @@ class Validator:
         trade_pair = TradePair.from_trade_pair_id(string_trade_pair)
         return trade_pair
 
-    def _enforce_num_open_order_limit(self, trade_pair_to_open_position: dict, signal_to_order):
-        # Check if there are too many orders across all open positions.
-        # If so, check if the current order is a FLAT order (reduces number of open orders). If not, raise an exception
-        n_open_positions = sum([len(position.orders) for position in trade_pair_to_open_position.values()])
-        if n_open_positions >= ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY:
-            if signal_to_order.order_type != OrderType.FLAT:
-                raise SignalException(
-                    f"miner sent too many open orders [{n_open_positions}] > [{ValiConfig.MAX_OPEN_ORDERS_PER_HOTKEY}] and "
-                    f"order [{signal_to_order}] is not a FLAT order."
-                )
-
     def _get_or_create_open_position_from_new_order(self, trade_pair: TradePair, order_type: OrderType, order_time_ms: int,
-                                        miner_hotkey: str, trade_pair_to_open_position: dict, miner_order_uuid: str):
+                                        miner_hotkey: str, miner_order_uuid: str, now_ms:int, price_sources, miner_repo_version, account_size):
 
-        # if a position already exists, add the order to it
-        if trade_pair in trade_pair_to_open_position:
-            # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
-            # loop thread.
-            if trade_pair_to_open_position[trade_pair].is_closed_position:
-                raise SignalException(
-                    f"miner [{miner_hotkey}] sent signal for "
-                    f"closed position [{trade_pair}]")
-            bt.logging.debug("adding to existing position")
-            open_position = trade_pair_to_open_position[trade_pair]
-        else:
-            bt.logging.debug("processing new position")
-            # if the order is FLAT ignore (noop)
-            if order_type == OrderType.FLAT:
-                open_position = None
-            else:
-                # Get relevant account size
-                account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=order_time_ms)
-                if account_size is None:
-                    account_size = ValiConfig.MIN_CAPITAL
-                else:
-                    account_size = max(account_size, ValiConfig.MIN_CAPITAL)
+        # gather open positions and see which trade pairs have an open position
+        positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
+        trade_pair_to_open_position = {position.trade_pair: position for position in positions}
 
-                # if a position doesn't exist, then make a new one
-                # Validate asset class selection
-                if not self.asset_selection_manager.validate_order_asset_class(miner_hotkey, trade_pair.trade_pair_category, order_time_ms):
-                    raise SignalException(
-                        f"miner [{miner_hotkey}] cannot trade asset class [{trade_pair.trade_pair_category.value}]. "
-                        f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(miner_hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
-                        f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
-                    )
-
-                open_position = Position(
-                    miner_hotkey=miner_hotkey,
-                    position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
-                    open_ms=order_time_ms,
-                    trade_pair=trade_pair,
-                    account_size=account_size
+        existing_open_pos = trade_pair_to_open_position.get(trade_pair)
+        if existing_open_pos:
+            # If the position has too many orders, we need to close it out to make room.
+            if len(existing_open_pos.orders) >= ValiConfig.MAX_ORDERS_PER_POSITION and order_type != OrderType.FLAT:
+                bt.logging.info(
+                    f"Miner [{miner_hotkey}] hit {ValiConfig.MAX_ORDERS_PER_POSITION} order limit. "
+                    f"Automatically closing position for {trade_pair.trade_pair_id} "
+                    f"with {len(existing_open_pos.orders)} orders to make room for new position."
                 )
-        return open_position
+                force_close_order_time = now_ms - 1 # 2 orders for the same trade pair cannot have the same timestamp
+                force_close_order_uuid = existing_open_pos.position_uuid[::-1] # uuid will stay the same across validators
+                self._add_order_to_existing_position(existing_open_pos, trade_pair, OrderType.FLAT,
+                                                     0.0, force_close_order_time, miner_hotkey,
+                                                     price_sources, force_close_order_uuid, miner_repo_version,
+                                                     OrderSource.MAX_ORDERS_PER_POSITION_CLOSE, account_size)
+                time.sleep(0.1)  # Put 100ms between two consecutive websocket writes for the same trade pair and hotkey. We need the new order to be seen after the FLAT.
+            else:
+                # If the position is closed, raise an exception. This can happen if the miner is eliminated in the main
+                # loop thread.
+                if trade_pair_to_open_position[trade_pair].is_closed_position:
+                    raise SignalException(
+                        f"miner [{miner_hotkey}] sent signal for "
+                        f"closed position [{trade_pair}]")
+                bt.logging.debug("adding to existing position")
+                # Return existing open position (nominal path)
+                return trade_pair_to_open_position[trade_pair]
 
-    def enforce_no_duplicate_order(self, synapse: template.protocol.SendSignal):
-        order_uuid = synapse.miner_order_uuid
-        if order_uuid:
-            if self.uuid_tracker.exists(order_uuid):
-                msg = (f"Order with uuid [{order_uuid}] has already been processed. "
-                       f"Please try again with a new order.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
-                synapse.error_message = msg
+
+        # if the order is FLAT ignore (noop)
+        if order_type == OrderType.FLAT:
+            open_position = None
+        else:
+            # if a position doesn't exist, then make a new one
+            open_position = Position(
+                miner_hotkey=miner_hotkey,
+                position_uuid=miner_order_uuid if miner_order_uuid else str(uuid.uuid4()),
+                open_ms=order_time_ms,
+                trade_pair=trade_pair,
+                account_size=account_size
+            )
+        return open_position
 
     def should_fail_early(self, synapse: template.protocol.SendSignal | template.protocol.GetPositions | template.protocol.GetDashData | template.protocol.ValidatorCheckpoint, method:SynapseMethod,
                           signal:dict=None, now_ms=None) -> bool:
@@ -799,31 +952,62 @@ class Validator:
             synapse.error_message = msg
             return True
 
-        if signal:
-            tp = self.parse_trade_pair_from_signal(signal)
+        # don't process re-registered miners
+        if self.elimination_manager.is_hotkey_re_registered(synapse.dendrite.hotkey):
+            # Get deregistration timestamp and convert to human-readable date
+            departed_info = self.elimination_manager.departed_hotkeys.get(synapse.dendrite.hotkey, {})
+            detected_ms = departed_info.get("detected_ms", 0)
+            dereg_date = TimeUtil.millis_to_formatted_date_str(detected_ms) if detected_ms else "unknown"
 
-            if tp and not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
+            msg = (f"This miner hotkey {synapse.dendrite.hotkey} was previously de-registered and is not allowed to re-register. "
+                   f"De-registered on: {dereg_date} UTC. "
+                   f"Re-registration is not permitted on this subnet.")
+            bt.logging.warning(msg)
+            synapse.successfully_processed = False
+            synapse.error_message = msg
+            return True
+
+        order_uuid = synapse.miner_order_uuid
+        tp = self.parse_trade_pair_from_signal(signal)
+        if order_uuid and self.uuid_tracker.exists(order_uuid):
+            msg = (f"Order with uuid [{order_uuid}] has already been processed. "
+                   f"Please try again with a new order.")
+            bt.logging.error(msg)
+            synapse.error_message = msg
+
+        elif signal and tp:
+            # Validate asset class selection
+            if not self.asset_selection_manager.validate_order_asset_class(synapse.dendrite.hotkey, tp.trade_pair_category, now_ms):
+                msg = (
+                    f"miner [{synapse.dendrite.hotkey}] cannot trade asset class [{tp.trade_pair_category.value}]. "
+                    f"Selected asset class: [{self.asset_selection_manager.asset_selections.get(synapse.dendrite.hotkey, None)}]. Only trade pairs from your selected asset class are allowed. "
+                    f"See https://docs.taoshi.io/ptn/ptncli#miner-operations for more information."
+                )
+                synapse.error_message = msg
+
+            elif not self.live_price_fetcher.polygon_data_service.is_market_open(tp):
                 msg = (f"Market for trade pair [{tp.trade_pair_id}] is likely closed or this validator is"
                        f" having issues fetching live price. Please try again later.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
                 synapse.error_message = msg
-                return True
 
-            if tp and tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
+            elif tp in self.live_price_fetcher.polygon_data_service.UNSUPPORTED_TRADE_PAIRS:
                 msg = (f"Trade pair [{tp.trade_pair_id}] has been temporarily halted. "
                        f"Please try again with a different trade pair.")
-                bt.logging.error(msg)
-                synapse.successfully_processed = False
                 synapse.error_message = msg
-                return True
 
-            self.enforce_no_duplicate_order(synapse)
-            if synapse.error_message:
-                return True
+            # TODO: continue trade pair block on 11/10
+            # elif tp.is_blocked:
+            #     order_type = OrderType.from_string(signal["order_type"])
+            #     if order_type != OrderType.FLAT:
+            #         msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked"
+            #                f"Please try again with a different trade pair.")
+            #         synapse.error_message = msg
 
+        synapse.successfully_processed = not bool(synapse.error_message)
+        if synapse.error_message:
+            bt.logging.error(synapse.error_message)
 
-        return False
+        return bool(synapse.error_message)
 
     def enforce_order_cooldown(self, trade_pair_id, now_ms, miner_hotkey):
         """
@@ -860,6 +1044,46 @@ class Validator:
             temp = str(uuid.uuid4())
         return temp
 
+    def _add_order_to_existing_position(self, existing_position, trade_pair, signal_order_type: OrderType,
+                                        signal_leverage: float, order_time_ms: int, miner_hotkey: str,
+                                        price_sources, miner_order_uuid: str, miner_repo_version: str, src:OrderSource,
+                                        account_size):
+        # Must be locked by caller
+        best_price_source = price_sources[0]
+        order = Order(
+            trade_pair=trade_pair,
+            order_type=signal_order_type,
+            leverage=signal_leverage,
+            price=best_price_source.parse_appropriate_price(order_time_ms, trade_pair.is_forex, signal_order_type,
+                                                            existing_position),
+            processed_ms=order_time_ms,
+            order_uuid=miner_order_uuid,
+            price_sources=price_sources,
+            bid=best_price_source.bid,
+            ask=best_price_source.ask,
+            src=src
+        )
+        self.price_slippage_model.refresh_features_daily(time_ms=order_time_ms)
+        order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
+        net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
+        existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
+        self.position_manager.save_miner_position(existing_position)
+        # Update cooldown cache after successful order processing
+        self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = order_time_ms
+        self.uuid_tracker.add(miner_order_uuid)
+
+        if self.config.serve:
+            # Add the position to the queue for broadcasting
+            self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
+
+    def _get_account_size(self, miner_hotkey, now_ms):
+        account_size = self.contract_manager.get_miner_account_size(hotkey=miner_hotkey, timestamp_ms=now_ms)
+        if account_size is None:
+            account_size = ValiConfig.MIN_CAPITAL
+        else:
+            account_size = max(account_size, ValiConfig.MIN_CAPITAL)
+        return account_size
+
     # This is the core validator function to receive a signal
     def receive_signal(self, synapse: template.protocol.SendSignal,
                        ) -> template.protocol.SendSignal:
@@ -892,7 +1116,6 @@ class Validator:
             if not price_sources:
                 raise SignalException(
                     f"Ignoring order for [{miner_hotkey}] due to no live prices being found for trade_pair [{trade_pair}]. Please try again.")
-            best_price_source = price_sources[0]
 
             signal_leverage = signal["leverage"]
             signal_order_type = OrderType.from_string(signal["order_type"])
@@ -906,41 +1129,17 @@ class Validator:
                     synapse.successfully_processed = False
                     synapse.error_message = err_msg
                     return synapse
-                    
-                self.enforce_no_duplicate_order(synapse)
-                if synapse.error_message:
-                    return synapse
-                # gather open positions and see which trade pairs have an open position
-                positions = self.position_manager.get_positions_for_one_hotkey(miner_hotkey, only_open_positions=True)
-                trade_pair_to_open_position = {position.trade_pair: position for position in positions}
-                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type, now_ms, miner_hotkey, trade_pair_to_open_position, miner_order_uuid)
-                account_size = self.contract_manager.get_miner_account_size(miner_hotkey)
+
+                # Get relevant account size
+                account_size = self._get_account_size(miner_hotkey, now_ms)
+                existing_position = self._get_or_create_open_position_from_new_order(trade_pair, signal_order_type,
+                    now_ms, miner_hotkey, miner_order_uuid, now_ms, price_sources, miner_repo_version, account_size)
                 if existing_position:
-                    order = Order(
-                        trade_pair=trade_pair,
-                        order_type=signal_order_type,
-                        leverage=signal_leverage,
-                        price=best_price_source.parse_appropriate_price(now_ms, trade_pair.is_forex, signal_order_type,
-                                                                        existing_position),
-                        processed_ms=now_ms,
-                        order_uuid=miner_order_uuid,
-                        price_sources=price_sources,
-                        bid=best_price_source.bid,
-                        ask=best_price_source.ask,
-                    )
-                    self.price_slippage_model.refresh_features_daily()
-                    order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order, account_size)
-                    self._enforce_num_open_order_limit(trade_pair_to_open_position, order)
-                    net_portfolio_leverage = self.position_manager.calculate_net_portfolio_leverage(miner_hotkey)
-                    existing_position.add_order(order, self.live_price_fetcher, net_portfolio_leverage)
-                    self.position_manager.save_miner_position(existing_position)
-                    # Update cooldown cache after successful order processing
-                    self.last_order_time_cache[(miner_hotkey, trade_pair.trade_pair_id)] = now_ms
-                    if self.config.serve:
-                        # Add the position to the queue for broadcasting
-                        self.shared_queue_websockets.put(existing_position.to_websocket_dict(miner_repo_version=miner_repo_version))
-                    synapse.order_json = order.__str__()
-                    self.uuid_tracker.add(miner_order_uuid)
+                    self._add_order_to_existing_position(existing_position, trade_pair, signal_order_type,
+                                                        signal_leverage, now_ms, miner_hotkey,
+                                                        price_sources, miner_order_uuid, miner_repo_version,
+                                                        OrderSource.ORGANIC, account_size)
+                    synapse.order_json = existing_position.orders[-1].__str__()
                 else:
                     # Happens if a FLAT is sent when no position exists
                     pass

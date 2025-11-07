@@ -183,7 +183,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
         if not positions:
             continue
         assert len(positions) > 0, f"no positions for hotkey {hotkey}"
-        positions.sort(key=position_manager.sort_by_close_ms)
+        positions.sort(key=PositionManager.sort_by_close_ms)
         ValiBkpUtils.make_dir(ValiBkpUtils.get_miner_all_positions_dir(hotkey))
         for p_obj in positions:
             #bt.logging.info(f'creating position {p_obj}')

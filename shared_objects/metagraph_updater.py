@@ -7,10 +7,12 @@ import threading
 import queue
 from setproctitle import setproctitle
 
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
 from shared_objects.cache_controller import CacheController
 from shared_objects.error_utils import ErrorUtils
+from shared_objects.metagraph_utils import is_anomalous_hotkey_loss
 from shared_objects.subtensor_lock import get_subtensor_lock
+from time_util.time_util import TimeUtil
 
 import bittensor as bt
 
@@ -113,10 +115,11 @@ class WeightFailureTracker:
 
 class MetagraphUpdater(CacheController):
     def __init__(self, config, metagraph, hotkey, is_miner, position_inspector=None, position_manager=None,
-                 shutdown_dict=None, slack_notifier=None, weight_request_queue=None):
+                 shutdown_dict=None, slack_notifier=None, weight_request_queue=None, live_price_fetcher=None):
         super().__init__(metagraph)
         self.config = config
         self.subtensor = bt.subtensor(config=self.config)
+        self.live_price_fetcher = live_price_fetcher  # For TAO/USD price queries (validators only)
         # Parse out the arg for subtensor.network. If it is "finney" or "subvortex", we will roundrobin on metagraph failure
         self.round_robin_networks = ['finney', 'subvortex']
         self.round_robin_enabled = False
@@ -287,52 +290,60 @@ class MetagraphUpdater(CacheController):
 
     def run_weight_processing_loop(self):
         """
-        Dedicated loop for processing weight requests with fast 5-second intervals.
-        Runs in a separate thread for responsive weight setting.
+        Dedicated loop for processing weight requests using blocking queue.
+        Runs in a separate thread. Blocks until a request arrives (efficient, no polling).
         """
         setproctitle(f"weight_processor_{self.hotkey}")
         bt.logging.enable_info()
         bt.logging.info("Starting dedicated weight processing loop")
-        
+
         while not self.shutdown_dict:
             try:
                 # Process weight requests if we're a validator
                 if self.weight_request_queue:
                     self._process_weight_requests()
-                
-                # Sleep for 5 seconds for responsive weight processing
-                time.sleep(5)
-                
+                else:
+                    time.sleep(5)  # No queue configured, sleep
+
             except Exception as e:
                 bt.logging.error(f"Error in weight processing loop: {e}")
                 bt.logging.error(traceback.format_exc())
                 time.sleep(10)  # Longer sleep on error
-        
+
         bt.logging.info("Weight processing loop shutting down")
 
     def _process_weight_requests(self):
-        """Process pending weight setting requests (validators only)"""
+        """
+        Process pending weight setting requests (validators only).
+        Uses blocking queue.get() to efficiently wait for requests without polling.
+        """
         try:
-            # Non-blocking check for weight requests
-            processed_count = 0
-            while True:
-                try:
-                    request = self.weight_request_queue.get_nowait()
-                    self._handle_weight_request(request)
-                    processed_count += 1
-                    
-                    # Limit processing per cycle to prevent blocking metagraph updates
-                    if processed_count >= 5:  # Process max 5 requests per cycle
-                        break
-                        
-                except queue.Empty:
-                    break  # No more requests
-                    
-            if processed_count > 0:
-                bt.logging.debug(f"Processed {processed_count} weight requests")
-                    
+            # Block until a request arrives (timeout 30s to check shutdown_dict periodically)
+            try:
+                request = self.weight_request_queue.get(timeout=30)
+                self._handle_weight_request(request)
+
+                # After processing first request, drain any additional pending requests
+                # (non-blocking to avoid waiting if queue is empty)
+                processed_count = 1
+                while processed_count < 5:  # Process max 5 requests per cycle
+                    try:
+                        request = self.weight_request_queue.get_nowait()
+                        self._handle_weight_request(request)
+                        processed_count += 1
+                    except queue.Empty:
+                        break  # No more pending requests
+
+                if processed_count > 1:
+                    bt.logging.debug(f"Processed {processed_count} weight requests in batch")
+
+            except queue.Empty:
+                # Timeout reached, no requests - this is normal, just loop back
+                pass
+
         except Exception as e:
             bt.logging.error(f"Error processing weight requests: {e}")
+            bt.logging.error(traceback.format_exc())
     
     def _handle_weight_request(self, request):
         """Handle a single weight setting request (no response needed)"""
@@ -622,6 +633,105 @@ class MetagraphUpdater(CacheController):
         """
         return self.metagraph
 
+    def refresh_substrate_reserves(self, metagraph_clone):
+        """
+        Refresh TAO and ALPHA reserve balances from metagraph.pool and store in shared metagraph.
+        Uses built-in metagraph.pool data (verified to be identical to direct substrate queries).
+        Fails fast - exceptions propagate to slack alert mechanism.
+
+        Args:
+            metagraph_clone: Freshly synced metagraph with pool data
+        """
+        # Extract reserve data from metagraph.pool
+        if not hasattr(metagraph_clone, 'pool') or not metagraph_clone.pool:
+            raise ValueError("metagraph.pool not available - cannot get reserve data")
+
+        # Get reserves from pool (in tokens, need to convert to RAO)
+        tao_reserve_tokens = metagraph_clone.pool.tao_in
+        alpha_reserve_tokens = metagraph_clone.pool.alpha_in
+
+        # Convert to RAO (1 token = 1e9 RAO)
+        tao_reserve_rao = float(tao_reserve_tokens * 1e9)
+        alpha_reserve_rao = float(alpha_reserve_tokens * 1e9)
+
+        # Validate reserves
+        if alpha_reserve_rao == 0:
+            raise ValueError("Alpha reserve is zero - cannot calculate conversion rate")
+
+        # Update shared metagraph (accessible from all processes via IPC)
+        # Use .value accessor for manager.Value() thread-safe synchronization
+        self.metagraph.tao_reserve_rao.value = tao_reserve_rao
+        self.metagraph.alpha_reserve_rao.value = alpha_reserve_rao
+
+        bt.logging.info(
+            f"Updated reserves from metagraph.pool: TAO={tao_reserve_rao / 1e9:.2f} TAO "
+            f"({tao_reserve_rao:.0f} RAO), ALPHA={alpha_reserve_rao / 1e9:.2f} ALPHA "
+            f"({alpha_reserve_rao:.0f} RAO)"
+        )
+
+    def refresh_tao_usd_price(self):
+        """
+        Refresh TAO/USD price using live_price_fetcher and store in shared metagraph.
+        Uses current timestamp to get latest available price.
+
+        Non-blocking: If price refresh fails, logs error but continues metagraph update.
+        Better to use a slightly stale TAO/USD price than block metagraph updates.
+
+        Returns:
+            bool: True if price was successfully updated, False otherwise
+        """
+        try:
+            if not self.live_price_fetcher:
+                bt.logging.warning(
+                    "live_price_fetcher not available - cannot query TAO/USD price. "
+                    "Using existing price from metagraph (may be stale)."
+                )
+                return False
+
+            # Get current timestamp for price query
+            current_time_ms = TimeUtil.now_in_millis()
+
+            # Query TAO/USD price at current time
+            price_source = self.live_price_fetcher.get_close_at_date(
+                TradePair.TAOUSD,
+                current_time_ms
+            )
+
+            if not price_source or not hasattr(price_source, 'close') or price_source.close is None:
+                bt.logging.warning(
+                    f"TAO/USD price unavailable at timestamp {current_time_ms}. "
+                    f"Using existing price from metagraph (may be stale). "
+                    f"price_source={price_source}"
+                )
+                return False
+
+            tao_to_usd_rate = float(price_source.close)
+
+            # Validate price is reasonable
+            if tao_to_usd_rate <= 0:
+                bt.logging.warning(
+                    f"Invalid TAO/USD price: ${tao_to_usd_rate}. "
+                    f"Using existing price from metagraph (may be stale)."
+                )
+                return False
+
+            # Update shared metagraph (accessible from all processes via IPC)
+            self.metagraph.tao_to_usd_rate = tao_to_usd_rate
+
+            bt.logging.info(
+                f"Updated TAO/USD price: ${tao_to_usd_rate:.2f}/TAO "
+                f"(timestamp: {current_time_ms})"
+            )
+            return True
+
+        except Exception as e:
+            bt.logging.error(
+                f"Error refreshing TAO/USD price: {e}. "
+                f"Using existing price from metagraph (may be stale)."
+            )
+            bt.logging.error(traceback.format_exc())
+            return False
+
     def update_metagraph(self):
         if not self.refresh_allowed(self.interval_wait_time_ms):
             return
@@ -663,9 +773,10 @@ class MetagraphUpdater(CacheController):
         if not lost_hotkeys and not gained_hotkeys:
             bt.logging.info(f"metagraph hotkeys remain the same. n = {len(hotkeys_after)}")
 
-        percent_lost = 100 * len(lost_hotkeys) / len(hotkeys_before) if lost_hotkeys else 0
+        # Use shared anomaly detection logic
+        is_anomalous, percent_lost = is_anomalous_hotkey_loss(lost_hotkeys, len(hotkeys_before))
         # failsafe condition to reject new metagraph
-        if len(lost_hotkeys) > 10 and percent_lost >= 25:
+        if is_anomalous:
             error_msg = (f"Too many hotkeys lost in metagraph update: {len(lost_hotkeys)} hotkeys lost, "
                          f"{percent_lost:.2f}% of total hotkeys. Rejecting new metagraph. ALERT A TEAM MEMBER ASAP...")
             bt.logging.error(error_msg)
@@ -674,6 +785,7 @@ class MetagraphUpdater(CacheController):
                     f"🚨 CRITICAL: {error_msg}",
                     level="error"
                 )
+            return  # Actually block the metagraph update
 
         self.sync_lists(self.metagraph.neurons, list(metagraph_clone.neurons), brute_force=True)
         self.sync_lists(self.metagraph.uids, metagraph_clone.uids, brute_force=True)
@@ -688,6 +800,16 @@ class MetagraphUpdater(CacheController):
             self.update_likely_miners(recently_acked_miners)
         if recently_acked_validators:
             self.update_likely_validators(recently_acked_validators)
+
+        # Update shared emission data (TAO per tempo for each UID)
+        self.sync_lists(self.metagraph.emission, metagraph_clone.emission, brute_force=True)
+
+        # Refresh reserve data (TAO and ALPHA) from metagraph.pool for debt-based scoring
+        # Also refresh TAO/USD price for USD-based payout calculations
+        if not self.is_miner:  # Only validators need this for weight calculation
+            self.refresh_substrate_reserves(metagraph_clone)
+            self.refresh_tao_usd_price()
+
         # self.log_metagraph_state()
         self.set_last_update_time()
 

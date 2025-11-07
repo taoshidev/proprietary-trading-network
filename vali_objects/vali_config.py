@@ -135,7 +135,7 @@ class ValiConfig:
     DYNAMIC_MIN_DAYS_NUM_MINERS = 20
 
     # Market-specific configurations
-    ANNUAL_RISK_FREE_PERCENTAGE = 4.19  # From tbill rates
+    ANNUAL_RISK_FREE_PERCENTAGE = 3.89  # From tbill rates
     ANNUAL_RISK_FREE_DECIMAL = ANNUAL_RISK_FREE_PERCENTAGE / 100
     DAILY_LOG_RISK_FREE_RATE_CRYPTO = (
         math.log(1 + ANNUAL_RISK_FREE_DECIMAL) / DAYS_IN_YEAR_CRYPTO
@@ -152,22 +152,11 @@ class ValiConfig:
     ASSET_CLASS_BREAKDOWN = {
         TradePairCategory.CRYPTO: {
             "emission": 0.5,  # Total emission for crypto
-            "subcategory_weights": {
-                CryptoSubcategory.MAJORS: 0.8,  # 80% of crypto emission for majors
-                CryptoSubcategory.ALTS: 0.2,  # 20% of crypto emission for alts
-            },
             "days_in_year": DAYS_IN_YEAR_CRYPTO,
         },
         # These are based on margin requirements on brokerage accounts
         TradePairCategory.FOREX: {
             "emission": 0.5,  # Total emission for forex
-            "subcategory_weights": {
-                ForexSubcategory.G1: 0.2927,  # 29.27% of forex emission for group 1
-                ForexSubcategory.G2: 0.1463,  # 14.63% of forex emission for group 2
-                ForexSubcategory.G3: 0.2073,  # 20.73% of forex emission for group 3
-                ForexSubcategory.G4: 0.0976,  # 9.76% of forex emission for group 4
-                ForexSubcategory.G5: 0.2561,  # 25.61% of forex emission for group 5
-            },
             "days_in_year": DAYS_IN_YEAR_FOREX,
         },
     }
@@ -186,6 +175,10 @@ class ValiConfig:
     WEIGHTED_AVERAGE_DECAY_RATE = 0.075
     WEIGHTED_AVERAGE_DECAY_MIN = 0.15
     WEIGHTED_AVERAGE_DECAY_MAX = 1.0
+
+    # Decay min specific for daily average PnL calculations
+    WEIGHTED_AVERAGE_DECAY_MIN_PNL = 0.045 # Results in most recent 30 days having 70% weight
+
     POSITIONAL_EQUIVALENCE_WINDOW_MS = 1000 * 60 * 60 * 24  # 1 day
 
     SET_WEIGHT_REFRESH_TIME_MS = 60 * 5 * 1000  # 5 minutes
@@ -210,7 +203,7 @@ class ValiConfig:
     MAX_DAILY_DRAWDOWN = 0.95  # Portfolio should never fall below .95 x of initial value when measured day to day
     MAX_TOTAL_DRAWDOWN = 0.9  # Portfolio should never fall below .90 x of initial value when measured at any instant
     MAX_TOTAL_DRAWDOWN_V2 = 0.95
-    MAX_OPEN_ORDERS_PER_HOTKEY = 200
+    MAX_ORDERS_PER_POSITION = 100
     ORDER_COOLDOWN_MS = 10000  # 10 seconds
     ORDER_MIN_LEVERAGE = 0.001
     ORDER_MAX_LEVERAGE = 500
@@ -261,13 +254,13 @@ class ValiConfig:
     SHORT_LOOKBACK_WINDOW = 7 * DAILY_CHECKPOINTS
 
     # Scoring weights
-    SCORING_OMEGA_WEIGHT = 0.1
-    SCORING_SHARPE_WEIGHT = 0.1
-    SCORING_SORTINO_WEIGHT = 0.1
-    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.1
-    SCORING_CALMAR_WEIGHT = 0.1
+    SCORING_OMEGA_WEIGHT = 0.02
+    SCORING_SHARPE_WEIGHT = 0.02
+    SCORING_SORTINO_WEIGHT = 0.02
+    SCORING_STATISTICAL_CONFIDENCE_WEIGHT = 0.02
+    SCORING_CALMAR_WEIGHT = 0.02
     SCORING_RETURN_WEIGHT = 0.0
-    SCORING_PNL_WEIGHT = 0.5
+    SCORING_PNL_WEIGHT = 0.9
 
     # Scoring hyperparameters
     OMEGA_LOSS_MINIMUM = 0.01  # Equivalent to 1% loss
@@ -286,19 +279,31 @@ class ValiConfig:
     DRAWDOWN_MAXVALUE_PERCENTAGE = 10
     DRAWDOWN_MINVALUE_PERCENTAGE = 0.5
 
+    # Risk Adjusted Performance Penalty
+    CRYPTO_RAT = {'sharpe': 1.0, 'sortino': 1.0, 'calmar': 2.0, 'omega': 1.4}
+    FOREX_RAT = {'sharpe': 0.5, 'sortino': 0.5, 'calmar': 2.0, 'omega': 1.2}
+
+    # Maximum metric value for capping individual metrics in RAS calculation
+    RISK_ADJUSTED_MAX_METRIC_VALUE = 10
+
+    # Sigmoid parameters for risk-adjusted performance penalty (range: 0.2 to 1.0)
+    RISK_ADJUSTED_SIGMOID_SHIFT = 0.6
+    RISK_ADJUSTED_SIGMOID_SPREAD = -14
+    RISK_ADJUSTED_PERFORMANCE_PENALTY_MIN = 0.2
+
     # Challenge period
-    CHALLENGE_PERIOD_MIN_WEIGHT = 1.2e-05  # essentially nothing
+    CHALLENGE_PERIOD_MIN_WEIGHT = 1.5e-05  # essentially nothing
     CHALLENGE_PERIOD_MAX_WEIGHT = 2.4e-05
     CHALLENGE_PERIOD_MINIMUM_DAYS = 61
-    CHALLENGE_PERIOD_MAXIMUM_DAYS = InterpolatedValueFromDate("2025-09-03", high=120, increment=-30, interval=30, target=90)
-    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS.value() * DAILY_MS
+    CHALLENGE_PERIOD_MAXIMUM_DAYS = 90
+    CHALLENGE_PERIOD_MAXIMUM_MS = CHALLENGE_PERIOD_MAXIMUM_DAYS * DAILY_MS
     CHALLENGE_PERIOD_PERCENTILE_THRESHOLD = 0.75 # miners must pass 75th percentile to enter the main competition
 
-    PROBATION_MAXIMUM_DAYS = 30
+    PROBATION_MAXIMUM_DAYS = 60
     PROBATION_MAXIMUM_MS = PROBATION_MAXIMUM_DAYS * DAILY_MS
     ASSET_SPLIT_GRACE_DATE = "2025-10-02"
 
-    PROMOTION_THRESHOLD_RANK = 15  # Number of MAINCOMP miners per asset class
+    PROMOTION_THRESHOLD_RANK = 25 # Number of MAINCOMP miners per asset class
 
     # Plagiarism
     ORDER_SIMILARITY_WINDOW_MS = 60000 * 60 * 24
@@ -331,21 +336,29 @@ class ValiConfig:
     PORTFOLIO_LEVERAGE_CAP = 10
 
     # Collateral limits
-    MIN_COLLATERAL_BALANCE_THETA = 571  # Required minimum total collateral balance per miner in Theta. Approx $99,925 capital account size
-    MAX_COLLATERAL_BALANCE_THETA = 14285  # Approx $2,499,875 capital account size
-    MIN_COLLATERAL_BALANCE_TESTNET = 0
+    MIN_COLLATERAL_BALANCE_THETA = 300  # Required minimum total collateral balance per miner in Theta. Approx $150k capital account size
+    MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
+    MIN_COLLATERAL_BALANCE_TESTNET = 100
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
 
     # Account Size
-    COST_PER_THETA = 175  # Account size USD value per theta of collateral
-    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $99,925
+    COST_PER_THETA = 500  # Account size USD value per theta of collateral
+    MIN_COLLATERAL_VALUE = MIN_COLLATERAL_BALANCE_THETA * COST_PER_THETA   # Approx $150k
     MIN_CAPITAL = 5_000   # USD minimum capital account size
-    DEFAULT_CAPITAL = 250_000  # conversion of 1x leverage to $250K in capital
+    DEFAULT_CAPITAL = 100_000  # conversion of 1x leverage to $100K in capital
 
     # Miner will get a base of 50% collateral returned upon elimination
     BASE_COLLATERAL_RETURNED = 0.5
     # 50% of drawdown proportion is slashed
     SLASH_PROPORTION = 0.5
+    CHALLENGEPERIOD_SLASH_PROPORTION = 0.1  # 10% slashed upon challenge period elimination
+
+    BLOCKED_TRADE_PAIR_IDS = {
+        'SPX', 'DJI', 'NDX', 'VIX', 'FTSE', 'GDAXI',  # Indices
+        'XAUUSD', 'XAGUSD',  # Commodities
+        'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOG', 'META',  # Equities
+        'AUDJPY', 'CADJPY', 'CHFJPY', 'EURJPY', 'NZDJPY', 'GBPJPY', 'USDJPY'  # Forex JPY pairs
+    }
 
 assert ValiConfig.CRYPTO_MIN_LEVERAGE >= ValiConfig.ORDER_MIN_LEVERAGE
 assert ValiConfig.CRYPTO_MAX_LEVERAGE <= ValiConfig.ORDER_MAX_LEVERAGE
@@ -371,6 +384,11 @@ class TradePair(Enum):
                 TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
     ADAUSD = ["ADAUSD", "ADA/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
                TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+
+    # TAO (data-only, not tradeable - used for emissions ledger calculations)
+    TAOUSD = ["TAOUSD", "TAO/USD", 0.001, ValiConfig.CRYPTO_MIN_LEVERAGE, ValiConfig.CRYPTO_MAX_LEVERAGE,
+              TradePairCategory.CRYPTO, CryptoSubcategory.ALTS]
+
 
     # forex
     AUDCAD = [
@@ -806,6 +824,11 @@ class TradePair(Enum):
     @property
     def is_indices(self):
         return self.trade_pair_category == TradePairCategory.INDICES
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if this trade pair is blocked from trading"""
+        return self.trade_pair_id in ValiConfig.BLOCKED_TRADE_PAIR_IDS
 
     @property
     def leverage_multiplier(self) -> int:

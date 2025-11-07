@@ -21,6 +21,7 @@ from vali_objects.exceptions.vali_bkp_file_missing_exception import ValiFileMiss
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.positions_to_snap import positions_to_snap
+from vali_objects.utils.price_slippage_model import PriceSlippageModel
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.exceptions.vali_records_misalignment_exception import ValiRecordsMisalignmentException
@@ -29,7 +30,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1759202639000 + (1000 * 60 * 60 * 3)  # + 3 hours
+TARGET_MS = 1761260399000 + (1000 * 60 * 60 * 6)  # + 6 hours
 
 
 
@@ -79,10 +80,10 @@ class PositionManager(CacheController):
             bt.logging.info("Started run_closed_position_daemon_forever process.")
 
     def run_closed_position_daemon_forever(self):
-        try:
-            self.ensure_position_consistency_serially()
-        except Exception as e:
-            bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
+        #try:
+        #    self.ensure_position_consistency_serially()
+        #except Exception as e:
+        #    bt.logging.error(f"Error {e} in initial ensure_position_consistency_serially: {traceback.format_exc()}")
         while True:
             try:
                 t0 = time.time()
@@ -480,20 +481,48 @@ class PositionManager(CacheController):
           5.31.24 - validator outage due to twelvedata thread error. add position if not exists.
 
         """
+        now_ms = TimeUtil.now_in_millis()
+        if now_ms > TARGET_MS:
+            return
+
         hotkey_to_positions = self.get_positions_for_all_miners(sort_positions=True)
         #self.give_erronously_eliminated_miners_another_shot(hotkey_to_positions)
         n_corrections = 0
         n_attempts = 0
         unique_corrections = set()
-        now_ms = TimeUtil.now_in_millis()
         # Wipe miners only once when dynamic challenge period launches
         miners_to_wipe = []
         miners_to_promote = []
+        position_uuids_to_delete = []
         wipe_positions = False
+        reopen_force_closed_orders = False
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
+            # temp slippage correction
+            SLIPPAGE_V2_TIME_MS = 1759431540000
+            n_slippage_corrections = 0
+            for hotkey, positions in hotkey_to_positions.items():
+                for position in positions:
+                    needs_save = False
+                    for order in position.orders:
+                        if (order.trade_pair.is_forex and SLIPPAGE_V2_TIME_MS < order.processed_ms):
+                            old_slippage = order.slippage
+                            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
+                            if old_slippage != order.slippage:
+                                needs_save = True
+                                n_slippage_corrections += 1
+                                bt.logging.info(
+                                    f"Updated forex slippage for order {order}: "
+                                    f"{old_slippage:.6f} -> {order.slippage:.6f}")
+
+                    if needs_save:
+                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
+                        self.save_miner_position(position)
+            bt.logging.info(f"Applied {n_slippage_corrections} forex slippage corrections")
+
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
+            position_uuids_to_delete = []
             miners_to_promote = []
 
             for p in positions_to_snap:
@@ -547,7 +576,10 @@ class PositionManager(CacheController):
                 for pos in positions:
                     if wipe_positions:
                         self.delete_position(pos)
-                    else:
+                    elif pos.position_uuid in position_uuids_to_delete:
+                        print(f'Deleting position {pos.position_uuid} for trade pair {pos.trade_pair.trade_pair_id} for hk {pos.miner_hotkey}')
+                        self.delete_position(pos)
+                    elif reopen_force_closed_orders:
                         if any(o.src == 1 for o in pos.orders):
                             pos.orders = [o for o in pos.orders if o.src != 1]
                             pos.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -975,7 +1007,7 @@ class PositionManager(CacheController):
         hk = position.miner_hotkey
         existing_positions = self.get_existing_positions(hk)
 
-        # Santiy check
+        # Sanity check
         if position.miner_hotkey in self.hotkey_to_positions and position.position_uuid in existing_positions:
             existing_pos = self._position_from_list_of_position(position.miner_hotkey, position.position_uuid)
             assert existing_pos.trade_pair == position.trade_pair, f"Trade pair mismatch for position {position.position_uuid}. Existing: {existing_pos.trade_pair}, New: {position.trade_pair}"
@@ -1147,14 +1179,17 @@ class PositionManager(CacheController):
             ans["percentage_profitable"] = PositionManager.get_percent_profitable_positions(ps_all_time)
 
         for p in original_positions:
-            if p.close_ms is None:
-                p.close_ms = 0
-
+            # Don't modify the position object in-place
+            # Instead, create the dict representation and modify only the dict
             PositionManager.strip_old_price_sources(p, time_now_ms)
 
-            ans["positions"].append(
-                json.loads(str(p), cls=GeneralizedJSONDecoder)
-            )
+            position_dict = json.loads(str(p), cls=GeneralizedJSONDecoder)
+            # Convert None to 0 for JSON serialization (avoids null in JSON)
+            # This is safe because we're only modifying the dict, not the position object
+            if position_dict.get('close_ms') is None:
+                position_dict['close_ms'] = 0
+
+            ans["positions"].append(position_dict)
         return ans
 
 
@@ -1178,7 +1213,15 @@ class PositionManager(CacheController):
         except Exception as e:
             raise ValiBkpCorruptDataException(f"Error {e} file_path {file} file_string: {file_string}")
 
-    def sort_by_close_ms(self, _position):
+    @staticmethod
+    def sort_by_close_ms(_position):
+        """
+        Sort key function for positions.
+        Closed positions are sorted by close_ms (ascending).
+        Open positions are sorted to the end (infinity).
+
+        This is the canonical sorting method used throughout the codebase.
+        """
         return (
             _position.close_ms if _position.is_closed_position else float("inf")
         )

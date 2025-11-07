@@ -344,14 +344,14 @@ class MinerStatisticsManager:
     # Main scoring wrapper
     # -------------------------------------------
     def calculate_all_scores(
-        self,
-        miner_data: Dict[str, Dict[str, Any]],
-        subcategory_min_days: dict[str, int],
-        score_type: ScoreType = ScoreType.BASE,
-        bypass_confidence: bool = False,
-        time_now: int = None,
+            self,
+            miner_data: Dict[str, Dict[str, Any]],
+            asset_class_min_days: dict[str, int],
+            score_type: ScoreType = ScoreType.BASE,
+            bypass_confidence: bool = False,
+            time_now: int = None
     ) -> Dict[str, Dict[str, ScoreResult]]:
-        """Calculate all metrics for all miners (BASE, AUGMENTED) for all subcategories."""
+        """Calculate all metrics for all miners (BASE, AUGMENTED) for all asset classes."""
         ledgers = {}
         positions = {}
         for hotkey, data in miner_data.items():
@@ -370,28 +370,25 @@ class MinerStatisticsManager:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
-            timestamp_ms=time_now
-        )
-        subcategory_scores = Scoring.score_miners(
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
+        asset_class_scores = Scoring.score_miners(
             ledger_dict=ledgers,
             positions=positions,
-            subcategory_min_days=subcategory_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=time_now,
             weighting=weighting,
             scoring_config=self.extract_scoring_config(self.metrics_calculator.metrics),
             all_miner_account_sizes=all_miner_account_sizes,
         )
 
-        metric_results = {
-            subcategory.value: {} for subcategory in subcategory_scores.keys()
-        }
-        subcategory_scores["overall"] = {"metrics": self.metrics_calculator.metrics}
+        metric_results = {asset_class.value: {} for asset_class in asset_class_scores.keys()}
+        asset_class_scores["overall"] = {"metrics": self.metrics_calculator.metrics}
         metric_results["overall"] = {}
 
-        for subcategory, scoring_dict in subcategory_scores.items():
-            for metric_name, metric_data in scoring_dict["metrics"].items():
-                if subcategory == "overall":
+
+        for asset_class, scoring_dict in asset_class_scores.items():
+            for metric_name, metric_data in scoring_dict['metrics'].items():
+                if asset_class == "overall":
                     numeric_scores = self.metrics_calculator.calculate_metric(
                         self.metrics_calculator.metrics.get(metric_name, {}),
                         miner_data,
@@ -404,7 +401,7 @@ class MinerStatisticsManager:
                 numeric_dict = dict(numeric_scores)
 
                 # Build ScoreResult objects
-                metric_results[subcategory][metric_name] = {
+                metric_results[asset_class][metric_name] = {
                     hotkey: ScoreResult(
                         value=numeric_dict[hotkey],
                         rank=ranks[hotkey],
@@ -573,45 +570,44 @@ class MinerStatisticsManager:
         return result
 
     # -------------------------------------------
-    # Asset Subcategory Performance
+    # Asset Class Performance
     # -------------------------------------------
-    def miner_subcategory_scores(
-        self,
-        hotkey: str,
-        asset_softmaxed_scores: dict[str, dict[str, float]],
-        subclass_resolved_weighting: dict[str, float] = None,
+    def miner_asset_class_scores(
+            self,
+            hotkey: str,
+            asset_softmaxed_scores: dict[str, dict[str, float]],
+            asset_class_weights: dict[str, float] = None
     ) -> dict[str, dict[str, float]]:
         """
-        Extract individual miner's scores and rankings for each asset subcategory.
+        Extract individual miner's scores and rankings for each asset class.
 
         Args:
             hotkey: The miner's hotkey
             asset_softmaxed_scores: A dictionary with softmax scores for each miner within each asset class
+            asset_class_weights: A dictionary with emission weights for each asset class
 
         Returns:
-            subcategory_data: dict with subcategory as key and score/rank/percentile info as value
+            asset_class_data: dict with asset class as key and score/rank/percentile info as value
         """
-        subcategory_data = {}
+        asset_class_data = {}
 
-        for subcategory, miner_scores in asset_softmaxed_scores.items():
+        for asset_class, miner_scores in asset_softmaxed_scores.items():
             if hotkey in miner_scores:
-                subcategory_percentiles = self.percentile_rank_dictionary(
-                    miner_scores.items()
-                )
-                subcategory_ranks = self.rank_dictionary(miner_scores.items())
+                asset_class_percentiles = self.percentile_rank_dictionary(miner_scores.items())
+                asset_class_ranks = self.rank_dictionary(miner_scores.items())
 
-                # Score is the only one directly impacted by the subclass weighting, each score element should show the overall scoring contribution
+                # Score is the only one directly impacted by the asset class weighting, each score element should show the overall scoring contribution
                 miner_score = miner_scores.get(hotkey)
-                subclass_scores = subclass_resolved_weighting.get(subcategory, 0.0)
-                aggregated_score = miner_score * subclass_scores
+                asset_emission = asset_class_weights.get(asset_class, 0.0)
+                aggregated_score = miner_score * asset_emission
 
-                subcategory_data[subcategory] = {
+                asset_class_data[asset_class] = {
                     "score": aggregated_score,
-                    "rank": subcategory_ranks.get(hotkey, 0),
-                    "percentile": subcategory_percentiles.get(hotkey, 0.0) * 100,
+                    "rank": asset_class_ranks.get(hotkey, 0),
+                    "percentile": asset_class_percentiles.get(hotkey, 0.0) * 100
                 }
 
-        return subcategory_data
+        return asset_class_data
 
     # -------------------------------------------
     # Generate final data
@@ -651,51 +647,32 @@ class MinerStatisticsManager:
             selected_miner_hotkeys = all_miner_hotkeys
 
         # Filter ledger/positions
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(
-            hotkeys=all_miner_hotkeys
-        )
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(
-            all_miner_hotkeys
-        )
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
 
-        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(
-            hotkeys=[
-                *challengeperiod_success_hotkeys,
-                *challengeperiod_probation_hotkeys,
-            ]
-        )  # ledger of all miners in maincomp, including probation
-        asset_subcategories = list(
-            AssetSegmentation.distill_asset_subcategories(
-                ValiConfig.ASSET_CLASS_BREAKDOWN
-            )
+        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*challengeperiod_success_hotkeys, *challengeperiod_probation_hotkeys])  # ledger of all miners in maincomp, including probation
+        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
+        asset_class_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
+            maincomp_ledger, asset_classes
         )
-        subcategory_min_days = (
-            LedgerUtils.calculate_dynamic_minimum_days_for_asset_subcategories(
-                maincomp_ledger, asset_subcategories
-            )
-        )
-        bt.logging.info(
-            f"generate_minerstats subcategory_min_days: {subcategory_min_days}"
-        )
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
-            timestamp_ms=time_now
-        )
-        success_competitiveness, asset_softmaxed_scores = (
-            Scoring.score_miner_asset_subcategories(
-                filtered_ledger,
-                filtered_positions,
-                subcategory_min_days=subcategory_min_days,
-                evaluation_time_ms=time_now,
-                weighting=final_results_weighting,
-                all_miner_account_sizes=all_miner_account_sizes,
-            )
-        )  # returns asset competitiveness dict, asset softmaxed scores
+        bt.logging.info(f"generate_minerstats asset_class_min_days: {asset_class_min_days}")
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
+        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_classes(
+            ledger_dict=filtered_ledger,
+            positions=filtered_positions,
+            asset_class_min_days=asset_class_min_days,
+            evaluation_time_ms=time_now,
+            weighting=final_results_weighting,
+            all_miner_account_sizes=all_miner_account_sizes
+        ) # returns asset competitiveness dict, asset softmaxed scores
 
-        subclass_resolved_weighting = Scoring.subclass_scoring_weight_resolver(
+        # Get asset class weights from config
+        asset_class_weights = {
+            asset_class: config.get('emission', 0.0)
+            for asset_class, config in ValiConfig.ASSET_CLASS_BREAKDOWN.items()
+        }
+        asset_aggregated_scores = Scoring.asset_class_score_aggregation(
             asset_softmaxed_scores
-        )
-        asset_aggregated_scores = Scoring.subclass_score_aggregation(
-            asset_softmaxed_scores, subclass_resolved_weighting
         )
 
         # For weighting logic: gather "successful" checkpoint-based results
@@ -710,7 +687,7 @@ class MinerStatisticsManager:
         checkpoint_results = Scoring.compute_results_checkpoint(
             successful_ledger,
             successful_positions,
-            subcategory_min_days=subcategory_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -730,7 +707,7 @@ class MinerStatisticsManager:
         testing_checkpoint_results = Scoring.compute_results_checkpoint(
             testing_ledger,
             testing_positions,
-            subcategory_min_days=subcategory_min_days,
+            asset_class_min_days=asset_class_min_days,
             evaluation_time_ms=time_now,
             verbose=False,
             weighting=final_results_weighting,
@@ -792,20 +769,8 @@ class MinerStatisticsManager:
             )
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_all_scores(
-            miner_data,
-            subcategory_min_days,
-            ScoreType.BASE,
-            bypass_confidence,
-            time_now,
-        )
-        augmented_scores = self.calculate_all_scores(
-            miner_data,
-            subcategory_min_days,
-            ScoreType.AUGMENTED,
-            bypass_confidence,
-            time_now,
-        )
+        base_scores = self.calculate_all_scores(miner_data, asset_class_min_days, ScoreType.BASE, bypass_confidence, time_now)
+        augmented_scores = self.calculate_all_scores(miner_data, asset_class_min_days, ScoreType.AUGMENTED, bypass_confidence, time_now)
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(
@@ -948,9 +913,11 @@ class MinerStatisticsManager:
             # Risk Profile
             risk_profile_single_dict = risk_profile_dict.get(hotkey, {})
 
-            # Asset Subcategory Performance
-            asset_subcategory_performance = self.miner_subcategory_scores(
-                hotkey, asset_softmaxed_scores, subclass_resolved_weighting
+            # Asset Class Performance
+            asset_class_performance = self.miner_asset_class_scores(
+                hotkey,
+                asset_softmaxed_scores,
+                asset_class_weights
             )
 
             final_miner_dict = {
@@ -964,7 +931,7 @@ class MinerStatisticsManager:
                 "plagiarism": plagiarism_val,
                 "engagement": engagement_subdict,
                 "risk_profile": risk_profile_single_dict,
-                "asset_subcategory_performance": asset_subcategory_performance,
+                "asset_class_performance": asset_class_performance,
                 "pnl_info": raw_pnl_info,
                 "account_size_info": account_sizes,
                 "penalties": {
@@ -1173,11 +1140,11 @@ class MinerStatisticsManager:
             if isinstance(value, (int, float, str))
             and key not in ["BASE_DIR", "base_directory"]
         }
-
-        # Add asset class breakdown and subcategory weights
-        printable_config["asset_class_breakdown"] = ValiConfig.ASSET_CLASS_BREAKDOWN
-        printable_config["trade_pairs_by_subcategory"] = TradePair.subcategories()
-
+        
+        # Add asset class breakdown with subcategory weights
+        printable_config['asset_class_breakdown'] = ValiConfig.ASSET_CLASS_BREAKDOWN
+        printable_config['trade_pairs_by_subcategory'] = TradePair.subcategories()
+        
         return printable_config
 
     # -------------------------------------------

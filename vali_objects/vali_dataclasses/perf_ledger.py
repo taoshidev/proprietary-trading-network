@@ -10,7 +10,6 @@ from copy import deepcopy
 from enum import Enum
 from typing import List, Dict, Tuple
 import bittensor as bt
-from pydantic import BaseModel, ConfigDict
 from setproctitle import setproctitle
 from vali_objects.utils.position_source import PositionSourceManager, PositionSource
 from shared_objects.sn8_multiprocessing import ParallelizationMode, get_spark_session, get_multiprocessing_pool
@@ -24,6 +23,7 @@ from vali_objects.utils.elimination_manager import EliminationManager, Eliminati
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.vali_config import ValiConfig
 from vali_objects.position import Position
+from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.utils.vali_utils import ValiUtils
@@ -91,30 +91,66 @@ class TradePairReturnStatus(Enum):
     def __gt__(self, other):
         return self.value > other.value
 
-class PerfCheckpoint(BaseModel):
-    last_update_ms: int
-    prev_portfolio_ret: float
-    prev_portfolio_spread_fee: float = 1.0
-    prev_portfolio_carry_fee: float = 1.0
-    accum_ms: int = 0
-    open_ms: int = 0
-    n_updates: int = 0
-    gain: float = 0.0
-    loss: float = 0.0
-    spread_fee_loss: float = 0.0
-    carry_fee_loss: float = 0.0
-    mdd: float = 1.0
-    mpv: float = 0.0
-    pnl_gain: float = 0.0
-    pnl_loss: float = 0.0
+class PerfCheckpoint:
+    def __init__(
+        self,
+        last_update_ms: int,
+        prev_portfolio_ret: float,
+        prev_portfolio_spread_fee: float = 1.0,
+        prev_portfolio_carry_fee: float = 1.0,
+        accum_ms: int = 0,
+        open_ms: int = 0,
+        n_updates: int = 0,
+        gain: float = 0.0,
+        loss: float = 0.0,
+        spread_fee_loss: float = 0.0,
+        carry_fee_loss: float = 0.0,
+        mdd: float = 1.0,
+        mpv: float = 0.0,
+        pnl_gain: float = 0.0,
+        pnl_loss: float = 0.0,
+        **kwargs  # Support extra fields like BaseModel's extra="allow"
+    ):
+        # Type coercion to match BaseModel behavior (handles numpy types and ensures correct types)
+        self.last_update_ms = int(last_update_ms)
+        self.prev_portfolio_ret = float(prev_portfolio_ret)
+        self.prev_portfolio_spread_fee = float(prev_portfolio_spread_fee)
+        self.prev_portfolio_carry_fee = float(prev_portfolio_carry_fee)
+        self.accum_ms = int(accum_ms)
+        self.open_ms = int(open_ms)
+        self.n_updates = int(n_updates)
+        self.gain = float(gain)
+        self.loss = float(loss)
+        self.spread_fee_loss = float(spread_fee_loss)
+        self.carry_fee_loss = float(carry_fee_loss)
+        self.mdd = float(mdd)
+        self.mpv = float(mpv)
+        self.pnl_gain = float(pnl_gain)
+        self.pnl_loss = float(pnl_loss)
 
-    model_config = ConfigDict(extra="allow")
+        # Store any extra fields (equivalent to model_config extra="allow")
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __eq__(self, other):
+        """Equality comparison (replaces BaseModel's automatic __eq__)"""
+        if not isinstance(other, PerfCheckpoint):
+            return False
+        return self.__dict__ == other.__dict__
 
     def __str__(self):
         return str(self.to_dict())
 
     def to_dict(self):
-        return self.__dict__
+        # Convert any numpy types to Python types for JSON serialization
+        result = {}
+        for key, value in self.__dict__.items():
+            # Handle numpy int64, float64, etc.
+            if hasattr(value, 'item'):  # numpy types have .item() method
+                result[key] = value.item()
+            else:
+                result[key] = value
+        return result
 
     @property
     def lowerbound_time_created_ms(self):
@@ -1793,6 +1829,34 @@ class PerfLedgerManager(CacheController):
                 n_open_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_open_position)
                 n_closed_positions = sum(1 for p in tp_to_historical_positions[symbol] if p.is_closed_position)
 
+                # Diagnostic logging for assertion violations
+                if n_open_positions > 1 or (n_open_positions == 1 and not tp_to_historical_positions[symbol][-1].is_open_position):
+                    open_positions = [p for p in tp_to_historical_positions[symbol] if p.is_open_position]
+                    last_position = tp_to_historical_positions[symbol][-1]
+
+                    bt.logging.error(f"ASSERTION VIOLATION DIAGNOSTICS for hotkey {hotkey} trade_pair {symbol}:")
+                    bt.logging.error(f"  n_open_positions: {n_open_positions}, n_closed_positions: {n_closed_positions}")
+                    bt.logging.error(f"  last_position.is_open_position: {last_position.is_open_position}")
+                    bt.logging.error(f"  last_position.is_closed_position: {last_position.is_closed_position}")
+                    bt.logging.error(f"  last_position.close_ms: {last_position.close_ms}")
+                    bt.logging.error(f"  last_position.position_type: {last_position.position_type}")
+                    bt.logging.error(f"  last_position.n_orders: {len(last_position.orders)}")
+
+                    # Check for inconsistent state: close_ms set but is_open_position=True
+                    for i, p in enumerate(open_positions):
+                        has_flat_order = any(o.order_type == OrderType.FLAT for o in p.orders)
+                        bt.logging.error(f"  open_position[{i}]:")
+                        bt.logging.error(f"    position_uuid: {p.position_uuid}")
+                        bt.logging.error(f"    close_ms: {p.close_ms} (INCONSISTENT: should be None for open positions)")
+                        bt.logging.error(f"    is_closed_position: {p.is_closed_position}")
+                        bt.logging.error(f"    position_type: {p.position_type}")
+                        bt.logging.error(f"    n_orders: {len(p.orders)}")
+                        bt.logging.error(f"    has_flat_order: {has_flat_order}")
+                        bt.logging.error(f"    order_types: {[o.order_type.value for o in p.orders]}")
+                        bt.logging.error(f"    order_sources: {[o.src for o in p.orders]}")
+                        if not has_flat_order:
+                            bt.logging.error(f"    THEORY CONFIRMED: Open position WITHOUT FLAT order but likely manually closed!")
+
                 assert n_open_positions == 0 or n_open_positions == 1, (n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
                 if n_open_positions == 1:
                     assert tp_to_historical_positions[symbol][-1].is_open_position, (n_open_positions, n_closed_positions, [p for p in tp_to_historical_positions[symbol] if p.is_open_position])
@@ -2363,7 +2427,7 @@ if __name__ == "__main__":
     crypto_only = False # Whether to process only crypto trade pairs
     parallel_mode = ParallelizationMode.SERIAL  # 1 for pyspark, 2 for multiprocessing
     top_n_miners = 4
-    test_single_hotkey = '5GA214EQwrWKtDxf2BZptLmeaxF1Nmm6WxVD93YUZRn8Bk5s'  # Set to a specific hotkey string to test single hotkey, or None for all
+    test_single_hotkey = '5FRWVox3FD5Jc2VnS7FUCCf8UJgLKfGdEnMAN7nU3LrdMWHu'  # Set to a specific hotkey string to test single hotkey, or None for all
     regenerate_all = False  # Whether to regenerate all ledgers from scratch
     build_portfolio_ledgers_only = False  # Whether to build only the portfolio ledgers or per trade pair
 

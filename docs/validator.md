@@ -12,7 +12,8 @@ Your validator:
 - Detects & eliminates miners copying from the network by performing analysis on every order received
 - Maintains information on plagiarizing miners in `validation/miner_copying.json`
 - Records eliminated miners (due to drawdown limits or plagiarism) in `validation/eliminations.json`
-- Sets weights every 5 minutes based on portfolio metrics such as omega score and return to reward the best miners
+- Maintains debt ledgers for each miner, combining emissions, penalties, and performance data
+- Sets weights every 5 minutes using a debt-based scoring system that pays miners based on previous month's performance (PnL scaled by penalties), targeting payout completion by day 25 of each month
 
 **Important Note**: Only registered non-eliminated miners can be given weights. Once eliminated, a miner can no longer send requests to validators until they are deregistered by the network and then re-register.
 

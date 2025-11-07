@@ -85,6 +85,11 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + f"{suffix}/validation/eliminations.json"
 
     @staticmethod
+    def get_departed_hotkeys_dir(running_unit_tests=False) -> str:
+        suffix = "/tests" if running_unit_tests else ""
+        return ValiConfig.BASE_DIR + f"{suffix}/validation/departed_hotkeys.json"
+
+    @staticmethod
     def get_perf_ledger_eliminations_dir(running_unit_tests=False) -> str:
         suffix = "/tests" if running_unit_tests else ""
         return ValiConfig.BASE_DIR + f"{suffix}/validation/perf_ledger_eliminations.json"
@@ -140,6 +145,10 @@ class ValiBkpUtils:
     @staticmethod
     def get_secrets_dir():
         return ValiConfig.BASE_DIR + "/secrets.json"
+
+    @staticmethod
+    def get_taoshi_api_keys_file_location():
+        return ValiConfig.BASE_DIR + "/config-development.json"
 
     @staticmethod
     def get_plagiarism_blocklist_file_location():

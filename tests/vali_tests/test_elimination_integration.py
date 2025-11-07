@@ -9,7 +9,8 @@ from tests.vali_tests.mock_utils import (
     EnhancedMockPerfLedgerManager,
     MockLedgerFactory,
     MockSubtensorWeightSetterHelper,
-    MockScoring
+    MockScoring,
+    MockDebtBasedScoring
 )
 from tests.vali_tests.base_objects.test_base import TestBase
 from time_util.time_util import TimeUtil, MS_IN_8_HOURS, MS_IN_24_HOURS
@@ -108,22 +109,27 @@ class TestEliminationIntegration(TestBase):
         self.elimination_manager.challengeperiod_manager = self.challengeperiod_manager
         self.perf_ledger_manager.position_manager = self.position_manager
         self.perf_ledger_manager.elimination_manager = self.elimination_manager
-        
-        # Create weight setter
+
+        # Clear all data
+        self.clear_all_data()
+
+        # Set up initial state
+        self._setup_complete_environment()
+
+        # Create weight setter with mock debt_ledger_manager (after perf ledgers are set up)
+        self.mock_debt_ledger_manager = MockSubtensorWeightSetterHelper.create_mock_debt_ledger_manager(
+            self.all_miners,
+            perf_ledger_manager=self.perf_ledger_manager
+        )
         self.weight_setter = SubtensorWeightSetter(
             self.mock_metagraph,
             self.position_manager,
             contract_manager=self.contract_manager,
+            debt_ledger_manager=self.mock_debt_ledger_manager,
             running_unit_tests=True
         )
         # Set the challengeperiod_manager on the weight setter's position_manager
         self.weight_setter.position_manager.challengeperiod_manager = self.challengeperiod_manager
-        
-        # Clear all data
-        self.clear_all_data()
-        
-        # Set up initial state
-        self._setup_complete_environment()
 
     def tearDown(self):
         super().tearDown()
@@ -226,7 +232,7 @@ class TestEliminationIntegration(TestBase):
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
-    @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
+    @patch('vali_objects.utils.subtensor_weight_setter.DebtBasedScoring', MockDebtBasedScoring)
     def test_complete_elimination_flow(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test the complete elimination flow from detection to weight setting"""
         # Mock the API calls to return appropriate values for testing
@@ -363,7 +369,7 @@ class TestEliminationIntegration(TestBase):
     @patch('data_generator.polygon_data_service.PolygonDataService.get_event_before_market_close')
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
-    @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
+    @patch('vali_objects.utils.subtensor_weight_setter.DebtBasedScoring', MockDebtBasedScoring)
     def test_concurrent_elimination_scenarios(self, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test handling of multiple concurrent elimination scenarios"""
         # Mock the API calls to return appropriate values for testing
@@ -419,7 +425,7 @@ class TestEliminationIntegration(TestBase):
             elif elim['hotkey'] == self.LIQUIDATED_MINER:
                 self.assertEqual(elim['reason'], EliminationReason.LIQUIDATED.value)
 
-    @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
+    @patch('vali_objects.utils.subtensor_weight_setter.DebtBasedScoring', MockDebtBasedScoring)
     def test_elimination_recovery_flow(self):
         """Test the flow when a miner recovers from near-elimination"""
         # Create a miner approaching MDD but not exceeding it
@@ -511,7 +517,7 @@ class TestEliminationIntegration(TestBase):
     @patch('data_generator.polygon_data_service.PolygonDataService.get_candles_for_trade_pair')
     @patch('data_generator.polygon_data_service.PolygonDataService.unified_candle_fetcher')
     @patch('vali_objects.utils.subtensor_weight_setter.bt.subtensor')
-    @patch('vali_objects.utils.subtensor_weight_setter.Scoring', MockScoring)
+    @patch('vali_objects.utils.subtensor_weight_setter.DebtBasedScoring', MockDebtBasedScoring)
     def test_weight_setting_integration(self, mock_subtensor_class, mock_candle_fetcher, mock_get_candles, mock_market_close):
         """Test complete integration with weight setting"""
         # Mock the API calls to return appropriate values for testing

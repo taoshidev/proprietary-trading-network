@@ -99,7 +99,7 @@ those that provide the most returns, while never exceeding certain drawdown limi
 3. There is a fee for leaving positions open "carry fee". The fee is equal to 10.95/3% per year for a 1x leverage position (crypto/forex) <a href="https://docs.taoshi.io/tips/p4/">More info</a>
 4. There is a spread (transaction) fee applied to crypto pairs only, calculated as 0.1% multiplied by the leverage of each order. This simulates a transaction cost that a normal exchange would add.
 5. There is a slippage assessed per order. The slippage cost is is greater for orders with higher leverages, and in assets with lower liquidity.
-6. Based on portfolio metrics such as omega score and total portfolio return, weights/incentive get set to reward the best miners <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md">More info</a>
+6. Miners are rewarded using a debt-based scoring system that tracks their emissions, performance, and penalties. Weights are set based on previous month's performance (PnL scaled by penalties), with payouts targeting completion by day 25 of each month <a href="https://github.com/taoshidev/proprietary-trading-network/blob/main/docs/miner.md">More info</a>
 
 With this system only the world's best traders & deep learning / quant based trading systems can compete.
 
@@ -124,6 +124,17 @@ Miners who score less than the 15th highest ranking miner in each asset class wi
 ### Post-Elimination
 
 After elimination, miners are not immediately deregistered from the network. They will undergo a waiting period, determined by registration timelines and the network's immunity policy, before official deregistration. Upon official deregistration, the miner forfeits registration fees paid.
+
+### Hotkey Blacklisting
+
+**IMPORTANT**: Once a hotkey is eliminated or deregistered from the network, it is **permanently blacklisted** and cannot be re-registered. The network internally tracks all departed hotkeys (both eliminated and voluntarily deregistered) in a frozen/blacklisted state.
+
+If you attempt to re-register a previously used hotkey after elimination or deregistration:
+- Your orders will be rejected by validators
+- You will not be able to participate in the network
+- You will need to create and register a **completely new hotkey** to participate again
+
+**Each registration requires a fresh, unused hotkey.** This policy ensures network integrity and prevents circumventing elimination penalties.
 
 
 

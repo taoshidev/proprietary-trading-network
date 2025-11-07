@@ -5,7 +5,7 @@ import requests
 import threading
 import time
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, Any
 from collections import defaultdict
 import bittensor as bt
@@ -151,7 +151,7 @@ class SlackNotifier:
                     # Calculate seconds until next midnight UTC
                     next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
                     if next_midnight <= now:
-                        next_midnight = next_midnight.replace(day=next_midnight.day + 1)
+                        next_midnight = next_midnight + timedelta(days=1)
 
                     sleep_seconds = (next_midnight - now).total_seconds()
                     time.sleep(sleep_seconds)
@@ -573,3 +573,16 @@ class SlackNotifier:
             self._save_lifetime_metrics()
         except Exception as e:
             bt.logging.error(f"Error during shutdown: {e}")
+
+    def __getstate__(self):
+        """Prepare object for pickling - exclude unpicklable threading.Lock"""
+        state = self.__dict__.copy()
+        # Remove the unpicklable lock
+        state.pop('daily_summary_lock', None)
+        return state
+
+    def __setstate__(self, state):
+        """Restore object after unpickling - recreate threading.Lock"""
+        self.__dict__.update(state)
+        # Recreate the lock in the new process
+        self.daily_summary_lock = threading.Lock()

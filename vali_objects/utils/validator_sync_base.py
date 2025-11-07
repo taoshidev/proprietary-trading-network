@@ -11,7 +11,10 @@ import bittensor as bt
 
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.miner_bucket_enum import MinerBucket
+from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.vali_config import TradePair
+
 AUTO_SYNC_ORDER_LAG_MS = 1000 * 60 * 60 * 24
 
 # Make an enum class that represents how the position sync went. "Nothing", "Updated", "Deleted", "Inserted"
@@ -93,8 +96,18 @@ class ValidatorSyncBase():
         if self.is_mothership:
             bt.logging.info("Mothership detected")
 
+        # Check if disk_positions was explicitly provided
+        disk_positions_provided = disk_positions is not None
+
         if disk_positions is None:
             disk_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
+
+        # Detect and delete overlapping positions before sync
+        if not shadow_mode:
+            overlap_stats = self.detect_and_delete_overlapping_positions(disk_positions)
+            # Reload positions after deletions ONLY if we loaded them ourselves
+            if overlap_stats['positions_deleted'] > 0 and not disk_positions_provided:
+                disk_positions = self.position_manager.get_positions_for_all_miners(sort_positions=True)
 
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
@@ -285,17 +298,11 @@ class ValidatorSyncBase():
             elif sync_status == PositionSyncResult.DELETED:
                 self.miners_with_position_deletions.add(hk)
             # KEPT status is handled elsewhere in the existing flow
-        
+
         # Ensure the enums align with the global stats
         kept_and_matched = stats['kept'] + stats['matched']
         deleted = stats['deleted']
         inserted = stats['inserted']
-
-        #for position, sync_status in position_to_sync_status.items():
-        #    position_debug_sting = f'---debug printing pos to ss: {position.trade_pair.trade_pair_id} n_orders {len(position.orders)}'
-        #    print(position_debug_sting)
-        #    self.debug_print_pos(position)
-        #    print('---status', sync_status)
 
         # Deletions happen first
         for position, sync_status in position_to_sync_status.items():
@@ -304,15 +311,7 @@ class ValidatorSyncBase():
                 if not self.is_mothership:
                     self.position_manager.delete_position(position)
 
-        # Updates happen next
-        # First close out contradicting positions that happen if a validator is left in a bad state
-        #for position, sync_status in position_to_sync_status.items():
-        #    if sync_status == PositionSyncResult.UPDATED or sync_status == PositionSyncResult.NOTHING:
-        #        if not self.is_mothership:
-        #            if position.is_closed_position:
-        #                self.position_manager.delete_open_position_if_exists(position)
-        
-        # Handle multiple open positions for a hotkey - reset for each sync status to prevent cross-contamination
+        # Handle multiple open positions for a hotkey - track across ALL sync statuses to prevent duplicates
         prev_open_position = None
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.UPDATED:
@@ -323,10 +322,9 @@ class ValidatorSyncBase():
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
                 kept_and_matched -= 1
-        
+
         # Insertions happen last so that there is no double open position issue
-        # Reset prev_open_position to prevent contamination from UPDATED positions
-        prev_open_position = None
+        # Do NOT reset prev_open_position - we need to track it across all sync statuses
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.INSERTED:
                 inserted -= 1
@@ -336,10 +334,9 @@ class ValidatorSyncBase():
                         if p.is_open_position:
                             prev_open_position = self.close_older_open_position(p, prev_open_position)
                         self.position_manager.overwrite_position_on_disk(p)
-        
+
         # Handle NOTHING status positions
-        # Reset prev_open_position to prevent contamination from previous sync statuses
-        prev_open_position = None
+        # Do NOT reset prev_open_position - we need to track it across all sync statuses
         for position, sync_status in position_to_sync_status.items():
             if sync_status == PositionSyncResult.NOTHING:
                 kept_and_matched -= 1
@@ -360,21 +357,29 @@ class ValidatorSyncBase():
     def close_older_open_position(self, p1: Position, p2: Position):
         """
         p1 and p2 are both open positions for a hotkey+trade pair, so we want to close the older one.
+        We add a synthetic FLAT order before closing to maintain position invariants.
         """
         if p2 is None:
             return p1
 
         self.global_stats['n_positions_closed_duplicate_opens_for_trade_pair'] += 1
 
-        # if p2 is an older position, we close it and return p1 as the newest open position.
+        # Determine which to close and which to keep
         if p2.open_ms < p1.open_ms:
-            p2.close_out_position(TimeUtil.now_in_millis())
-            self.position_manager.overwrite_position_on_disk(p2)
-            return p1
+            position_to_close = p2
+            position_to_keep = p1
         else:
-            p1.close_out_position(TimeUtil.now_in_millis())
-            self.position_manager.overwrite_position_on_disk(p1)
-            return p2
+            position_to_close = p1
+            position_to_keep = p2
+
+        # Add synthetic FLAT order to properly close the position
+        close_time_ms = position_to_close.orders[-1].processed_ms + 1
+        flat_order = Position.generate_fake_flat_order(position_to_close, close_time_ms, self.live_price_fetcher)
+        position_to_close.orders.append(flat_order)
+        position_to_close.close_out_position(close_time_ms)
+        self.position_manager.overwrite_position_on_disk(position_to_close)
+        return position_to_keep  # Return the one to keep open
+
 
 
     def debug_print_pos(self, p):
@@ -560,8 +565,6 @@ class ValidatorSyncBase():
             if matched:
                 print('  matched:')
                 print(f'  {len(matched)} matched orders')
-                #for x in matched:
-                #    self.debug_print_order(x)
 
         ans = ret
         ans.sort(key=lambda x: x.processed_ms)
@@ -582,10 +585,6 @@ class ValidatorSyncBase():
         matched = list()
         stats = defaultdict(int)
 
-        # There should only be one open position at a time. We trust the candidate data to be correct. Therefore, if
-        # there is an open position in the candidate data, we will delete all open positions in the existing data.
-
-        # open_postition_acked = False
         # First pass. Try to match 1:1 based on position_uuid
         for c in candidate_positions:
             if c.position_uuid in matched_candidates_by_uuid:
@@ -594,10 +593,6 @@ class ValidatorSyncBase():
                 if e.position_uuid in matched_existing_by_uuid:
                     continue
                 if e.position_uuid == c.position_uuid:
-                    # Block the match
-                    # if open_postition_acked and e.is_open_position:
-                    #     continue
-
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -609,7 +604,6 @@ class ValidatorSyncBase():
                         if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
-                    # open_postition_acked |= e.is_open_position
                     ret.append(e)
 
                     matched_candidates_by_uuid |= {c.position_uuid}
@@ -626,10 +620,6 @@ class ValidatorSyncBase():
                 if e.position_uuid in matched_existing_by_uuid:
                     continue
                 if self.positions_aligned(e, c):
-                    # Block the match
-                    # if open_postition_acked and e.is_open_position:
-                    #     continue
-
                     e.orders, min_timestamp_of_order_change = self.sync_orders(e, c, hk, trade_pair, hard_snap_cutoff_ms)
                     if min_timestamp_of_order_change != float('inf'):
                         e.rebuild_position_with_updated_orders(self.live_price_fetcher)
@@ -641,7 +631,6 @@ class ValidatorSyncBase():
                         if self.position_manager and self.position_manager._position_needs_splitting(e):
                             # Force write_modifications to be called for position splitting
                             min_timestamp_of_change = min(min_timestamp_of_change, e.open_ms)
-                    # open_postition_acked |= e.is_open_position
                     matched_candidates_by_uuid |= {c.position_uuid}
                     matched_existing_by_uuid |= {e.position_uuid}
                     ret.append(e)
@@ -649,20 +638,13 @@ class ValidatorSyncBase():
                     stats['matched'] += 1
                     break
 
-
-        # Handle insertions (unmatched candidates).
+        # Handle insertions (unmatched candidates)
         for p in candidate_positions:
             if p.position_uuid in matched_candidates_by_uuid:
                 continue
 
-            # Block the insert
-            # if open_postition_acked and p.is_open_position:
-            #     self.global_stats['blocked_insert_open_position_acked'] += 1
-            #     continue
-
             stats['inserted'] += 1
             position_to_sync_status[p] = PositionSyncResult.INSERTED
-            # open_postition_acked |= p.is_open_position
             min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             ret.append(p)
             inserted.append(p)
@@ -677,18 +659,8 @@ class ValidatorSyncBase():
                 position_to_sync_status[p] = PositionSyncResult.DELETED
                 min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
             else:
-                # Block the keep and delete it
-                # if open_postition_acked and p.is_open_position:
-                #     stats['deleted'] += 1
-                #     deleted.append(p)
-                #     position_to_sync_status[p] = PositionSyncResult.DELETED
-                #     min_timestamp_of_change = min(min_timestamp_of_change, p.open_ms)
-                #     self.global_stats['blocked_keep_open_position_acked'] += 1
-                #     continue
-
                 ret.append(p)
                 kept.append(p)
-                # open_postition_acked |= p.is_open_position
                 stats['kept'] += 1
                 position_to_sync_status[p] = PositionSyncResult.NOTHING
 
@@ -731,7 +703,6 @@ class ValidatorSyncBase():
                     self.debug_print_pos(x)
             if matched:
                 print('  matched positions:')
-                #print(f'  {len(matched)} matched positions')
                 for x in matched:
                     self.debug_print_pos(x)
             if kept:
@@ -739,8 +710,6 @@ class ValidatorSyncBase():
                 for x in kept:
                     self.debug_print_pos(x)
 
-        # n_open = len([p for p in ret if p.is_open_position])
-        # assert n_open < 2, f"n_open: {n_open}"
         return position_to_sync_status, min_timestamp_of_change, stats
 
     def _dedupe_candidate_positions(self, positions: list[Position]) -> list[Position]:
@@ -774,7 +743,7 @@ class ValidatorSyncBase():
         
         return deduped_positions
 
-    def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[str, list[Position]]:
+    def partition_positions_by_trade_pair(self, positions: list[Position]) -> dict[TradePair, list[Position]]:
         positions_by_trade_pair = defaultdict(list)
         for position in positions:
             positions_by_trade_pair[position.trade_pair].append(deepcopy(position))
@@ -788,17 +757,272 @@ class ValidatorSyncBase():
         if not self.position_manager or not self.enable_position_splitting:
             # If no position manager or splitting disabled, return position as-is
             return [position]
-        
+
         # Use the position manager's split method
         positions, split_info = self.position_manager.split_position_on_flat(position, track_stats=False)
-        
+
         # Track statistics for autosync
         if len(positions) > 1:
             self.global_stats['n_positions_spawned_from_post_flat_orders'] += len(positions) - 1
-            
+
             # Track implicit flat splits
             if split_info['implicit_flat_splits'] > 0:
                 self.global_stats['n_positions_split_on_implicit_flat'] = \
                     self.global_stats.get('n_positions_split_on_implicit_flat', 0) + split_info['implicit_flat_splits']
-        
+
         return positions
+
+    def detect_and_delete_overlapping_positions(self, disk_positions, current_time_ms=None):
+        """
+        For each hotkey, analyze positions on a per-trade-pair basis.
+        Detects and deletes:
+        1. Positions with overlapping time intervals
+        2. Multiple open positions for same trade pair
+        3. Open positions that are not last chronologically
+        4. Positions with inconsistent state (e.g., open position with close_ms set)
+
+        Auto sync will then fill in these positions with valid start/end times.
+
+        Uses interval merging algorithm for efficient O(n log n) overlap detection.
+
+        Args:
+            disk_positions: Dict[str, List[Position]] - positions organized by hotkey
+            current_time_ms: int - current timestamp, or None to use TimeUtil.now_in_millis()
+
+        Returns:
+            Dict with statistics about overlaps detected and positions deleted
+        """
+        if current_time_ms is None:
+            current_time_ms = TimeUtil.now_in_millis()
+
+        stats = {
+            'hotkeys_checked': 0,
+            'trade_pairs_checked': 0,
+            'positions_deleted': 0,
+            'positions_deleted_overlaps': 0,
+            'positions_deleted_invariant_violations': 0,
+            'hotkeys_with_overlaps': set(),
+            'hotkeys_with_invariant_violations': set(),
+            'trade_pairs_with_overlaps': defaultdict(int),
+            'trade_pairs_with_invariant_violations': defaultdict(int)
+        }
+
+        for hotkey, positions in disk_positions.items():
+            if not positions:
+                continue
+
+            stats['hotkeys_checked'] += 1
+
+            # Group positions by trade pair
+            positions_by_trade_pair = self.partition_positions_by_trade_pair(positions)
+
+            for trade_pair, tp_positions in positions_by_trade_pair.items():
+                stats['trade_pairs_checked'] += 1
+                positions_to_delete = set()
+
+                # 1. Find all positions with overlapping time intervals
+                overlapping_position_uuids = self._find_overlapping_positions_via_merge(tp_positions, current_time_ms)
+                if overlapping_position_uuids:
+                    positions_to_delete.update(overlapping_position_uuids)
+                    stats['positions_deleted_overlaps'] += len(overlapping_position_uuids)
+                    stats['hotkeys_with_overlaps'].add(hotkey)
+                    stats['trade_pairs_with_overlaps'][trade_pair.trade_pair_id] += 1
+
+                # 2. Find positions violating ordering/state invariants
+                invariant_violation_uuids = self._find_positions_violating_invariants(tp_positions, current_time_ms)
+                if invariant_violation_uuids:
+                    positions_to_delete.update(invariant_violation_uuids)
+                    stats['positions_deleted_invariant_violations'] += len(invariant_violation_uuids)
+                    stats['hotkeys_with_invariant_violations'].add(hotkey)
+                    stats['trade_pairs_with_invariant_violations'][trade_pair.trade_pair_id] += 1
+
+                # Delete all problematic positions
+                if positions_to_delete:
+                    # Build UUID -> Position map for efficient lookup
+                    uuid_to_position = {p.position_uuid: p for p in tp_positions}
+
+                    for position_uuid in positions_to_delete:
+                        if not self.is_mothership:
+                            self.position_manager.delete_position(uuid_to_position[position_uuid])
+                        stats['positions_deleted'] += 1
+
+                    bt.logging.warning(
+                        f"Deleted {len(positions_to_delete)} problematic positions for "
+                        f"hotkey {hotkey} trade pair {trade_pair.trade_pair_id} "
+                        f"(overlaps: {len(overlapping_position_uuids)}, "
+                        f"invariant violations: {len(invariant_violation_uuids)})"
+                    )
+
+        # Log summary
+        bt.logging.info("=" * 60)
+        bt.logging.info("POSITION INTEGRITY CHECK SUMMARY")
+        bt.logging.info("=" * 60)
+        bt.logging.info(f"Hotkeys checked: {stats['hotkeys_checked']}")
+        bt.logging.info(f"Trade pairs checked: {stats['trade_pairs_checked']}")
+        bt.logging.info(f"Hotkeys with overlaps: {len(stats['hotkeys_with_overlaps'])}")
+        bt.logging.info(f"Hotkeys with invariant violations: {len(stats['hotkeys_with_invariant_violations'])}")
+        bt.logging.info(f"Total positions deleted: {stats['positions_deleted']}")
+        bt.logging.info(f"  - Due to overlaps: {stats['positions_deleted_overlaps']}")
+        bt.logging.info(f"  - Due to invariant violations: {stats['positions_deleted_invariant_violations']}")
+        if stats['trade_pairs_with_overlaps']:
+            bt.logging.info(f"Trade pairs with overlaps: {dict(stats['trade_pairs_with_overlaps'])}")
+        if stats['trade_pairs_with_invariant_violations']:
+            bt.logging.info(f"Trade pairs with invariant violations: {dict(stats['trade_pairs_with_invariant_violations'])}")
+        bt.logging.info("=" * 60)
+
+        return stats
+
+    def _find_overlapping_positions_via_merge(self, positions: list[Position], current_time_ms: int) -> set:
+        """
+        Find all positions that have overlapping time ranges using interval merging algorithm.
+
+        Algorithm:
+        1. Sort intervals by start time
+        2. Iterate through and merge overlapping intervals
+        3. Track all positions in each merged group
+        4. Return all positions from groups that contain 2+ positions (i.e., overlaps occurred)
+
+        Time complexity: O(n log n) due to sorting
+
+        Args:
+            positions: List of positions for a single trade pair
+            current_time_ms: Current timestamp (used for open positions' end time)
+
+        Returns:
+            Set of position UUIDs that are part of any overlap
+        """
+        if len(positions) < 2:
+            return set()
+
+        # Create intervals: (start_ms, end_ms, position)
+        intervals = []
+        for position in positions:
+            start_ms = position.open_ms
+            # Use close_ms if closed, otherwise use current time
+            end_ms = position.close_ms if position.is_closed_position else current_time_ms
+            intervals.append((start_ms, end_ms, position))
+
+        # Sort by start time
+        intervals.sort(key=lambda x: x[0])
+
+        # Merge overlapping intervals and track which positions are in each merged group
+        current_group = [intervals[0][2]]  # Start with first position
+        current_end = intervals[0][1]
+        overlapping_position_uuids = set()
+
+        for i in range(1, len(intervals)):
+            start_ms, end_ms, position = intervals[i]
+
+            # Check if current interval overlaps with the merged interval
+            # Overlap occurs if start_ms < current_end
+            if start_ms < current_end:
+                # Overlaps - add to current group
+                current_group.append(position)
+                # Extend the merged interval's end if necessary
+                current_end = max(current_end, end_ms)
+                overlapping_position_uuids.add(position.position_uuid)
+                overlapping_position_uuids.add(intervals[i-1][2].position_uuid)
+            else:
+                # No overlap
+                # Start new group
+                current_group = [position]
+                current_end = end_ms
+
+        return overlapping_position_uuids
+
+    def _find_positions_violating_invariants(self, positions: list[Position], current_time_ms: int) -> set:
+        """
+        Find positions that violate ordering/state invariants that would cause
+        perf_ledger assertion failures.
+
+        Detects:
+        1. Multiple open positions for the same trade pair (should be at most 1)
+        2. Open position exists but is NOT the last position chronologically
+        3. Positions with inconsistent state (treats both 0 and None as valid for open positions)
+        4. Closed positions without FLAT order as last order
+
+        Args:
+            positions: List of positions for a single trade pair
+            current_time_ms: Current timestamp (not used currently but kept for consistency)
+
+        Returns:
+            Set of position UUIDs that violate invariants
+        """
+        if len(positions) < 1:
+            return set()
+
+        # Sort positions chronologically by close_ms
+        # Use the canonical sorting method from PositionManager
+        sorted_positions = sorted(positions, key=PositionManager.sort_by_close_ms)
+
+        violation_uuids = set()
+
+        # Count open and closed positions
+        open_positions = [p for p in sorted_positions if p.is_open_position]
+        n_open = len(open_positions)
+
+        # Violation 1: More than 1 open position
+        if n_open > 1:
+            # Delete all but the most recent open position (by open_ms)
+            open_positions_sorted = sorted(open_positions, key=lambda p: p.open_ms)
+            # Keep the last one, delete all others
+            for p in open_positions_sorted[:-1]:
+                violation_uuids.add(p.position_uuid)
+            bt.logging.warning(
+                f"INVARIANT VIOLATION: Found {n_open} open positions (max 1 allowed). "
+                f"Will delete {len(violation_uuids)} older open positions."
+            )
+
+        # Violation 2: If exactly 1 open position, it must be the last in the chronological list
+        elif n_open == 1:
+            last_position = sorted_positions[-1]
+            if not last_position.is_open_position:
+                # The open position is NOT last - this is a violation
+                open_position = open_positions[0]
+                violation_uuids.add(open_position.position_uuid)
+                bt.logging.warning(
+                    f"INVARIANT VIOLATION: Found 1 open position but it's NOT the last chronologically. "
+                    f"Last position is closed (close_ms={last_position.close_ms}). "
+                    f"Will delete the misplaced open position {open_position.position_uuid}."
+                )
+
+        # Violation 3: Check for positions with inconsistent state
+        # Treat both 0 and None as valid for open positions (defensive programming)
+        for p in sorted_positions:
+            # Skip if already marked for deletion
+            if p.position_uuid in violation_uuids:
+                continue
+
+            # Check for inconsistent state
+            # For open positions: close_ms can be None or 0 (both valid)
+            # For closed positions: close_ms must be a real timestamp (not None, not 0)
+            if p.is_open_position and p.close_ms is not None and p.close_ms != 0:
+                violation_uuids.add(p.position_uuid)
+                bt.logging.warning(
+                    f"INVARIANT VIOLATION: Position {p.position_uuid} has is_open_position=True "
+                    f"but close_ms={p.close_ms} (should be None or 0). Will delete."
+                )
+            elif p.is_closed_position and (p.close_ms is None or p.close_ms == 0):
+                violation_uuids.add(p.position_uuid)
+                bt.logging.warning(
+                    f"INVARIANT VIOLATION: Position {p.position_uuid} has is_closed_position=True "
+                    f"but close_ms={p.close_ms} (should be a real timestamp). Will delete."
+                )
+
+        # Violation 4: Check for closed positions without FLAT order as last order
+        for p in sorted_positions:
+            # Skip if already marked for deletion
+            if p.position_uuid in violation_uuids:
+                continue
+
+            # Closed positions must have a FLAT order as their last order
+            if p.is_closed_position:
+                if not p.orders or p.orders[-1].order_type != OrderType.FLAT:
+                    violation_uuids.add(p.position_uuid)
+                    last_order_type = p.orders[-1].order_type.name if p.orders else "NO_ORDERS"
+                    bt.logging.warning(
+                        f"INVARIANT VIOLATION: Position {p.position_uuid} is closed "
+                        f"but last order is {last_order_type} (should be FLAT). Will delete."
+                    )
+
+        return violation_uuids
