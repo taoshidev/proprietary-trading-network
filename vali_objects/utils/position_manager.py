@@ -264,6 +264,7 @@ class PositionManager(CacheController):
                 #time_now_ms = TimeUtil.now_in_millis()
                 #if time_now_ms < TARGET_MS:
                 #    self.close_open_orders_for_suspended_trade_pairs()
+                self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
@@ -771,7 +772,9 @@ class PositionManager(CacheController):
     def close_open_orders_for_suspended_trade_pairs(self):
         if not self.live_price_fetcher:
             self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
-        tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
+        tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX,
+                           TradePair.AUDJPY, TradePair.CADJPY, TradePair.CHFJPY,
+                           TradePair.EURJPY, TradePair.NZDJPY, TradePair.GBPJPY, TradePair.USDJPY]
         if not tps_to_eliminate:
             return
         all_positions = self.get_positions_for_all_miners(sort_positions=True)
