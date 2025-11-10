@@ -30,9 +30,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1761260399000 + (1000 * 60 * 60 * 6)  # + 6 hours
-
-
+TARGET_MS = TimeUtil.formatted_date_str_to_millis("2025-11-11 00:00:00")
 
 class PositionManager(CacheController):
     def __init__(self, metagraph=None, running_unit_tests=False,
@@ -261,10 +259,9 @@ class PositionManager(CacheController):
         if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()
-                #time_now_ms = TimeUtil.now_in_millis()
-                #if time_now_ms < TARGET_MS:
-                #    self.close_open_orders_for_suspended_trade_pairs()
-                self.close_open_orders_for_suspended_trade_pairs()
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms < TARGET_MS:
+                    self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
