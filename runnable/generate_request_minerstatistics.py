@@ -344,12 +344,12 @@ class MinerStatisticsManager:
     # Main scoring wrapper
     # -------------------------------------------
     def calculate_all_scores(
-            self,
-            miner_data: Dict[str, Dict[str, Any]],
-            asset_class_min_days: dict[str, int],
-            score_type: ScoreType = ScoreType.BASE,
-            bypass_confidence: bool = False,
-            time_now: int = None
+        self,
+        miner_data: Dict[str, Dict[str, Any]],
+        asset_class_min_days: dict[str, int],
+        score_type: ScoreType = ScoreType.BASE,
+        bypass_confidence: bool = False,
+        time_now: int = None,
     ) -> Dict[str, Dict[str, ScoreResult]]:
         """Calculate all metrics for all miners (BASE, AUGMENTED) for all asset classes."""
         ledgers = {}
@@ -370,7 +370,9 @@ class MinerStatisticsManager:
             weighting = True
             for metric in self.metrics_calculator.metrics.values():
                 metric.requires_weighting = True
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
+            timestamp_ms=time_now
+        )
         asset_class_scores = Scoring.score_miners(
             ledger_dict=ledgers,
             positions=positions,
@@ -381,13 +383,14 @@ class MinerStatisticsManager:
             all_miner_account_sizes=all_miner_account_sizes,
         )
 
-        metric_results = {asset_class.value: {} for asset_class in asset_class_scores.keys()}
+        metric_results = {
+            asset_class.value: {} for asset_class in asset_class_scores.keys()
+        }
         asset_class_scores["overall"] = {"metrics": self.metrics_calculator.metrics}
         metric_results["overall"] = {}
 
-
         for asset_class, scoring_dict in asset_class_scores.items():
-            for metric_name, metric_data in scoring_dict['metrics'].items():
+            for metric_name, metric_data in scoring_dict["metrics"].items():
                 if asset_class == "overall":
                     numeric_scores = self.metrics_calculator.calculate_metric(
                         self.metrics_calculator.metrics.get(metric_name, {}),
@@ -573,10 +576,10 @@ class MinerStatisticsManager:
     # Asset Class Performance
     # -------------------------------------------
     def miner_asset_class_scores(
-            self,
-            hotkey: str,
-            asset_softmaxed_scores: dict[str, dict[str, float]],
-            asset_class_weights: dict[str, float] = None
+        self,
+        hotkey: str,
+        asset_softmaxed_scores: dict[str, dict[str, float]],
+        asset_class_weights: dict[str, float] = None,
     ) -> dict[str, dict[str, float]]:
         """
         Extract individual miner's scores and rankings for each asset class.
@@ -593,7 +596,9 @@ class MinerStatisticsManager:
 
         for asset_class, miner_scores in asset_softmaxed_scores.items():
             if hotkey in miner_scores:
-                asset_class_percentiles = self.percentile_rank_dictionary(miner_scores.items())
+                asset_class_percentiles = self.percentile_rank_dictionary(
+                    miner_scores.items()
+                )
                 asset_class_ranks = self.rank_dictionary(miner_scores.items())
 
                 # Score is the only one directly impacted by the asset class weighting, each score element should show the overall scoring contribution
@@ -604,7 +609,7 @@ class MinerStatisticsManager:
                 asset_class_data[asset_class] = {
                     "score": aggregated_score,
                     "rank": asset_class_ranks.get(hotkey, 0),
-                    "percentile": asset_class_percentiles.get(hotkey, 0.0) * 100
+                    "percentile": asset_class_percentiles.get(hotkey, 0.0) * 100,
                 }
 
         return asset_class_data
@@ -627,48 +632,94 @@ class MinerStatisticsManager:
         # ChallengePeriod: success + testing
         challengeperiod_testing_dict = self.challengeperiod_manager.get_testing_miners()
         challengeperiod_success_dict = self.challengeperiod_manager.get_success_miners()
-        challengeperiod_probation_dict = self.challengeperiod_manager.get_probation_miners()
-        challengeperiod_plagiarism_dict = self.challengeperiod_manager.get_plagiarism_miners()
+        challengeperiod_probation_dict = (
+            self.challengeperiod_manager.get_probation_miners()
+        )
+        challengeperiod_plagiarism_dict = (
+            self.challengeperiod_manager.get_plagiarism_miners()
+        )
 
-        sorted_challengeperiod_testing = dict(sorted(challengeperiod_testing_dict.items(), key=lambda x: x[1]))
-        sorted_challengeperiod_success = dict(sorted(challengeperiod_success_dict.items(), key=lambda x: x[1]))
-        sorted_challengeperiod_probation = dict(sorted(challengeperiod_probation_dict.items(), key=lambda x: x[1]))
-        sorted_challengeperiod_plagiarism = dict(sorted(challengeperiod_plagiarism_dict.items(), key=lambda x: x[1]))
+        sorted_challengeperiod_testing = dict(
+            sorted(challengeperiod_testing_dict.items(), key=lambda x: x[1])
+        )
+        sorted_challengeperiod_success = dict(
+            sorted(challengeperiod_success_dict.items(), key=lambda x: x[1])
+        )
+        sorted_challengeperiod_probation = dict(
+            sorted(challengeperiod_probation_dict.items(), key=lambda x: x[1])
+        )
+        sorted_challengeperiod_plagiarism = dict(
+            sorted(challengeperiod_plagiarism_dict.items(), key=lambda x: x[1])
+        )
 
         challengeperiod_testing_hotkeys = list(sorted_challengeperiod_testing.keys())
         challengeperiod_success_hotkeys = list(sorted_challengeperiod_success.keys())
-        challengeperiod_probation_hotkeys = list(sorted_challengeperiod_probation.keys())
-        challengeperiod_plagiarism_hotkeys = list(sorted_challengeperiod_plagiarism.keys())
+        challengeperiod_probation_hotkeys = list(
+            sorted_challengeperiod_probation.keys()
+        )
+        challengeperiod_plagiarism_hotkeys = list(
+            sorted_challengeperiod_plagiarism.keys()
+        )
 
-        challengeperiod_eval_hotkeys = challengeperiod_testing_hotkeys + challengeperiod_probation_hotkeys + challengeperiod_plagiarism_hotkeys
+        challengeperiod_eval_hotkeys = (
+            challengeperiod_testing_hotkeys
+            + challengeperiod_probation_hotkeys
+            + challengeperiod_plagiarism_hotkeys
+        )
 
-        all_miner_hotkeys = list(set(challengeperiod_testing_hotkeys + challengeperiod_success_hotkeys + challengeperiod_probation_hotkeys + challengeperiod_plagiarism_hotkeys))
+        all_miner_hotkeys = list(
+            set(
+                challengeperiod_testing_hotkeys
+                + challengeperiod_success_hotkeys
+                + challengeperiod_probation_hotkeys
+                + challengeperiod_plagiarism_hotkeys
+            )
+        )
         if selected_miner_hotkeys is None:
             selected_miner_hotkeys = all_miner_hotkeys
 
         # Filter ledger/positions
-        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=all_miner_hotkeys)
-        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(all_miner_hotkeys)
-
-        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(hotkeys=[*challengeperiod_success_hotkeys, *challengeperiod_probation_hotkeys])  # ledger of all miners in maincomp, including probation
-        asset_classes = list(AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN))
-        asset_class_min_days = LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
-            maincomp_ledger, asset_classes
+        filtered_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(
+            hotkeys=all_miner_hotkeys
         )
-        bt.logging.info(f"generate_minerstats asset_class_min_days: {asset_class_min_days}")
-        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(timestamp_ms=time_now)
-        success_competitiveness, asset_softmaxed_scores = Scoring.score_miner_asset_classes(
-            ledger_dict=filtered_ledger,
-            positions=filtered_positions,
-            asset_class_min_days=asset_class_min_days,
-            evaluation_time_ms=time_now,
-            weighting=final_results_weighting,
-            all_miner_account_sizes=all_miner_account_sizes
-        ) # returns asset competitiveness dict, asset softmaxed scores
+        filtered_positions, _ = self.position_manager.filtered_positions_for_scoring(
+            all_miner_hotkeys
+        )
+
+        maincomp_ledger = self.perf_ledger_manager.filtered_ledger_for_scoring(
+            hotkeys=[
+                *challengeperiod_success_hotkeys,
+                *challengeperiod_probation_hotkeys,
+            ]
+        )  # ledger of all miners in maincomp, including probation
+        asset_classes = list(
+            AssetSegmentation.distill_asset_classes(ValiConfig.ASSET_CLASS_BREAKDOWN)
+        )
+        asset_class_min_days = (
+            LedgerUtils.calculate_dynamic_minimum_days_for_asset_classes(
+                maincomp_ledger, asset_classes
+            )
+        )
+        bt.logging.info(
+            f"generate_minerstats asset_class_min_days: {asset_class_min_days}"
+        )
+        all_miner_account_sizes = self.contract_manager.get_all_miner_account_sizes(
+            timestamp_ms=time_now
+        )
+        success_competitiveness, asset_softmaxed_scores = (
+            Scoring.score_miner_asset_classes(
+                ledger_dict=filtered_ledger,
+                positions=filtered_positions,
+                asset_class_min_days=asset_class_min_days,
+                evaluation_time_ms=time_now,
+                weighting=final_results_weighting,
+                all_miner_account_sizes=all_miner_account_sizes,
+            )
+        )  # returns asset competitiveness dict, asset softmaxed scores
 
         # Get asset class weights from config
         asset_class_weights = {
-            asset_class: config.get('emission', 0.0)
+            asset_class: config.get("emission", 0.0)
             for asset_class, config in ValiConfig.ASSET_CLASS_BREAKDOWN.items()
         }
         asset_aggregated_scores = Scoring.asset_class_score_aggregation(
@@ -769,8 +820,20 @@ class MinerStatisticsManager:
             )
 
         # Compute the base and augmented scores
-        base_scores = self.calculate_all_scores(miner_data, asset_class_min_days, ScoreType.BASE, bypass_confidence, time_now)
-        augmented_scores = self.calculate_all_scores(miner_data, asset_class_min_days, ScoreType.AUGMENTED, bypass_confidence, time_now)
+        base_scores = self.calculate_all_scores(
+            miner_data,
+            asset_class_min_days,
+            ScoreType.BASE,
+            bypass_confidence,
+            time_now,
+        )
+        augmented_scores = self.calculate_all_scores(
+            miner_data,
+            asset_class_min_days,
+            ScoreType.AUGMENTED,
+            bypass_confidence,
+            time_now,
+        )
 
         # For visualization
         daily_returns_dict = self.calculate_all_daily_returns(
@@ -915,9 +978,7 @@ class MinerStatisticsManager:
 
             # Asset Class Performance
             asset_class_performance = self.miner_asset_class_scores(
-                hotkey,
-                asset_softmaxed_scores,
-                asset_class_weights
+                hotkey, asset_softmaxed_scores, asset_class_weights
             )
 
             final_miner_dict = {
@@ -974,7 +1035,7 @@ class MinerStatisticsManager:
                         raw_positions = filtered_positions.get(hotkey, [])
                         portfolio_ledger = raw_ledger_dict.get(TP_ID_PORTFOLIO)
 
-                        account_size = 1000000
+                        account_size = ValiConfig.MIN_CAPITAL
 
                         try:
                             # Get account size for this miner
@@ -1045,8 +1106,8 @@ class MinerStatisticsManager:
                                 wallet=self.wallet,
                                 verbose=True,
                             )
-                            status = zk_result.get('status', 'unknown')
-                            message = zk_result.get('message', '')
+                            status = zk_result.get("status", "unknown")
+                            message = zk_result.get("message", "")
                             bt.logging.info(
                                 f"ZK proof for {hotkey[:8]}: status={status}, message={message}"
                             )
@@ -1140,11 +1201,11 @@ class MinerStatisticsManager:
             if isinstance(value, (int, float, str))
             and key not in ["BASE_DIR", "base_directory"]
         }
-        
+
         # Add asset class breakdown with subcategory weights
-        printable_config['asset_class_breakdown'] = ValiConfig.ASSET_CLASS_BREAKDOWN
-        printable_config['trade_pairs_by_subcategory'] = TradePair.subcategories()
-        
+        printable_config["asset_class_breakdown"] = ValiConfig.ASSET_CLASS_BREAKDOWN
+        printable_config["trade_pairs_by_subcategory"] = TradePair.subcategories()
+
         return printable_config
 
     # -------------------------------------------
