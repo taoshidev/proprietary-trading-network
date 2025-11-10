@@ -499,28 +499,6 @@ class PositionManager(CacheController):
         reopen_force_closed_orders = False
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
-            # temp slippage correction
-            SLIPPAGE_V2_TIME_MS = 1759431540000
-            n_slippage_corrections = 0
-            for hotkey, positions in hotkey_to_positions.items():
-                for position in positions:
-                    needs_save = False
-                    for order in position.orders:
-                        if (order.trade_pair.is_forex and SLIPPAGE_V2_TIME_MS < order.processed_ms):
-                            old_slippage = order.slippage
-                            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-                            if old_slippage != order.slippage:
-                                needs_save = True
-                                n_slippage_corrections += 1
-                                bt.logging.info(
-                                    f"Updated forex slippage for order {order}: "
-                                    f"{old_slippage:.6f} -> {order.slippage:.6f}")
-
-                    if needs_save:
-                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
-                        self.save_miner_position(position)
-            bt.logging.info(f"Applied {n_slippage_corrections} forex slippage corrections")
-
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
             position_uuids_to_delete = []
