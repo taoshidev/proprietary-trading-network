@@ -996,11 +996,9 @@ class Validator:
                 synapse.error_message = msg
 
             elif tp.is_blocked:
-                order_type = OrderType.from_string(signal["order_type"])
-                if order_type != OrderType.FLAT:
-                    msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked"
-                           f"Please try again with a different trade pair.")
-                    synapse.error_message = msg
+                msg = (f"Trade pair [{tp.trade_pair_id}] has been blocked. "
+                       f"Please try again with a different trade pair.")
+                synapse.error_message = msg
 
         synapse.successfully_processed = not bool(synapse.error_message)
         if synapse.error_message:
