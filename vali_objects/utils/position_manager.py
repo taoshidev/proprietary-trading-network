@@ -30,9 +30,7 @@ from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_dataclasses.order import OrderStatus, OrderSource, Order
 from vali_objects.utils.position_filtering import PositionFiltering
 
-TARGET_MS = 1761260399000 + (1000 * 60 * 60 * 6)  # + 6 hours
-
-
+TARGET_MS = TimeUtil.formatted_date_str_to_millis("2025-11-11 00:00:00")
 
 class PositionManager(CacheController):
     def __init__(self, metagraph=None, running_unit_tests=False,
@@ -261,9 +259,9 @@ class PositionManager(CacheController):
         if self.perform_order_corrections:
             try:
                 self.apply_order_corrections()
-                #time_now_ms = TimeUtil.now_in_millis()
-                #if time_now_ms < TARGET_MS:
-                #    self.close_open_orders_for_suspended_trade_pairs()
+                time_now_ms = TimeUtil.now_in_millis()
+                if time_now_ms < TARGET_MS:
+                    self.close_open_orders_for_suspended_trade_pairs()
             except Exception as e:
                 bt.logging.error(f"Error applying order corrections: {e}")
                 traceback.print_exc()
@@ -498,28 +496,6 @@ class PositionManager(CacheController):
         reopen_force_closed_orders = False
         current_eliminations = self.elimination_manager.get_eliminations_from_memory()
         if now_ms < TARGET_MS:
-            # temp slippage correction
-            SLIPPAGE_V2_TIME_MS = 1759431540000
-            n_slippage_corrections = 0
-            for hotkey, positions in hotkey_to_positions.items():
-                for position in positions:
-                    needs_save = False
-                    for order in position.orders:
-                        if (order.trade_pair.is_forex and SLIPPAGE_V2_TIME_MS < order.processed_ms):
-                            old_slippage = order.slippage
-                            order.slippage = PriceSlippageModel.calculate_slippage(order.bid, order.ask, order)
-                            if old_slippage != order.slippage:
-                                needs_save = True
-                                n_slippage_corrections += 1
-                                bt.logging.info(
-                                    f"Updated forex slippage for order {order}: "
-                                    f"{old_slippage:.6f} -> {order.slippage:.6f}")
-
-                    if needs_save:
-                        position.rebuild_position_with_updated_orders(self.live_price_fetcher)
-                        self.save_miner_position(position)
-            bt.logging.info(f"Applied {n_slippage_corrections} forex slippage corrections")
-
             # All miners that wanted their challenge period restarted
             miners_to_wipe = []# All miners that should have been promoted
             position_uuids_to_delete = []
@@ -771,7 +747,9 @@ class PositionManager(CacheController):
     def close_open_orders_for_suspended_trade_pairs(self):
         if not self.live_price_fetcher:
             self.live_price_fetcher = LivePriceFetcher(secrets=self.secrets, disable_ws=True)
-        tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX]
+        tps_to_eliminate = [TradePair.SPX, TradePair.DJI, TradePair.NDX, TradePair.VIX,
+                           TradePair.AUDJPY, TradePair.CADJPY, TradePair.CHFJPY,
+                           TradePair.EURJPY, TradePair.NZDJPY, TradePair.GBPJPY, TradePair.USDJPY]
         if not tps_to_eliminate:
             return
         all_positions = self.get_positions_for_all_miners(sort_positions=True)
