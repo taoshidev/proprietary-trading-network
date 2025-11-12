@@ -247,7 +247,8 @@ class Validator:
                                                               position_manager=self.position_manager,
                                                               ipc_manager=self.ipc_manager,
                                                               contract_manager=self.contract_manager,
-                                                              plagiarism_manager=self.plagiarism_manager)
+                                                              plagiarism_manager=self.plagiarism_manager,
+                                                              asset_selection_manager=self.asset_selection_manager)
 
         # Attach the position manager to the other objects that need it
         for idx, obj in enumerate([self.perf_ledger_manager, self.position_manager, self.position_syncer,
