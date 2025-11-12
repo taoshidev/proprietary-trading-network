@@ -297,6 +297,7 @@ class Validator:
                                                               ipc_manager=self.ipc_manager,
                                                               contract_manager=self.contract_manager,
                                                               plagiarism_manager=self.plagiarism_manager,
+                                                              asset_selection_manager=self.asset_selection_manager,
                                                               sync_in_progress=self.sync_in_progress,
                                                               slack_notifier=self.slack_notifier,
                                                               sync_epoch=self.sync_epoch,
