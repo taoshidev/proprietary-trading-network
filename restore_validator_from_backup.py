@@ -9,6 +9,7 @@ from datetime import datetime
 from time_util.time_util import TimeUtil
 from vali_objects.position import Position
 from vali_objects.utils.elimination_manager import EliminationManager
+from vali_objects.utils.limit_order_manager import LimitOrderManager
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
@@ -87,6 +88,7 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
                                        elimination_manager=elimination_manager)
     challengeperiod_manager = ChallengePeriodManager(metagraph=None, position_manager=position_manager)
     perf_ledger_manager = PerfLedgerManager(None)
+    limit_order_manager = LimitOrderManager(position_manager, None)
 
     if DEBUG:
         position_manager.pre_run_setup()
@@ -180,8 +182,11 @@ def regenerate_miner_positions(perform_backup=True, backup_from_data_dir=False, 
     ## Now sync challenge period with the disk
     challengeperiod = data.get('challengeperiod', {})
     challengeperiod_manager.sync_challenge_period_data(challengeperiod)
-
     challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
+
+    limit_orders = data.get('limit_orders', {})
+    limit_order_manager.sync_limit_orders(limit_orders)
+
     return True
 
 if __name__ == "__main__":

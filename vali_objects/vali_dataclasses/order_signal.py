@@ -1,5 +1,7 @@
 # developer: Taoshidev
 # Copyright © 2024 Taoshi Inc
+from typing import Optional
+from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType
 from pydantic import BaseModel, field_validator, model_validator
@@ -9,6 +11,10 @@ class Signal(BaseModel):
     trade_pair: TradePair
     order_type: OrderType
     leverage: float
+
+    execution_type: ExecutionType = ExecutionType.MARKET
+    limit_price: Optional[float] = None
+    cancel_order_uuid: Optional[str] = None
 
     @field_validator('leverage', mode='before')
     def set_leverage(cls, leverage, info):
@@ -31,6 +37,26 @@ class Signal(BaseModel):
         return values
 
     def __str__(self):
-        return str({'trade_pair': str(self.trade_pair),
-                    'order_type': str(self.order_type),
-                    'leverage': self.leverage})
+        base = {
+            'trade_pair': str(self.trade_pair),
+            'order_type': str(self.order_type),
+            'leverage': self.leverage,
+            'execution_type': self.execution_type
+        }
+        if self.execution_type == ExecutionType.MARKET:
+            return str(base)
+
+        elif self.execution_type == ExecutionType.LIMIT:
+            base.update({
+                'limit_price': self.limit_price
+            })
+            return str(base)
+
+        elif self.execution_type == ExecutionType.LIMIT_CANCEL:
+            return str({
+                'exeuction_type': self.execution_type,
+                'cancel_order_uuid': self.cancel_order_uuid
+            })
+
+        return str(base.update({'Error': 'Unknown execution type'}))
+

@@ -228,7 +228,7 @@ class PTNRestServer(APIKeyMixin):
     """Handles REST API requests with Flask and Waitress."""
 
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
-                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None):
+                 port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None, limit_order_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -249,6 +249,7 @@ class PTNRestServer(APIKeyMixin):
         self.position_manager: PositionManager = position_manager
         self.contract_manager = contract_manager
         self.nonce_manager = NonceManager()
+        self.limit_order_manager = limit_order_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -536,6 +537,29 @@ class PTNRestServer(APIKeyMixin):
                 return jsonify({'error': 'Eliminations data not found'}), 404
             else:
                 return jsonify(data)
+
+        @self.app.route("/limit-orders/<minerid>", methods=["GET"])
+        def get_limit_orders_unique(minerid):
+            api_key = self._get_api_key_safe()
+
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+
+            api_key_tier = self.get_api_key_tier(api_key)
+            if api_key_tier == 100 and self.limit_order_manager:
+                orders_data = self.limit_order_manager.to_dashboard_dict(minerid)
+                if not orders_data:
+                    return jsonify({'error': f'No limit orders found for miner {minerid}'}), 404
+            else:
+                try:
+                    orders_data = ValiBkpUtils.get_limit_orders(minerid, running_unit_tests=False)
+                    if not orders_data:
+                        return jsonify({'error': f'No limit orders found for miner {minerid}'}), 404
+                except Exception as e:
+                    bt.logging.error(f"Error retrieving limit orders for {minerid}: {e}")
+                    return jsonify({'error': 'Error retrieving limit orders'}), 500
+
+            return jsonify(orders_data)
 
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
