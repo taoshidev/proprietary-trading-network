@@ -3,13 +3,14 @@ import sys
 import requests
 import json
 
+from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_config import TradePair, TradePairCategory
 
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, TradePair) or isinstance(obj, OrderType):
+        if isinstance(obj, TradePair) or isinstance(obj, OrderType) or isinstance(obj, ExecutionType):
             return obj.__json__()  # Use the to_dict method to serialize TradePair
 
         if isinstance(obj, TradePairCategory):
@@ -40,6 +41,10 @@ if __name__ == "__main__":
         'trade_pair': TradePair.FTSE,
         'order_type': OrderType.LONG,
         'leverage': .05,
+        # 'execution_type': ExecutionType.MARKET,
+        # 'execution_type': ExecutionType.LIMIT_CANCEL,
+        # 'limit_price': 0.1,
+        # 'cancel_order_uuid': "order-uuid",
         'api_key': 'xxxx'
     }
 
