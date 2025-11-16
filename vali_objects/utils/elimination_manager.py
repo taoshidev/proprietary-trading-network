@@ -1,22 +1,13 @@
 # developer: jbonilla
 # Copyright © 2024 Taoshi Inc
-import shutil
-from copy import deepcopy
 from enum import Enum
-from typing import Dict
-from time_util.time_util import TimeUtil
-from vali_objects.position import Position
-from vali_objects.utils.live_price_fetcher import LivePriceFetcher
-from vali_objects.utils.miner_bucket_enum import MinerBucket
-from vali_objects.utils.vali_utils import ValiUtils
-from vali_objects.vali_config import ValiConfig, TradePair
+from typing import Dict, Set, List, Optional
+from multiprocessing import Process
+from shared_objects.rpc_service_base import RPCServiceBase
 from shared_objects.cache_controller import CacheController
-from shared_objects.metagraph_utils import is_anomalous_hotkey_loss
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 
 import bittensor as bt
 
-from vali_objects.vali_dataclasses.price_source import PriceSource
 
 class EliminationReason(Enum):
     ZOMBIE = "ZOMBIE"
@@ -26,11 +17,18 @@ class EliminationReason(Enum):
     FAILED_CHALLENGE_PERIOD_DRAWDOWN = "FAILED_CHALLENGE_PERIOD_DRAWDOWN"
     LIQUIDATED = "LIQUIDATED"
 
+
 # Constants for departed hotkeys tracking
 DEPARTED_HOTKEYS_KEY = "departed_hotkeys"
 
-class EliminationManager(CacheController):
+
+class EliminationManager(RPCServiceBase, CacheController):
     """"
+    RPC Client for EliminationManager - manages elimination state via RPC.
+
+    This client connects to EliminationManagerServer running in a separate process.
+    Much faster than IPC managerized dicts (50-200x improvement on batch operations).
+
     We basically want to zero out the weights of the eliminated miners
     for long enough that BT deregisters them. However, there is no guarantee that they get deregistered and
     we may need to handle the case where we allow the miner to participate again. In this case, the elimination
@@ -38,382 +36,274 @@ class EliminationManager(CacheController):
     """
 
     def __init__(self, metagraph, position_manager, challengeperiod_manager,
-                 running_unit_tests=False, shutdown_dict=None, ipc_manager=None, is_backtesting=False,
-                 shared_queue_websockets=None, contract_manager=None):
-        super().__init__(metagraph=metagraph, is_backtesting=is_backtesting)
-        self.position_manager = position_manager
+                 running_unit_tests=False, shutdown_dict=None, use_ipc=False, is_backtesting=False,
+                 shared_queue_websockets=None, contract_manager=None, position_locks=None,
+                 sync_in_progress=None, slack_notifier=None, sync_epoch=None, limit_order_manager=None):
+
+        # Initialize RPCServiceBase
+        RPCServiceBase.__init__(
+            self,
+            service_name="EliminationManagerServer",
+            port=50004,  # Unique port for EliminationManager
+            running_unit_tests=running_unit_tests,
+            enable_health_check=True,
+            health_check_interval_s=60,
+            max_consecutive_failures=3,
+            enable_auto_restart=True,
+            slack_notifier=slack_notifier
+        )
+
+        # Initialize CacheController
+        CacheController.__init__(self, metagraph=metagraph, running_unit_tests=running_unit_tests, is_backtesting=is_backtesting)
+
+        # Store dependencies needed for server creation (using private attributes for properties)
+        self._position_manager = position_manager
+        self._challengeperiod_manager = challengeperiod_manager
+        self._contract_manager = contract_manager
         self.shutdown_dict = shutdown_dict
-        self.challengeperiod_manager = challengeperiod_manager
-        self.running_unit_tests = running_unit_tests
-        self.first_refresh_ran = False
+        self.is_backtesting = is_backtesting
         self.shared_queue_websockets = shared_queue_websockets
-        secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
-        self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
-        self.contract_manager = contract_manager
+        self.position_locks = position_locks
+        self.sync_in_progress = sync_in_progress
+        self.sync_epoch = sync_epoch
+        self.limit_order_manager = limit_order_manager
 
-        if ipc_manager:
-            self.eliminations = ipc_manager.list()
-            self.departed_hotkeys = ipc_manager.dict()
-        else:
-            self.eliminations = []
-            self.departed_hotkeys = {}
-        self.eliminations.extend(self.get_eliminations_from_disk())
-        if len(self.eliminations) == 0:
-            ValiBkpUtils.write_file(
-                ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
-                {CacheController.ELIMINATIONS: []}
-            )
+        # Start the RPC service (this replaces direct initialization)
+        self._initialize_service()
 
-        # Initialize departed hotkeys tracking
-        self.departed_hotkeys.update(self._get_departed_hotkeys_from_disk())
-        if len(self.departed_hotkeys) == 0:
-            self._save_departed_hotkeys()
+    # ==================== Dependency Properties (auto-sync to server in test mode) ====================
 
-        # Track previous metagraph hotkeys to detect changes
-        self.previous_metagraph_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
+    @property
+    def position_manager(self):
+        """Position manager dependency"""
+        return self._position_manager
 
-    def handle_perf_ledger_eliminations(self, position_locks):
-        perf_ledger_eliminations = self.position_manager.perf_ledger_manager.get_perf_ledger_eliminations()
-        n_eliminations = 0
-        for e in perf_ledger_eliminations:
-            if self.hotkey_in_eliminations(e['hotkey']):
-                continue
+    @position_manager.setter
+    def position_manager(self, value):
+        """Set position manager and auto-sync to server in test mode"""
+        self._position_manager = value
+        # In test mode, also update server instance
+        if self.running_unit_tests and hasattr(self, '_server_proxy') and self._server_proxy:
+            self._server_proxy.position_manager = value
 
-            n_eliminations += 1
-            self.eliminations.append(e)
-            self.eliminations[-1] = e  # ipc list does not update the object without using __setitem__
+    @property
+    def challengeperiod_manager(self):
+        """Challenge period manager dependency"""
+        return self._challengeperiod_manager
 
-            price_info = e['price_info']
-            trade_pair_to_price_source_used_for_elimination_check = {}
-            for k, v in price_info.items():
-                trade_pair = TradePair.get_latest_tade_pair_from_trade_pair_str(k)
-                elimination_initiated_time_ms = e['elimination_initiated_time_ms']
-                trade_pair_to_price_source_used_for_elimination_check[trade_pair] = PriceSource(source='elim', open=v,
-                                                                                                close=v,
-                                                                                                start_ms=elimination_initiated_time_ms,
-                                                                                                timespan_ms=1000,
-                                                                                                websocket=False)
-            self.handle_eliminated_miner(e['hotkey'], trade_pair_to_price_source_used_for_elimination_check, position_locks)
-            self.contract_manager.slash_miner_collateral_proportion(e['hotkey'], ValiConfig.SLASH_PROPORTION)
+    @challengeperiod_manager.setter
+    def challengeperiod_manager(self, value):
+        """Set challenge period manager and auto-sync to server in test mode"""
+        self._challengeperiod_manager = value
+        # In test mode, also update server instance
+        if self.running_unit_tests and hasattr(self, '_server_proxy') and self._server_proxy:
+            self._server_proxy.challengeperiod_manager = value
 
-        if n_eliminations:
-            self.save_eliminations()
-            bt.logging.info(f'Wrote {n_eliminations} perf ledger eliminations to disk')
+    @property
+    def contract_manager(self):
+        """Contract manager dependency"""
+        return self._contract_manager
 
-    def add_manual_flat_order(self, hotkey: str, position: Position, corresponding_elimination, position_locks,
-                              source_for_elimination):
+    @contract_manager.setter
+    def contract_manager(self, value):
+        """Set contract manager and auto-sync to server in test mode"""
+        self._contract_manager = value
+        # In test mode, also update server instance
+        if self.running_unit_tests and hasattr(self, '_server_proxy') and self._server_proxy:
+            self._server_proxy.contract_manager = value
+
+    def _create_direct_server(self):
+        """Create direct in-memory instance for tests"""
+        from vali_objects.utils.elimination_manager_server import EliminationManagerServer
+
+        return EliminationManagerServer(
+            metagraph=self.metagraph,
+            position_manager=self.position_manager,
+            challengeperiod_manager=self.challengeperiod_manager,
+            running_unit_tests=self.running_unit_tests,
+            shutdown_dict=self.shutdown_dict,
+            is_backtesting=self.is_backtesting,
+            shared_queue_websockets=self.shared_queue_websockets,
+            contract_manager=self.contract_manager,
+            position_locks=self.position_locks,
+            sync_in_progress=self.sync_in_progress,
+            slack_notifier=self.slack_notifier,
+            sync_epoch=self.sync_epoch,
+            limit_order_manager=self.limit_order_manager
+        )
+
+    def _start_server_process(self, address, authkey, server_ready):
+        """Start RPC server in separate process"""
+        from vali_objects.utils.elimination_manager_server import start_elimination_manager_server
+
+        process = Process(
+            target=start_elimination_manager_server,
+            args=(
+                self.metagraph,
+                self.position_manager,
+                self.challengeperiod_manager,
+                self.running_unit_tests,
+                self.shutdown_dict,
+                self.is_backtesting,
+                self.shared_queue_websockets,
+                self.contract_manager,
+                self.position_locks,
+                self.sync_in_progress,
+                self.slack_notifier,
+                self.sync_epoch,
+                self.limit_order_manager,
+                address,
+                authkey,
+                server_ready
+            ),
+            daemon=True
+        )
+        process.start()
+        return process
+
+    # ==================== Client Methods (proxy to RPC) ====================
+
+    def get_eliminations_lock(self):
         """
-        Add flat orders to the positions for a miner that has been eliminated
+        Get the shared eliminations lock for cross-process synchronization.
+
+        NOTE: This method should NOT be called on the RPC client. The lock is local
+        to the server process. If you need synchronized access, make RPC calls which
+        are automatically synchronized server-side.
+
+        Raises:
+            NotImplementedError: Always, because lock is server-side only
         """
-        elimination_time_ms = corresponding_elimination['elimination_initiated_time_ms'] if corresponding_elimination else TimeUtil.now_in_millis()
-        with position_locks.get_lock(hotkey, position.trade_pair.trade_pair_id):
-            # Position could have updated in the time between mdd_check being called and this function being called
-            position_refreshed = self.position_manager.get_miner_position_by_uuid(hotkey, position.position_uuid)
-            if position_refreshed is None:
-                bt.logging.warning(
-                    f"Unexpectedly could not find position with uuid {position.position_uuid} for hotkey {hotkey} and trade pair {position.trade_pair.trade_pair_id}. Not add flat orders")
-                return
+        raise NotImplementedError(
+            "get_eliminations_lock() is not available on RPC client. "
+            "Locking happens automatically on server side for all RPC calls. "
+            "If you need synchronized access, make RPC method calls instead."
+        )
 
-            position = position_refreshed
-            if position.is_closed_position:
-                return
+    def is_hotkey_eliminated(self, hotkey: str) -> bool:
+        """
+        Fast-path check if a hotkey is eliminated (O(1)).
+        Use this in performance-critical paths like should_fail_early().
 
-            fake_flat_order_time = elimination_time_ms
-            if position.orders and position.orders[-1].processed_ms > elimination_time_ms:
-                bt.logging.warning(
-                    f'Unexpectedly found a position with a processed_ms {position.orders[-1].processed_ms} greater than the elimination time {elimination_time_ms} ')
-                fake_flat_order_time = position.orders[-1].processed_ms + 1
+        Returns:
+            bool: True if hotkey is eliminated, False otherwise
+        """
+        return self._server_proxy.is_hotkey_eliminated_rpc(hotkey)
 
-            flat_order = Position.generate_fake_flat_order(position, fake_flat_order_time, self.live_price_fetcher, source_for_elimination)
-            position.add_order(flat_order, self.live_price_fetcher)
-            self.position_manager.save_miner_position(position, delete_open_position_if_exists=True)
-            if self.shared_queue_websockets:
-                self.shared_queue_websockets.put(position.to_websocket_dict())
-            bt.logging.info(f'Added flat order for miner {hotkey} that has been eliminated. '
-                            f'Trade pair: {position.trade_pair.trade_pair_id}. flat order: {flat_order}. '
-                            f'position uuid {position.position_uuid}. Source for elimination {source_for_elimination}')
+    def hotkey_in_eliminations(self, hotkey: str) -> Optional[dict]:
+        """
+        Get full elimination details for a hotkey (O(1)).
+        Returns the complete elimination dict with all metadata.
 
-    def handle_eliminated_miner(self, hotkey: str,
-                                trade_pair_to_price_source_used_for_elimination_check: Dict[TradePair, PriceSource],
-                                position_locks):
+        Returns:
+            dict or None: Elimination details if found, None otherwise
+        """
+        return self._server_proxy.get_elimination_rpc(hotkey)
 
-        for p in self.position_manager.get_positions_for_one_hotkey(hotkey, only_open_positions=True):
-            source_for_elimination = trade_pair_to_price_source_used_for_elimination_check.get(p.trade_pair)
-            corresponding_elimination = self.hotkey_in_eliminations(hotkey)
-            if corresponding_elimination:
-                self.add_manual_flat_order(hotkey, p, corresponding_elimination, position_locks, source_for_elimination)
+    def get_elimination(self, hotkey: str) -> Optional[dict]:
+        """
+        Get elimination details for a hotkey.
 
-    def handle_challenge_period_eliminations(self, position_locks):
-        eliminations_with_reasons = self.challengeperiod_manager.eliminations_with_reasons
-        if not eliminations_with_reasons:
-            return
+        Args:
+            hotkey: The hotkey to look up
 
-        hotkeys = list(eliminations_with_reasons.keys())
-        for hotkey in hotkeys:
-            if self.hotkey_in_eliminations(hotkey):
-                continue
-            elim_reason = eliminations_with_reasons[hotkey][0]
-            elim_mdd = eliminations_with_reasons[hotkey][1]
-            self.append_elimination_row(hotkey=hotkey, current_dd=elim_mdd, reason=elim_reason)
-            self.handle_eliminated_miner(hotkey, {}, position_locks)
-            self.contract_manager.slash_miner_collateral_proportion(hotkey, ValiConfig.CHALLENGEPERIOD_SLASH_PROPORTION)
+        Returns:
+            Elimination dict if found, None otherwise
 
-        self.challengeperiod_manager.eliminations_with_reasons = {}
+        Example:
+            elim = manager.get_elimination("miner_hotkey")
+            if elim:
+                print(f"Eliminated for: {elim['reason']}")
+        """
+        return self._server_proxy.get_elimination_rpc(hotkey)
 
-    def handle_first_refresh(self, position_locks):
-        if self.is_backtesting or self.first_refresh_ran:
-            return
+    def get_eliminated_hotkeys(self) -> Set[str]:
+        """Get all eliminated hotkeys as a set"""
+        return self._server_proxy.get_eliminated_hotkeys_rpc()
 
-        eliminated_hotkeys = self.get_eliminated_hotkeys()
-        hotkey_to_positions = self.position_manager.get_positions_for_hotkeys(eliminated_hotkeys,
-                                                                              only_open_positions=True)
-        for hotkey, open_positions in hotkey_to_positions.items():
-            if not open_positions:
-                continue
-            for p in open_positions:
-                self.add_manual_flat_order(hotkey, p, self.hotkey_in_eliminations(hotkey), position_locks, None)
-
-        self.first_refresh_ran = True
-
-    def process_eliminations(self, position_locks):
-
-        if not self.refresh_allowed(ValiConfig.ELIMINATION_CHECK_INTERVAL_MS) and \
-                not bool(self.challengeperiod_manager.eliminations_with_reasons):
-            return
-
-
-        bt.logging.info(f"running elimination manager. invalidation data {dict(self.position_manager.perf_ledger_manager.perf_ledger_hks_to_invalidate)}")
-        # Update departed hotkeys tracking first to detect re-registrations
-        self._update_departed_hotkeys()
-        self.handle_first_refresh(position_locks)
-        self.handle_perf_ledger_eliminations(position_locks)
-        self.handle_challenge_period_eliminations(position_locks)
-        self.handle_mdd_eliminations(position_locks)
-        self.handle_zombies(position_locks)
-        self._delete_eliminated_expired_miners()
-
-        self.set_last_update_time()
-
-    def is_zombie_hotkey(self, hotkey, all_hotkeys_set):
-        if hotkey in all_hotkeys_set:
-            return False
-
-        return True
-
-    def sync_eliminations(self, dat) -> list:
-        # log the difference in hotkeys
-        hotkeys_before = set(x['hotkey'] for x in self.eliminations)
-        hotkeys_after = set(x['hotkey'] for x in dat)
-        removed = [x for x in hotkeys_before if x not in hotkeys_after]
-        added = [x for x in hotkeys_after if x not in hotkeys_before]
-        bt.logging.info(f'sync_eliminations: removed {len(removed)} {removed}, added {len(added)} {added}')
-        # Update the list in place while keeping the reference intact:
-        self.eliminations[:] = dat
-        self.save_eliminations()
-        return removed
-
-    def hotkey_in_eliminations(self, hotkey):
-        for x in self.eliminations:
-            if x['hotkey'] == hotkey:
-                return deepcopy(x)
-        return None
-
-    def _delete_eliminated_expired_miners(self):
-        deleted_hotkeys = set()
-        # self.eliminations were just refreshed in process_eliminations
-        any_challenege_period_changes = False
-        now_ms = TimeUtil.now_in_millis()
-        metagraph_hotkeys_set = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
-        for x in self.eliminations:
-            if self.shutdown_dict:
-                return
-            hotkey = x['hotkey']
-            elimination_initiated_time_ms = x['elimination_initiated_time_ms']
-            # Don't delete this miner until it hits the minimum elimination time.
-            if now_ms - elimination_initiated_time_ms < ValiConfig.ELIMINATION_FILE_DELETION_DELAY_MS:
-                continue
-            # We will not delete this miner's cache until it has been deregistered by BT
-            if hotkey in metagraph_hotkeys_set:
-                bt.logging.trace(f"miner [{hotkey}] has not been deregistered by BT yet. Not deleting miner dir.")
-                continue
-
-            # If the miner is no longer in the metagraph, we can remove them from the challengeperiod information
-            if hotkey in self.challengeperiod_manager.active_miners:
-                self.challengeperiod_manager.active_miners.pop(hotkey)
-                any_challenege_period_changes = True
-
-            miner_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests) + hotkey
-            all_positions = self.position_manager.get_positions_for_one_hotkey(hotkey)
-            for p in all_positions:
-                self.position_manager.delete_position(p)
-            try:
-                shutil.rmtree(miner_dir)
-            except FileNotFoundError:
-                bt.logging.info(f"miner dir not found. Already deleted. [{miner_dir}]")
-            bt.logging.info(
-                f"miner eliminated with hotkey [{hotkey}] with max dd of [{x.get('dd', 'N/A')}]. reason: [{x['reason']}]"
-                f"Removing miner dir [{miner_dir}]"
-            )
-            deleted_hotkeys.add(hotkey)
-
-        # Write the challengeperiod information to disk
-        if any_challenege_period_changes:
-            self.challengeperiod_manager._write_challengeperiod_from_memory_to_disk()
-
-        if deleted_hotkeys:
-            self.delete_eliminations(deleted_hotkeys)
-
-    def save_eliminations(self):
-        if not self.is_backtesting:
-            self.write_eliminations_to_disk(self.eliminations)
-
-    def write_eliminations_to_disk(self, eliminations):
-        if not isinstance(eliminations, list):
-            eliminations = list(eliminations)  # proxy list
-        vali_eliminations = {CacheController.ELIMINATIONS: eliminations}
-        bt.logging.trace(f"Writing [{len(eliminations)}] eliminations from memory to disk: {vali_eliminations}")
-        output_location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
-        ValiBkpUtils.write_file(output_location, vali_eliminations)
-
-    def clear_eliminations(self):
-        ValiBkpUtils.write_file(ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests),
-                                {CacheController.ELIMINATIONS: []})
-        del self.eliminations[:]
-
-    def get_eliminated_hotkeys(self):
-        return set([x['hotkey'] for x in self.eliminations]) if self.eliminations else set()
-
-    def get_eliminations_from_memory(self):
-        return list(self.eliminations)  # ListProxy is not JSON serializable
+    def get_eliminations_from_memory(self) -> List[dict]:
+        """Get all eliminations as a list"""
+        return self._server_proxy.get_eliminations_from_memory_rpc()
 
     def get_eliminations_from_disk(self) -> list:
-        location = ValiBkpUtils.get_eliminations_dir(running_unit_tests=self.running_unit_tests)
-        try:
-            cached_eliminations = ValiUtils.get_vali_json_file(location, CacheController.ELIMINATIONS)
-            if cached_eliminations is None:
-                cached_eliminations = []
-            bt.logging.trace(f"Loaded [{len(cached_eliminations)}] eliminations from disk. Dir: {location}")
-            return cached_eliminations
-        except Exception as e:
-            bt.logging.warning(f"Could not load eliminations from disk: {e}. Starting with empty list.")
-            return []
+        """Load eliminations from disk"""
+        return self._server_proxy.get_eliminations_from_disk_rpc()
 
-    def append_elimination_row(self, hotkey, current_dd, reason, t_ms=None, price_info=None, return_info=None):
-        elimination_row = self.generate_elimination_row(hotkey, current_dd, reason, t_ms=t_ms,
-                                                        price_info=price_info, return_info=return_info)
-        self.eliminations.append(elimination_row)
-        self.eliminations[-1] = elimination_row  # ipc list does not update the object without using __setitem__
-        self.save_eliminations()
-        bt.logging.info(f"miner eliminated with hotkey [{hotkey}]. Info [{elimination_row}]")
-
-    def delete_eliminations(self, deleted_hotkeys):
-        # with self.eliminations_lock:
-        items_to_remove = [x for x in self.eliminations if x['hotkey'] in deleted_hotkeys]
-        for item in items_to_remove:
-            self.eliminations.remove(item)
-        self.save_eliminations()
-
-    def handle_mdd_eliminations(self, position_locks):
+    def append_elimination_row(self, hotkey: str, current_dd: float, reason: str,
+                                t_ms: int = None, price_info: dict = None, return_info: dict = None) -> None:
         """
-        Checks the mdd of each miner and eliminates any miners that surpass MAX_TOTAL_DRAWDOWN
+        Add elimination row (exposed for testing).
+        Uses RPC in both test and production modes.
+
+        Args:
+            hotkey: The hotkey to eliminate
+            current_dd: Current drawdown
+            reason: Elimination reason
+            t_ms: Optional timestamp in milliseconds
+            price_info: Optional price information
+            return_info: Optional return information
         """
-        from vali_objects.utils.ledger_utils import LedgerUtils
-        bt.logging.info("checking main competition for maximum drawdown eliminations.")
-        if self.shutdown_dict:
-            return
-        challengeperiod_success_hotkeys = self.challengeperiod_manager.get_hotkeys_by_bucket(MinerBucket.MAINCOMP)
+        self._server_proxy.append_elimination_row_rpc(hotkey, current_dd, reason,
+                                                       t_ms=t_ms, price_info=price_info,
+                                                       return_info=return_info)
 
-        filtered_ledger = self.position_manager.perf_ledger_manager.filtered_ledger_for_scoring(
-            portfolio_only=True,
-            hotkeys=challengeperiod_success_hotkeys)
-        for miner_hotkey, ledger in filtered_ledger.items():
-            if self.shutdown_dict:
-                return
-            if self.hotkey_in_eliminations(miner_hotkey):
-                continue
-
-            miner_exceeds_mdd, drawdown_percentage = LedgerUtils.is_beyond_max_drawdown(ledger_element=ledger)
-
-            if miner_exceeds_mdd:
-                self.append_elimination_row(miner_hotkey, drawdown_percentage, EliminationReason.MAX_TOTAL_DRAWDOWN.value)
-                self.handle_eliminated_miner(miner_hotkey, {}, position_locks)
-                self.contract_manager.slash_miner_collateral_proportion(miner_hotkey, ValiConfig.SLASH_PROPORTION)
-
-    def handle_zombies(self, position_locks):
+    def add_elimination(self, hotkey: str, elimination_data: dict) -> bool:
         """
-        If a miner is no longer in the metagraph and an elimination does not exist for them, we create an elimination
-        row for them and add flat orders to their positions. If they have been a zombie for more than
-        ELIMINATION_FILE_DELETION_DELAY_MS, delete them
+        Add or update an elimination record.
+
+        Args:
+            hotkey: The hotkey to eliminate
+            elimination_data: Elimination dict with required fields
+
+        Returns:
+            True if added (new), False if already exists (updated)
+
+        Raises:
+            ValueError: If elimination_data is invalid
+
+        Example:
+            manager.add_elimination("miner_hotkey", {
+                'hotkey': "miner_hotkey",
+                'reason': EliminationReason.MAX_TOTAL_DRAWDOWN.value,
+                'dd': 0.12,
+                'elimination_initiated_time_ms': TimeUtil.now_in_millis()
+            })
         """
-        if self.shutdown_dict or self.is_backtesting:
-            return
+        return self._server_proxy.add_elimination_rpc(hotkey, elimination_data)
 
-        all_miners_dir = ValiBkpUtils.get_miner_dir(running_unit_tests=self.running_unit_tests)
-        all_hotkeys_set = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
-
-        for hotkey in CacheController.get_directory_names(all_miners_dir):
-            corresponding_elimination = self.hotkey_in_eliminations(hotkey)
-            elimination_reason = corresponding_elimination.get('reason') if corresponding_elimination else None
-            if elimination_reason:
-                continue  # already an elimination and marked for deletion
-            elif self.is_zombie_hotkey(hotkey, all_hotkeys_set):
-                self.append_elimination_row(hotkey=hotkey, current_dd=None, reason=EliminationReason.ZOMBIE.value)
-                self.handle_eliminated_miner(hotkey, {}, position_locks)
-
-    def _update_departed_hotkeys(self):
+    def remove_elimination(self, hotkey: str) -> bool:
         """
-        Track hotkeys that have departed from the metagraph (de-registered).
-        Ignores anomalous changes that might indicate network issues.
-        Should be called during process_eliminations to keep departed hotkeys up to date.
+        Remove a single elimination.
+
+        Args:
+            hotkey: The hotkey to remove
+
+        Returns:
+            True if removed, False if not found
+
+        Example:
+            if manager.remove_elimination("miner_hotkey"):
+                print("Elimination removed")
         """
-        if self.is_backtesting:
-            return
+        return self._server_proxy.remove_elimination_rpc(hotkey)
 
-        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
-        lost_hotkeys = self.previous_metagraph_hotkeys - current_hotkeys
-        gained_hotkeys = current_hotkeys - self.previous_metagraph_hotkeys
+    def sync_eliminations(self, dat: list) -> list:
+        """
+        Sync eliminations from external source (batch update).
 
-        # Log changes
-        if lost_hotkeys:
-            bt.logging.debug(f"Metagraph lost hotkeys: {lost_hotkeys}")
-        if gained_hotkeys:
-            bt.logging.debug(f"Metagraph gained hotkeys: {gained_hotkeys}")
+        Args:
+            dat: List of elimination dicts to sync
 
-        # Check for re-registered hotkeys
-        departed_hotkeys_set = set(self.departed_hotkeys.keys())
-        re_registered_hotkeys = gained_hotkeys & departed_hotkeys_set
-        if re_registered_hotkeys:
-            bt.logging.warning(
-                f"Detected {len(re_registered_hotkeys)} re-registered miners: {re_registered_hotkeys}. "
-                f"These hotkeys were previously de-registered and have re-registered. "
-                f"Their orders will be rejected."
-            )
+        Returns:
+            List of removed hotkeys
+        """
+        removed = self._server_proxy.sync_eliminations_rpc(dat)
+        bt.logging.info(f'sync_eliminations: removed {len(removed)} hotkeys')
+        return removed
 
-        # Only track legitimate departures (not anomalous drops)
-        is_anomalous, _ = is_anomalous_hotkey_loss(lost_hotkeys, len(self.previous_metagraph_hotkeys))
-        if lost_hotkeys and not is_anomalous:
-            # Add lost hotkeys to departed tracking
-            new_departures = lost_hotkeys - departed_hotkeys_set
-            if new_departures:
-                current_time_ms = TimeUtil.now_in_millis()
-                for hotkey in new_departures:
-                    self.departed_hotkeys[hotkey] = {
-                        "detected_ms": current_time_ms
-                    }
-                self._save_departed_hotkeys()
-                bt.logging.info(
-                    f"Tracked {len(new_departures)} newly departed hotkeys: {new_departures}. "
-                    f"Total departed hotkeys: {len(self.departed_hotkeys)}"
-                )
-        elif lost_hotkeys:
-            bt.logging.warning(
-                f"Detected anomalous metagraph change: {len(lost_hotkeys)} hotkeys lost "
-                f"({100 * len(lost_hotkeys) / len(self.previous_metagraph_hotkeys):.1f}% of total). "
-                f"Not tracking as departed to avoid false positives."
-            )
-
-        # Update previous hotkeys for next iteration
-        self.previous_metagraph_hotkeys = current_hotkeys
+    def clear_eliminations(self) -> None:
+        """Clear all eliminations"""
+        self._server_proxy.clear_eliminations_rpc()
 
     def is_hotkey_re_registered(self, hotkey: str) -> bool:
         """
@@ -425,71 +315,125 @@ class EliminationManager(CacheController):
         Returns:
             True if the hotkey is in the metagraph AND in the departed_hotkeys dict, False otherwise
         """
-        if not hotkey:
-            return False
+        return self._server_proxy.is_hotkey_re_registered_rpc(hotkey)
 
-        current_hotkeys = set(self.metagraph.hotkeys) if self.metagraph and self.metagraph.hotkeys else set()
+    def get_departed_hotkeys(self) -> Dict[str, dict]:
+        """Get all departed hotkeys"""
+        return self._server_proxy.get_departed_hotkeys_rpc()
 
-        # Re-registered if currently in metagraph AND previously departed (O(1) dict lookup)
-        return hotkey in current_hotkeys and hotkey in self.departed_hotkeys
+    def delete_eliminations(self, deleted_hotkeys):
+        """
+        Delete multiple eliminations.
 
-    def _get_departed_hotkeys_from_disk(self) -> dict:
-        """Load departed hotkeys from disk.
+        Note: This is not exposed as RPC. Use remove_elimination() for single deletions
+        or sync_eliminations() for batch updates.
+        """
+        for hotkey in deleted_hotkeys:
+            self.remove_elimination(hotkey)
 
-        Tries to load from validation/departed_hotkeys.json (runtime file).
-        If not found, falls back to data/default_departed_hotkeys.json (committed default).
+    def process_eliminations(self, position_locks=None, iteration_epoch=None):
+        """
+        Trigger elimination processing.
+        Uses RPC in both test and production modes.
+
+        Args:
+            position_locks: Position locks manager (optional, uses default if None)
+            iteration_epoch: Epoch captured at start of iteration (optional)
+        """
+        self._server_proxy.process_eliminations_rpc(position_locks=position_locks, iteration_epoch=iteration_epoch)
+
+    def handle_perf_ledger_eliminations(self, position_locks=None, iteration_epoch=None):
+        """
+        Process performance ledger eliminations (exposed for testing).
+        Uses RPC in both test and production modes.
+
+        Args:
+            position_locks: Position locks manager (optional, uses default if None)
+            iteration_epoch: Epoch captured at start of iteration (optional)
+        """
+        self._server_proxy.handle_perf_ledger_eliminations_rpc(position_locks=position_locks, iteration_epoch=iteration_epoch)
+
+    def handle_first_refresh(self, position_locks, iteration_epoch=None):
+        """
+        Handle first refresh on startup (exposed for testing).
+        Uses RPC in both test and production modes.
+
+        Args:
+            position_locks: Position locks manager
+            iteration_epoch: Epoch captured at start of iteration (optional)
+        """
+        self._server_proxy.handle_first_refresh_rpc(position_locks, iteration_epoch)
+
+    @property
+    def first_refresh_ran(self) -> bool:
+        """
+        Get the first_refresh_ran flag.
+        Indicates whether the first refresh has been executed after validator startup.
 
         Returns:
-            Dict mapping hotkey -> metadata dict with key: detected_ms
+            bool: True if first refresh has run, False otherwise
         """
-        location = ValiBkpUtils.get_departed_hotkeys_dir(running_unit_tests=self.running_unit_tests)
-        try:
-            departed_data = ValiUtils.get_vali_json_file(location, DEPARTED_HOTKEYS_KEY)
-            if departed_data is None:
-                departed_data = {}
-            # Handle legacy list format for backwards compatibility
-            if isinstance(departed_data, list):
-                bt.logging.info(f"Converting legacy departed hotkeys list to dict format")
-                departed_data = {hotkey: {"detected_ms": 0} for hotkey in departed_data}
-            bt.logging.trace(f"Loaded {len(departed_data)} departed hotkeys from disk. Dir: {location}")
-            return departed_data
-        except Exception as e:
-            bt.logging.warning(f"Could not load departed hotkeys from disk: {e}. Trying default file...")
-            # Fall back to default file committed to repo
-            return self._get_departed_hotkeys_from_default_file()
+        return self._server_proxy.get_first_refresh_ran_rpc()
 
-    def _get_departed_hotkeys_from_default_file(self) -> dict:
-        """Load departed hotkeys from the default file committed to the repository.
+    @first_refresh_ran.setter
+    def first_refresh_ran(self, value: bool):
+        """
+        Set the first_refresh_ran flag.
 
-        This file (data/default_departed_hotkeys.json) contains all historically departed
-        hotkeys and serves as a fallback when the runtime file doesn't exist.
+        Args:
+            value: Boolean value to set
+        """
+        self._server_proxy.set_first_refresh_ran_rpc(value)
+
+    def is_zombie_hotkey(self, hotkey: str, all_hotkeys_set: set) -> bool:
+        """
+        Check if a hotkey is a zombie (not in metagraph).
+        Uses RPC in both test and production modes.
+
+        Args:
+            hotkey: The hotkey to check
+            all_hotkeys_set: Set of all current hotkeys in metagraph
 
         Returns:
-            Dict mapping hotkey -> metadata dict with key: detected_ms
+            bool: True if hotkey is a zombie, False otherwise
         """
-        import os
-        base_dir = ValiBkpUtils.get_vali_dir(running_unit_tests=self.running_unit_tests).replace('/validation/', '')
-        default_location = os.path.join(base_dir, 'data', 'default_departed_hotkeys.json')
+        return self._server_proxy.is_zombie_hotkey_rpc(hotkey, all_hotkeys_set)
 
-        try:
-            departed_data = ValiUtils.get_vali_json_file(default_location, DEPARTED_HOTKEYS_KEY)
-            if departed_data is None:
-                departed_data = {}
-            # Handle legacy list format for backwards compatibility
-            if isinstance(departed_data, list):
-                bt.logging.info(f"Converting legacy default departed hotkeys list to dict format")
-                departed_data = {hotkey: {"detected_ms": 0} for hotkey in departed_data}
-            bt.logging.info(f"Loaded {len(departed_data)} departed hotkeys from default file: {default_location}")
-            return departed_data
-        except Exception as e:
-            bt.logging.warning(f"Could not load departed hotkeys from default file: {e}. Starting with empty dict.")
-            return {}
+    def handle_mdd_eliminations(self, position_locks=None, iteration_epoch=None):
+        """
+        Check for maximum drawdown eliminations (exposed for testing).
+        Uses RPC in both test and production modes.
 
-    def _save_departed_hotkeys(self):
-        """Save departed hotkeys to disk."""
-        if not self.is_backtesting:
-            departed_dict = dict(self.departed_hotkeys)  # Convert proxy dict to regular dict
-            departed_data = {DEPARTED_HOTKEYS_KEY: departed_dict}
-            bt.logging.trace(f"Writing {len(departed_dict)} departed hotkeys to disk")
-            output_location = ValiBkpUtils.get_departed_hotkeys_dir(running_unit_tests=self.running_unit_tests)
-            ValiBkpUtils.write_file(output_location, departed_data)
+        Args:
+            position_locks: Position locks manager (optional, uses default if None)
+            iteration_epoch: Epoch captured at start of iteration (optional)
+        """
+        self._server_proxy.handle_mdd_eliminations_rpc(position_locks=position_locks, iteration_epoch=iteration_epoch)
+
+    def save_eliminations(self):
+        """
+        Save eliminations to disk.
+        Uses RPC in both test and production modes.
+        """
+        self._server_proxy.save_eliminations_rpc()
+
+    def write_eliminations_to_disk(self, eliminations: list):
+        """
+        Write eliminations to disk.
+        Uses RPC in both test and production modes.
+
+        Args:
+            eliminations: List of elimination dicts to write
+        """
+        self._server_proxy.write_eliminations_to_disk_rpc(eliminations)
+
+    @property
+    def eliminations(self) -> Dict[str, dict]:
+        """
+        Get eliminations dict (readonly copy).
+        For test mode compatibility.
+
+        Returns:
+            dict: Copy of eliminations dict mapping hotkey to elimination data
+        """
+        return self._server_proxy.get_eliminations_dict_rpc()

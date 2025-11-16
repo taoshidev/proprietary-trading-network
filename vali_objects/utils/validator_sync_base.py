@@ -10,6 +10,7 @@ from vali_objects.position import Position
 import bittensor as bt
 
 from vali_objects.utils.challengeperiod_manager import ChallengePeriodManager
+from vali_objects.utils.live_price_fetcher import LivePriceFetcher
 from vali_objects.utils.miner_bucket_enum import MinerBucket
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_utils import ValiUtils
@@ -34,21 +35,26 @@ class ValidatorSyncBase():
     def __init__(self, shutdown_dict=None, signal_sync_lock=None, signal_sync_condition=None,
                  n_orders_being_processed=None, running_unit_tests=False, position_manager=None,
                  ipc_manager=None, enable_position_splitting = False, verbose=False, contract_manager=None,
-                 live_price_fetcher=None, asset_selection_manager=None
+                 live_price_fetcher=None, asset_selection_manager=None, limit_order_manager=None
 ):
         self.verbose = verbose
-        self.is_mothership = 'ms' in ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        secrets = ValiUtils.get_secrets(running_unit_tests=running_unit_tests)
+        self.is_mothership = 'ms' in secrets
         self.SYNC_LOOK_AROUND_MS = 1000 * 60 * 3
         self.enable_position_splitting = enable_position_splitting
         self.position_manager = position_manager
         self.contract_manager = contract_manager
         self.asset_selection_manager = asset_selection_manager
+        self.limit_order_manager = limit_order_manager
         self.shutdown_dict = shutdown_dict
         self.last_signal_sync_time_ms = 0
         self.signal_sync_lock = signal_sync_lock
         self.signal_sync_condition = signal_sync_condition
         self.n_orders_being_processed = n_orders_being_processed
-        self.live_price_fetcher = live_price_fetcher
+        if live_price_fetcher:
+            self.live_price_fetcher = live_price_fetcher
+        else:
+            self.live_price_fetcher = LivePriceFetcher(secrets, disable_ws=True)
         if ipc_manager:
             self.perf_ledger_hks_to_invalidate = ipc_manager.dict()
         else:
@@ -112,21 +118,24 @@ class ValidatorSyncBase():
         eliminations = candidate_data['eliminations']
         if not self.is_mothership:
             # Get current eliminations before sync
-            old_eliminated_hotkeys = set(x['hotkey'] for x in self.position_manager.elimination_manager.eliminations)
-            
+            old_eliminated_hotkeys = set(x['hotkey'] for x in self.position_manager.elimination_manager.get_eliminations_from_memory())
+
             # Sync eliminations and get removed hotkeys
             removed = self.position_manager.elimination_manager.sync_eliminations(eliminations)
-            
+
             # Get new eliminations after sync
             new_eliminated_hotkeys = set(x['hotkey'] for x in eliminations)
             newly_eliminated = new_eliminated_hotkeys - old_eliminated_hotkeys
-            
+
             # Invalidate perf ledgers for both removed and newly eliminated miners
             for hk in removed:
                 self.perf_ledger_hks_to_invalidate[hk] = 0
             for hk in newly_eliminated:
                 self.perf_ledger_hks_to_invalidate[hk] = 0
 
+        limit_orders_data = candidate_data.get('limit_orders', {})
+        if limit_orders_data:
+            self.limit_order_manager.sync_limit_orders(limit_orders_data)
 
         challengeperiod_data = candidate_data.get('challengeperiod', {})
         if challengeperiod_data:  # Only in autosync as of now.

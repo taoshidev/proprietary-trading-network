@@ -515,7 +515,7 @@ class PerfLedgerManager(CacheController):
         self.contract_manager = contract_manager
         self.cached_miner_account_sizes = {}  # Deepcopy of contract_manager.miner_account_sizes
         self.cache_last_refreshed_date = None  # 'YYYY-MM-DD' format, refresh daily
-        self.pds = live_price_fetcher.polygon_data_service if live_price_fetcher else None  # Load it later once the process starts so ipc works.
+        self.pds = live_price_fetcher if live_price_fetcher else None  # Load it later once the process starts so ipc works.
         self.live_price_fetcher = live_price_fetcher  # For unit tests only
 
         # Every update, pick a hotkey to rebuild in case polygon 1s candle data changed.
@@ -564,6 +564,27 @@ class PerfLedgerManager(CacheController):
         self.pl_elimination_rows.clear()
         self.clear_perf_ledger_eliminations_from_disk()
 
+    def __getstate__(self):
+        """
+        Custom pickle method to exclude unpicklable attributes.
+
+        When using multiprocessing, the PerfLedgerManager needs to be pickled,
+        but position_manager contains RPC clients with threading locks that cannot be pickled.
+        These managers are not needed during parallel processing (positions are passed directly),
+        so we exclude them from pickling.
+        """
+        state = self.__dict__.copy()
+        # Remove unpicklable attributes that aren't needed during parallel processing
+        state['position_manager'] = None
+        state['contract_manager'] = None
+        state['live_price_fetcher'] = None
+        state['pds'] = None
+        return state
+
+    def __setstate__(self, state):
+        """Restore state from pickle, with excluded attributes set to None."""
+        self.__dict__.update(state)
+
     @staticmethod
     def print_bundles(ans: dict[str, dict[str, PerfLedger]]):
         for hk, bundle in ans.items():
@@ -597,11 +618,19 @@ class PerfLedgerManager(CacheController):
         ret = {}
         if from_disk:
             file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
-            if not os.path.exists(file_path):
-                return ret
+            legacy_path = ValiBkpUtils.get_perf_ledgers_path_legacy(self.running_unit_tests)
 
-            with open(file_path, 'r') as file:
-                data = json.load(file)
+            # Try compressed file first
+            if os.path.exists(file_path):
+                data = ValiBkpUtils.read_compressed_json(file_path)
+            # Fall back to legacy uncompressed file
+            elif os.path.exists(legacy_path):
+                with open(legacy_path, 'r') as file:
+                    data = json.load(file)
+                # Migrate to compressed format after successful read
+                ValiBkpUtils.migrate_perf_ledgers_to_compressed(self.running_unit_tests)
+            else:
+                return ret
 
             for hk, possible_bundles in data.items():
                 if self._is_v1_perf_ledger(possible_bundles):
@@ -669,9 +698,12 @@ class PerfLedgerManager(CacheController):
     def clear_perf_ledgers_from_disk(self):
         assert self.running_unit_tests, 'this is only valid for unit tests'
         self.hotkey_to_perf_bundle = {}
+
+        # Clear compressed file
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
         if os.path.exists(file_path):
-            ValiBkpUtils.write_file(file_path, {})
+            ValiBkpUtils.write_compressed_json(file_path, {})
+
         for k in list(self.hotkey_to_perf_bundle.keys()):
             del self.hotkey_to_perf_bundle[k]
 
@@ -685,16 +717,28 @@ class PerfLedgerManager(CacheController):
     @staticmethod
     def clear_perf_ledgers_from_disk_autosync(hotkeys:list):
         file_path = ValiBkpUtils.get_perf_ledgers_path()
+        legacy_path = ValiBkpUtils.get_perf_ledgers_path_legacy()
+
         filtered_data = {}
+
+        # Try compressed file first
         if os.path.exists(file_path):
-            with open(file_path, 'r') as file:
+            existing_data = ValiBkpUtils.read_compressed_json(file_path)
+        # Fall back to legacy uncompressed file and migrate
+        elif os.path.exists(legacy_path):
+            with open(legacy_path, 'r') as file:
                 existing_data = json.load(file)
+            # Migration will handle deleting the legacy file
+            ValiBkpUtils.migrate_perf_ledgers_to_compressed(running_unit_tests=False)
+        else:
+            existing_data = {}
 
-            for hk, bundles in existing_data.items():
-                if hk in hotkeys:
-                    filtered_data[hk] = bundles
+        for hk, bundles in existing_data.items():
+            if hk in hotkeys:
+                filtered_data[hk] = bundles
 
-        ValiBkpUtils.write_file(file_path, filtered_data)
+        # Always write to compressed format
+        ValiBkpUtils.write_compressed_json(file_path, filtered_data)
 
 
     def run_update_loop(self):
@@ -2189,7 +2233,7 @@ class PerfLedgerManager(CacheController):
 
     def save_perf_ledgers_to_disk(self, perf_ledgers: dict[str, dict[str, PerfLedger]] | dict[str, dict[str, dict]], raw_json=False):
         file_path = ValiBkpUtils.get_perf_ledgers_path(self.running_unit_tests)
-        ValiBkpUtils.write_to_dir(file_path, perf_ledgers)
+        ValiBkpUtils.write_compressed_json(file_path, perf_ledgers)
 
     def debug_pl_plot(self, testing_one_hotkey):
         all_bundles = self.get_perf_ledgers(portfolio_only=False)

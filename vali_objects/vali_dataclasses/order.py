@@ -5,6 +5,7 @@ from time_util.time_util import TimeUtil
 from pydantic import field_validator
 
 from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.vali_config import TradePair
 from vali_objects.vali_dataclasses.order_signal import Signal
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from enum import Enum, IntEnum, auto
@@ -16,13 +17,10 @@ class OrderSource(IntEnum):
     DEPRECATION_FLAT = 2               # order inserted when a trade pair is removed (0 used for price)
     PRICE_FILLED_ELIMINATION_FLAT = 3  # order inserted when a miner is eliminated but we price fill it accurately.
     MAX_ORDERS_PER_POSITION_CLOSE = 4  # order inserted when position hits max orders limit and needs to be closed
+    ORDER_SRC_LIMIT_UNFILLED = 5
+    ORDER_SRC_LIMIT_FILLED = 6
+    ORDER_SRC_LIMIT_CANCELLED = 7
 
-# Backward compatibility constants - to be removed after migration
-ORDER_SRC_ORGANIC = OrderSource.ORGANIC
-ORDER_SRC_ELIMINATION_FLAT = OrderSource.ELIMINATION_FLAT
-ORDER_SRC_DEPRECATION_FLAT = OrderSource.DEPRECATION_FLAT
-ORDER_SRC_PRICE_FILLED_ELIMINATION_FLAT = OrderSource.PRICE_FILLED_ELIMINATION_FLAT
-ORDER_SRC_MAX_ORDERS_PER_POSITION_CLOSE = OrderSource.MAX_ORDERS_PER_POSITION_CLOSE
 
 class Order(Signal):
     price: float
@@ -32,7 +30,7 @@ class Order(Signal):
     processed_ms: int
     order_uuid: str
     price_sources: list = []
-    src: int = ORDER_SRC_ORGANIC
+    src: int = OrderSource.ORGANIC
 
     @field_validator('price', 'processed_ms', 'leverage', mode='before')
     def validate_values(cls, v, info):
@@ -63,6 +61,22 @@ class Order(Signal):
     def from_dict(cls, order_dict):
         # This method is now simplified as Pydantic can automatically
         # handle the conversion from dict to model instance
+
+        # Handle trade_pair_id from to_python_dict() serialization
+        if 'trade_pair_id' in order_dict:
+            order_dict['trade_pair'] = TradePair.from_trade_pair_id(order_dict['trade_pair_id'])
+            del order_dict['trade_pair_id']
+        elif 'trade_pair' in order_dict and isinstance(order_dict['trade_pair'], dict):
+            order_dict['trade_pair'] = TradePair.from_trade_pair_id(order_dict['trade_pair']['trade_pair_id'])
+
+        # Handle enum conversions from to_python_dict() serialization
+        if 'order_type' in order_dict and isinstance(order_dict['order_type'], str):
+            order_dict['order_type'] = OrderType.from_string(order_dict['order_type'])
+
+        if 'execution_type' in order_dict and isinstance(order_dict['execution_type'], str):
+            from vali_objects.enums.execution_type_enum import ExecutionType
+            order_dict['execution_type'] = ExecutionType[order_dict['execution_type']]
+
         return cls(**order_dict)
 
     def get_order_age(self, order):
@@ -80,7 +94,11 @@ class Order(Signal):
                     'processed_ms': self.processed_ms,
                     'price_sources': self.price_sources,
                     'order_uuid': self.order_uuid,
-                    'src': self.src}
+                    'src': self.src,
+                    'execution_type': self.execution_type.name,
+                    'limit_price': getattr(self, 'limit_price', None)}
+
+
     def __str__(self):
         # Ensuring the `trade_pair.trade_pair_id` is accessible for the string representation
         # This assumes that trade_pair_id is a valid attribute of trade_pair

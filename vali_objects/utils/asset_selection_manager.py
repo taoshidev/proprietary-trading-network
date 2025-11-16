@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 
 import bittensor as bt
 from typing import Dict, Optional
@@ -46,6 +47,32 @@ class AssetSelectionManager:
 
         self.ASSET_SELECTIONS_FILE = ValiBkpUtils.get_asset_selections_file_location(running_unit_tests=running_unit_tests)
         self._load_asset_selections_from_disk()
+
+    def receive_asset_selection(self, synapse: template.protocol.AssetSelection) -> template.protocol.AssetSelection:
+        """
+        receive miner's asset selection
+        """
+        try:
+            # Process the collateral record through the contract manager
+            sender_hotkey = synapse.dendrite.hotkey
+            bt.logging.info(f"Received miner asset selection from validator hotkey [{sender_hotkey}].")
+            success = self.receive_asset_selection_update(synapse.asset_selection)
+
+            if success:
+                synapse.successfully_processed = True
+                synapse.error_message = ""
+                bt.logging.info(f"Successfully processed AssetSelection synapse from {sender_hotkey}")
+            else:
+                synapse.successfully_processed = False
+                synapse.error_message = "Failed to process miner's asset selection"
+                bt.logging.warning(f"Failed to process AssetSelection synapse from {sender_hotkey}")
+
+        except Exception as e:
+            synapse.successfully_processed = False
+            synapse.error_message = f"Error processing asset selection: {str(e)}"
+            bt.logging.error(f"Exception in receive_asset_selection: {e}")
+
+        return synapse
 
     @property
     def asset_selection_lock(self):
@@ -137,17 +164,36 @@ class AssetSelectionManager:
         Returns:
             True if the miner can trade this asset class, False otherwise
         """
+
+        # Time the timestamp operations
+        ts_start = time.perf_counter()
         if timestamp_ms is None:
             timestamp_ms = TimeUtil.now_in_millis()
-        if timestamp_ms < ASSET_CLASS_SELECTION_TIME_MS:
+        ts_check = timestamp_ms < ASSET_CLASS_SELECTION_TIME_MS
+        ts_ms = (time.perf_counter() - ts_start) * 1000
+
+        if ts_check:
+            bt.logging.info(f"[ASSET_TIMING] timestamp_check={ts_ms:.2f}ms, early_exit=True (pre-selection era)")
             return True
 
+        # Time the IPC dict lookup
+        ipc_start = time.perf_counter()
         selected_asset_class = self.asset_selections.get(miner_hotkey, None)
-        if selected_asset_class is None:
-            return False
+        ipc_ms = (time.perf_counter() - ipc_start) * 1000
 
-        # Check if the selected asset class matches the trade pair category
-        return selected_asset_class == trade_pair_category
+        # Time the comparison
+        compare_start = time.perf_counter()
+        result = selected_asset_class == trade_pair_category if selected_asset_class is not None else False
+        compare_ms = (time.perf_counter() - compare_start) * 1000
+
+        total_ms = ts_ms + ipc_ms + compare_ms
+        bt.logging.info(
+            f"[ASSET_TIMING] timestamp_check={ts_ms:.2f}ms, ipc_lookup={ipc_ms:.2f}ms, "
+            f"compare={compare_ms:.2f}ms, total={total_ms:.2f}ms, "
+            f"selected={selected_asset_class}, requested={trade_pair_category}, result={result}"
+        )
+
+        return result
 
     def process_asset_selection_request(self, asset_selection: str, miner: str) -> Dict[str, str]:
         """
@@ -218,9 +264,9 @@ class AssetSelectionManager:
         try:
             # Get other validators to broadcast to
             if self.is_testnet:
-                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
+                validator_axons = [n.axon_info for n in self.metagraph.get_neurons() if n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
             else:
-                validator_axons = [n.axon_info for n in self.metagraph.neurons if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
+                validator_axons = [n.axon_info for n in self.metagraph.get_neurons() if n.stake > bt.Balance(ValiConfig.STAKE_MIN) and n.axon_info.ip != ValiConfig.AXON_NO_IP and n.axon_info.hotkey != self.wallet.hotkey.ss58_address]
 
             if not validator_axons:
                 bt.logging.debug("No other validators to broadcast CollateralRecord to")

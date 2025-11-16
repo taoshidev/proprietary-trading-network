@@ -61,16 +61,10 @@ class TestEliminationIntegration(TestBase):
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         
         self.position_locks = PositionLocks()
-        
-        # Create IPC manager for multiprocessing simulation
-        self.mock_ipc_manager = MagicMock()
-        self.mock_ipc_manager.list.return_value = []
-        self.mock_ipc_manager.dict.return_value = {}
-        
-        # Create all managers with IPC
+
+        # Create all managers
         self.perf_ledger_manager = EnhancedMockPerfLedgerManager(
             self.mock_metagraph,
-            ipc_manager=self.mock_ipc_manager,
             running_unit_tests=True,
             perf_ledger_hks_to_invalidate={}
         )
@@ -81,7 +75,7 @@ class TestEliminationIntegration(TestBase):
             self.live_price_fetcher,
             None,
             running_unit_tests=True,
-            ipc_manager=self.mock_ipc_manager,
+            use_ipc=False,
             contract_manager=self.contract_manager
         )
         
@@ -274,12 +268,12 @@ class TestEliminationIntegration(TestBase):
         self.assertEqual(zombie_elim['reason'], EliminationReason.ZOMBIE.value)
         
         # Step 4: Challenge period failure
-        self.challengeperiod_manager.eliminations_with_reasons = {
+        self.challengeperiod_manager.update_elimination_reasons({
             self.CHALLENGE_FAIL_MINER: (
                 EliminationReason.FAILED_CHALLENGE_PERIOD_DRAWDOWN.value,
                 0.08
             )
-        }
+        })
         
         # Process eliminations
         self.elimination_manager.process_eliminations(self.position_locks)
@@ -384,12 +378,12 @@ class TestEliminationIntegration(TestBase):
 
         
         # 3. Challenge period failure
-        self.challengeperiod_manager.eliminations_with_reasons = {
+        self.challengeperiod_manager.update_elimination_reasons({
             self.CHALLENGE_FAIL_MINER: (
                 EliminationReason.FAILED_CHALLENGE_PERIOD_TIME.value,
                 None
             )
-        }
+        })
         
         # 4. Perf ledger liquidation
         self.perf_ledger_manager.pl_elimination_rows.append({
@@ -490,7 +484,7 @@ class TestEliminationIntegration(TestBase):
             EliminationReason.MAX_TOTAL_DRAWDOWN.value,
             t_ms=old_elimination_time
         )
-        self.elimination_manager.eliminations.append(old_elim)
+        self.elimination_manager.add_elimination('old_eliminated_miner', old_elim)
         
         # Remove from metagraph (deregistered)
         self.mock_metagraph.hotkeys = [hk for hk in self.mock_metagraph.hotkeys if hk != 'old_eliminated_miner']

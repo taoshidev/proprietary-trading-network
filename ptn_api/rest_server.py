@@ -1,5 +1,6 @@
 import statistics
 from string import hexdigits
+import uuid
 
 import bittensor as bt
 import threading
@@ -22,7 +23,12 @@ from vali_objects.utils.vali_bkp_utils import CustomEncoder
 from vali_objects.position import Position
 from vali_objects.utils.position_manager import PositionManager
 from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import ValiConfig, TradePair
+from vali_objects.enums.execution_type_enum import ExecutionType
+from vali_objects.enums.order_type_enum import OrderType
+from vali_objects.vali_dataclasses.order import Order, OrderSource
+from vali_objects.exceptions.signal_exception import SignalException
+from vali_objects.utils.order_processor import OrderProcessor
 from multiprocessing import current_process
 from ptn_api.api_key_refresh import APIKeyMixin
 from ptn_api.nonce_manager import NonceManager
@@ -296,7 +302,7 @@ class PTNRestServer(APIKeyMixin):
     def __init__(self, api_keys_file, shared_queue=None, host="127.0.0.1",
                  port=48888, refresh_interval=15, metrics_interval_minutes=5, position_manager=None, contract_manager=None,
                  miner_statistics_manager=None, request_core_manager=None,
-                 asset_selection_manager=None, debt_ledger_manager=None):
+                 asset_selection_manager=None, debt_ledger_manager=None, limit_order_manager=None, market_order_manager=None):
         """Initialize the REST server with API key handling and routing.
 
         Args:
@@ -308,6 +314,7 @@ class PTNRestServer(APIKeyMixin):
             metrics_interval_minutes: How often to log API metrics (minutes)
             position_manager: Optional position manager for handling miner positions
             contract_manager: Optional contract manager for handling collateral operations
+            market_order_manager: Optional market order manager for development order processing
         """
         print(f"[REST-INIT] Step 1/8: Initializing API key handling...")
         # Initialize API key handling
@@ -324,6 +331,8 @@ class PTNRestServer(APIKeyMixin):
         self.nonce_manager = NonceManager()
         self.asset_selection_manager = asset_selection_manager
         self.debt_ledger_manager = debt_ledger_manager
+        self.limit_order_manager = limit_order_manager
+        self.market_order_manager = market_order_manager
         self.data_path = ValiConfig.BASE_DIR
         self.host = host
         self.port = port
@@ -726,6 +735,29 @@ class PTNRestServer(APIKeyMixin):
             else:
                 return self._jsonify_with_custom_encoder(data)
 
+        @self.app.route("/limit-orders/<minerid>", methods=["GET"])
+        def get_limit_orders_unique(minerid):
+            api_key = self._get_api_key_safe()
+
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+
+            api_key_tier = self.get_api_key_tier(api_key)
+            if api_key_tier == 100 and self.limit_order_manager:
+                orders_data = self.limit_order_manager.to_dashboard_dict(minerid)
+                if not orders_data:
+                    return jsonify({'error': f'No limit orders found for miner {minerid}'}), 404
+            else:
+                try:
+                    orders_data = ValiBkpUtils.get_limit_orders(minerid, running_unit_tests=False)
+                    if not orders_data:
+                        return jsonify({'error': f'No limit orders found for miner {minerid}'}), 404
+                except Exception as e:
+                    bt.logging.error(f"Error retrieving limit orders for {minerid}: {e}")
+                    return jsonify({'error': 'Error retrieving limit orders'}), 500
+
+            return jsonify(orders_data)
+
         @self.app.route("/collateral/deposit", methods=["POST"])
         def deposit_collateral():
             """Process collateral deposit with encoded extrinsic."""
@@ -1003,6 +1035,146 @@ class PTNRestServer(APIKeyMixin):
             except Exception as e:
                 bt.logging.error(f"Error retrieving miner selections: {e}")
                 return jsonify({'error': 'Internal server error retrieving miner selections'}), 500
+
+        @self.app.route("/development/order", methods=["POST"])
+        def process_development_order():
+            """
+            Process development orders for testing market, limit, and cancel operations.
+            Uses fixed hotkey 'DEVELOPMENT' for all operations.
+
+            Example requests:
+
+            # Market order
+            curl -X POST http://localhost:48888/development/order \\
+              -H "Authorization: Bearer YOUR_API_KEY" \\
+              -H "Content-Type: application/json" \\
+              -d '{"execution_type": "MARKET", "trade_pair_id": "BTCUSD", "order_type": "LONG", "leverage": 1.0}'
+
+            # Limit order
+            curl -X POST http://localhost:48888/development/order \\
+              -H "Authorization: Bearer YOUR_API_KEY" \\
+              -H "Content-Type": application/json" \\
+              -d '{"execution_type": "LIMIT", "trade_pair_id": "BTCUSD", "order_type": "LONG", "leverage": 1.0, "limit_price": 50000.0}'
+
+            # Cancel specific limit order
+            curl -X POST http://localhost:48888/development/order \\
+              -H "Authorization: Bearer YOUR_API_KEY" \\
+              -H "Content-Type: application/json" \\
+              -d '{"execution_type": "LIMIT_CANCEL", "trade_pair_id": "BTCUSD", "order_uuid": "specific-uuid"}'
+
+            # Cancel all limit orders for trade pair
+            curl -X POST http://localhost:48888/development/order \\
+              -H "Authorization: Bearer YOUR_API_KEY" \\
+              -H "Content-Type: application/json" \\
+              -d '{"execution_type": "LIMIT_CANCEL", "trade_pair_id": "BTCUSD"}'
+            """
+            DEVELOPMENT_HOTKEY = ValiConfig.DEVELOPMENT_HOTKEY
+
+            # Check API key authentication
+            api_key = self._get_api_key_safe()
+            if not self.is_valid_api_key(api_key):
+                return jsonify({'error': 'Unauthorized access'}), 401
+
+            try:
+                # Parse and validate request
+                if not request.is_json:
+                    return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+                data = request.get_json()
+                if not data:
+                    return jsonify({'error': 'Invalid JSON body'}), 400
+
+                # Create signal dict from request data
+                signal = {
+                    'trade_pair': data.get('trade_pair_id'),
+                    'order_type': data.get('order_type', '').upper(),
+                    'leverage': data.get('leverage'),
+                    'execution_type': data.get('execution_type', 'MARKET').upper()
+                }
+
+                # Add limit_price for limit orders
+                if 'limit_price' in data:
+                    signal['limit_price'] = data['limit_price']
+
+                # Use OrderProcessor to parse signal (same logic as validator.py)
+                trade_pair, execution_type, order_uuid = OrderProcessor.parse_signal_data(
+                    signal, data.get('order_uuid')
+                )
+
+                now_ms = TimeUtil.now_in_millis()
+                miner_repo_version = "development"
+
+                # Route based on execution type (same logic as validator.py)
+                if execution_type == ExecutionType.LIMIT:
+                    # Check if limit order manager is available
+                    if not self.limit_order_manager:
+                        return jsonify({'error': 'Limit order operations not available'}), 503
+
+                    # Use OrderProcessor to handle LIMIT order
+                    order = OrderProcessor.process_limit_order(
+                        signal, trade_pair, order_uuid, now_ms,
+                        DEVELOPMENT_HOTKEY, self.limit_order_manager
+                    )
+
+                    return jsonify({
+                        'status': 'success',
+                        'execution_type': 'LIMIT',
+                        'order_uuid': order_uuid,
+                        'order': str(order)
+                    })
+
+                elif execution_type == ExecutionType.LIMIT_CANCEL:
+                    # Check if limit order manager is available
+                    if not self.limit_order_manager:
+                        return jsonify({'error': 'Limit order operations not available'}), 503
+
+                    # Use OrderProcessor to handle LIMIT_CANCEL
+                    result = OrderProcessor.process_limit_cancel(
+                        signal, trade_pair, order_uuid, now_ms,
+                        DEVELOPMENT_HOTKEY, self.limit_order_manager
+                    )
+
+                    return jsonify({
+                        'status': 'success',
+                        'execution_type': 'LIMIT_CANCEL',
+                        'result': result
+                    })
+
+                else:  # ExecutionType.MARKET
+                    # Check if market order manager is available
+                    if not self.market_order_manager:
+                        return jsonify({'error': 'Market order operations not available'}), 503
+
+                    # Use OrderProcessor to handle MARKET order
+                    err_msg, updated_position = OrderProcessor.process_market_order(
+                        signal, trade_pair, order_uuid, now_ms,
+                        DEVELOPMENT_HOTKEY, miner_repo_version,
+                        self.market_order_manager, synapse=None
+                    )
+
+                    if err_msg:
+                        return jsonify({
+                            'status': 'error',
+                            'execution_type': 'MARKET',
+                            'error': err_msg
+                        }), 400
+                    else:
+                        order_json = updated_position.orders[-1].__str__() if updated_position else None
+                        return jsonify({
+                            'status': 'success',
+                            'execution_type': 'MARKET',
+                            'order_uuid': order_uuid,
+                            'order': order_json
+                        })
+
+            except SignalException as e:
+                bt.logging.error(f"SignalException in development order: {e}")
+                return jsonify({'error': f'Signal error: {str(e)}'}), 400
+
+            except Exception as e:
+                bt.logging.error(f"Error processing development order: {e}")
+                bt.logging.error(traceback.format_exc())
+                return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
     def _verify_coldkey_owns_hotkey(self, coldkey_ss58: str, hotkey_ss58: str) -> bool:
         """

@@ -60,15 +60,10 @@ class TestPerfLedgerEliminations(TestBase):
         self.live_price_fetcher = LivePriceFetcher(secrets=secrets, disable_ws=True)
         
         self.position_locks = PositionLocks()
-        
-        # Create perf ledger manager with IPC manager for testing
-        self.mock_ipc_manager = MagicMock()
-        self.mock_ipc_manager.list.return_value = []
-        self.mock_ipc_manager.dict.return_value = {}
-        
+
+        # Create perf ledger manager for testing
         self.perf_ledger_manager = PerfLedgerManager(
             self.mock_metagraph,
-            ipc_manager=self.mock_ipc_manager,
             running_unit_tests=True,
             perf_ledger_hks_to_invalidate={}
         )

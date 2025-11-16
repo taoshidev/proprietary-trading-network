@@ -1,4 +1,5 @@
 import math
+import time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
 
@@ -136,7 +137,7 @@ class PriceSlippageModel:
 
         size = abs(order.leverage) * ValiConfig.DEFAULT_CAPITAL
         base, _ = order.trade_pair.trade_pair.split("/")
-        base_to_usd_conversion = cls.live_price_fetcher.polygon_data_service.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
+        base_to_usd_conversion = cls.live_price_fetcher.get_currency_conversion(base=base, quote="USD") if base != "USD" else 1  # TODO: fallback?
         # print(base_to_usd_conversion)
         volume_standard_lots = size / (100_000 * base_to_usd_conversion)  # Volume expressed in terms of standard lots (1 std lot = 100,000 base currency)
 
@@ -236,7 +237,7 @@ class PriceSlippageModel:
         days_ago = max(adv_lookback_window, calc_vol_window) + 4  # +1 for last day, +1 because daily_returns is NaN for 1st day, +2 for padding (unexpected holidays)
         start_date = cls.holidays_nyse.get_nth_working_day(order_date, -days_ago).strftime("%Y-%m-%d")
 
-        price_info_raw = cls.live_price_fetcher.polygon_data_service.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
+        price_info_raw = cls.live_price_fetcher.unified_candle_fetcher(trade_pair, start_date, order_date, timespan="day")
         aggs = []
         try:
             for a in price_info_raw:
@@ -326,6 +327,54 @@ class PriceSlippageModel:
                     order_updated = True
                 if order_updated:
                     position.rebuild_position_with_updated_orders(self.live_price_fetcher)
+
+    class FeatureRefresher:
+        """Daemon process that refreshes price slippage model features daily"""
+
+        def __init__(self, price_slippage_model, slack_notifier=None):
+            self.price_slippage_model = price_slippage_model
+            self.slack_notifier = slack_notifier
+
+        def run_update_loop(self):
+            from setproctitle import setproctitle
+            from shared_objects.error_utils import ErrorUtils
+            import traceback
+
+            setproctitle("vali_SlippageRefresher")
+            bt.logging.info("PriceSlippageFeatureRefresher daemon started")
+
+            # Run indefinitely - process will terminate when main process exits (daemon=True)
+            while True:
+                try:
+                    # Refresh features - the method has built-in date checking
+                    # and will only update if it's a new day
+                    self.price_slippage_model.refresh_features_daily()
+
+                    # Sleep for 10 minutes between checks
+                    # The refresh_features_daily method has built-in logic to only
+                    # refresh once per day, so checking every 10 minutes is fine
+                    time.sleep(10 * 60)
+
+                except Exception as e:
+                    error_traceback = traceback.format_exc()
+                    bt.logging.error(f"Error in PriceSlippageFeatureRefresher: {e}")
+                    bt.logging.error(error_traceback)
+
+                    # Send Slack notification
+                    if self.slack_notifier:
+                        error_message = ErrorUtils.format_error_for_slack(
+                            error=e,
+                            traceback_str=error_traceback,
+                            include_operation=True,
+                            include_timestamp=True
+                        )
+                        self.slack_notifier.send_message(
+                            f"❌ PriceSlippageFeatureRefresher Error!\n{error_message}",
+                            level="error"
+                        )
+
+                    # Sleep before retrying
+                    time.sleep(10 * 60)
 
 
 if __name__ == "__main__":

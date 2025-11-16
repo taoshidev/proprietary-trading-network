@@ -1,11 +1,17 @@
+from multiprocessing.managers import BaseManager
+from multiprocessing import Process
 import time
+import uuid
 from typing import List, Tuple, Dict
 
 import numpy as np
 from data_generator.tiingo_data_service import TiingoDataService
 from data_generator.polygon_data_service import PolygonDataService
-from time_util.time_util import TimeUtil
-
+from time_util.time_util import TimeUtil, UnifiedMarketCalendar
+from setproctitle import setproctitle
+from shared_objects.error_utils import ErrorUtils
+from shared_objects.rpc_service_base import RPCServiceBase
+import traceback
 from vali_objects.vali_config import TradePair
 from vali_objects.position import Position
 from vali_objects.utils.vali_utils import ValiUtils
@@ -15,9 +21,210 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from vali_objects.vali_dataclasses.price_source import PriceSource
 from statistics import median
 
+class LivePriceFetcherClient(RPCServiceBase):
+    """
+    Wrapper around the LivePriceFetcher RPC client that performs periodic health checks.
+    Health checks run inline on the main thread when methods are called.
+    """
+
+    def __init__(self, secrets, disable_ws=False, ipc_manager=None, is_backtesting=False, slack_notifier=None, running_unit_tests=False):
+        """
+        Initialize client and start the server process.
+
+        Args:
+            secrets: Dictionary containing API keys for data services
+            disable_ws: Whether to disable websocket connections
+            ipc_manager: IPC manager for shared memory
+            is_backtesting: Whether running in backtesting mode
+            slack_notifier: SlackNotifier instance for error notifications
+            running_unit_tests: Whether running in unit test mode
+        """
+        # Initialize RPCServiceBase
+        RPCServiceBase.__init__(
+            self,
+            service_name="LivePriceFetcher",
+            port=50000,
+            running_unit_tests=running_unit_tests,
+            enable_health_check=True,
+            health_check_interval_s=60,
+            max_consecutive_failures=3,
+            enable_auto_restart=True,
+            slack_notifier=slack_notifier
+        )
+
+        # Store dependencies for server creation
+        self._secrets = secrets
+        self._disable_ws = disable_ws
+        self._ipc_manager = ipc_manager
+        self._is_backtesting = is_backtesting
+
+        # Market calendar for local (non-RPC) market hours checking
+        self._market_calendar = UnifiedMarketCalendar()
+
+        # Start the RPC service
+        self._initialize_service()
+
+        # Store reference for backward compatibility
+        self._client = self._server_proxy
+
+    def _create_direct_server(self):
+        """Create direct in-memory instance for tests"""
+        return LivePriceFetcher(
+            self._secrets,
+            disable_ws=self._disable_ws,
+            ipc_manager=self._ipc_manager,
+            is_backtesting=self._is_backtesting
+        )
+
+    def _start_server_process(self, address, authkey, server_ready):
+        """Start RPC server in separate process"""
+        def server_main():
+            from setproctitle import setproctitle
+            setproctitle("vali_LivePriceFetcher")
+
+            # Create server instance
+            server_instance = LivePriceFetcher(
+                self._secrets,
+                disable_ws=self._disable_ws,
+                ipc_manager=self._ipc_manager,
+                is_backtesting=self._is_backtesting
+            )
+
+            # Serve RPC
+            self._serve_rpc(server_instance, address, authkey, server_ready)
+
+        process = Process(target=server_main, daemon=True)
+        process.start()
+        return process
+
+    def is_market_open(self, trade_pair: TradePair, time_ms=None) -> bool:
+        """
+        Check if market is open for a trade pair. Executes locally (no RPC).
+
+        Args:
+            trade_pair: The trade pair to check
+            time_ms: Optional timestamp in milliseconds (defaults to now)
+
+        Returns:
+            bool: True if market is open, False otherwise
+        """
+        if time_ms is None:
+            time_ms = TimeUtil.now_in_millis()
+        return self._market_calendar.is_market_open(trade_pair, time_ms)
+
+    def __getattr__(self, name):
+        """
+        Proxy all method calls to the underlying client.
+        """
+        # Proxy the call to the underlying client (which is _server_proxy from RPCServiceBase)
+        return getattr(self._server_proxy, name)
+
+    class HealthChecker:
+        """Daemon process that continuously monitors LivePriceFetcher server health"""
+
+        def __init__(self, live_price_fetcher_client, slack_notifier=None):
+            self.live_price_fetcher_client = live_price_fetcher_client
+            self.slack_notifier = slack_notifier
+
+        def run_update_loop(self):
+
+            setproctitle("vali_HealthChecker")
+            bt.logging.info("LivePriceFetcherHealthChecker daemon started")
+
+            # Run indefinitely - process will terminate when main process exits (daemon=True)
+            while True:
+                try:
+                    current_time = TimeUtil.now_in_millis()
+                    self.live_price_fetcher_client.health_check(current_time)
+
+                    # Sleep for 60 seconds between health checks
+                    # The health_check method has its own rate limiting (60s interval)
+                    # so this ensures we check approximately every minute
+                    time.sleep(60)
+
+                except Exception as e:
+                    error_traceback = traceback.format_exc()
+                    bt.logging.error(f"Error in LivePriceFetcherHealthChecker: {e}")
+                    bt.logging.error(error_traceback)
+
+                    # Send Slack notification
+                    if self.slack_notifier:
+                        error_message = ErrorUtils.format_error_for_slack(
+                            error=e,
+                            traceback_str=error_traceback,
+                            include_operation=True,
+                            include_timestamp=True
+                        )
+                        self.slack_notifier.send_message(
+                            f"❌ LivePriceFetcherHealthChecker Error!\n{error_message}",
+                            level="error"
+                        )
+
+                    # Sleep before retrying
+                    time.sleep(60)
+
+class LivePriceFetcherServer:
+    """
+    Wrapper for the LivePriceFetcher RPC server.
+    Instantiating this class starts the server automatically.
+    """
+
+    class ServerManager(BaseManager):
+        pass
+
+    def __init__(self, secrets, address=('localhost', 50000), authkey=None, disable_ws=False, ipc_manager=None, is_backtesting=False, slack_notifier=None):
+        if authkey is None:
+            raise ValueError("authkey parameter is required for LivePriceFetcher server")
+
+        # Wrap everything in try/except to catch and report crashes
+        try:
+            from setproctitle import setproctitle
+            from shared_objects.error_utils import ErrorUtils
+            import traceback
+
+            setproctitle("vali_LivePriceFetcher")
+            bt.logging.info(f"Starting LivePriceFetcher server on {address}...")
+
+            # Create the LivePriceFetcher instance
+            live_price_fetcher = LivePriceFetcher(secrets, disable_ws, ipc_manager, is_backtesting)
+            bt.logging.info(f"LivePriceFetcher instance created successfully")
+
+            # Register and start the RPC server
+            self.ServerManager.register('LivePriceFetcher', callable=lambda: live_price_fetcher)
+            manager = self.ServerManager(address=address, authkey=authkey)
+            server = manager.get_server()
+            bt.logging.success(f"LivePriceFetcher server is now listening and serving requests")
+
+            # Start serving (blocks forever)
+            server.serve_forever()
+
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            bt.logging.error(f"CRITICAL: LivePriceFetcher server crashed: {e}")
+            bt.logging.error(error_traceback)
+
+            # Send critical error notification to Slack
+            if slack_notifier:
+                error_message = ErrorUtils.format_error_for_slack(
+                    error=e,
+                    traceback_str=error_traceback,
+                    include_operation=True,
+                    include_timestamp=True
+                )
+                slack_notifier.send_message(
+                    f"💥 CRITICAL: LivePriceFetcher Server Crashed!\n"
+                    f"{error_message}\n"
+                    f"Price data services are offline. Manual intervention required.",
+                    level="error"
+                )
+
+            # Re-raise to ensure process exits with error code
+            raise
+
 class LivePriceFetcher:
     def __init__(self, secrets, disable_ws=False, ipc_manager=None, is_backtesting=False):
         self.is_backtesting = is_backtesting
+        self.last_health_check_ms = 0
         if "tiingo_apikey" in secrets:
             self.tiingo_data_service = TiingoDataService(api_key=secrets["tiingo_apikey"], disable_ws=disable_ws,
                                                          ipc_manager=ipc_manager)
@@ -32,6 +239,42 @@ class LivePriceFetcher:
     def stop_all_threads(self):
         self.tiingo_data_service.stop_threads()
         self.polygon_data_service.stop_threads()
+
+    def health_check(self) -> dict:
+        """
+        Health check method for RPC connection between client and server.
+        Returns a simple status indicating the server is alive and responsive.
+        """
+        current_time_ms = TimeUtil.now_in_millis()
+        return {
+            "status": "ok",
+            "timestamp_ms": current_time_ms,
+            "is_backtesting": self.is_backtesting
+        }
+
+    def is_market_open(self, trade_pair: TradePair, time_ms=None) -> bool:
+        """
+        Check if market is open for a trade pair.
+
+        Args:
+            trade_pair: The trade pair to check
+            time_ms: Optional timestamp in milliseconds (defaults to now)
+
+        Returns:
+            bool: True if market is open, False otherwise
+        """
+        if time_ms is None:
+            time_ms = TimeUtil.now_in_millis()
+        return self.polygon_data_service.is_market_open(trade_pair, time_ms)
+
+    def get_unsupported_trade_pairs(self):
+        return self.polygon_data_service.UNSUPPORTED_TRADE_PAIRS
+
+    def get_currency_conversion(self, base: str, quote: str):
+        return self.polygon_data_service.get_currency_conversion(base=base, quote=quote)
+
+    def unified_candle_fetcher(self, trade_pair, start_date, order_date, timespan="day"):
+        return self.polygon_data_service.unified_candle_fetcher(trade_pair, start_date, order_date, timespan=timespan)
 
     def sorted_valid_price_sources(self, price_events: List[PriceSource | None], current_time_ms: int, filter_recent_only=True) -> List[PriceSource] | None:
         """
