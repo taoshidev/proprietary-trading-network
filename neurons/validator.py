@@ -274,8 +274,6 @@ class Validator(ValidatorBase):
         self.challengeperiod_manager = ChallengePeriodManager(self.metagraph,
                                                               perf_ledger_manager=self.perf_ledger_manager,
                                                               position_manager=self.position_manager,
-                                                              ipc_manager=self.ipc_manager,
-                                                              eliminations_lock=self.elimination_manager.eliminations_lock,
                                                               contract_manager=self.contract_manager,
                                                               plagiarism_manager=self.plagiarism_manager,
                                                               asset_selection_manager=self.asset_selection_manager,
