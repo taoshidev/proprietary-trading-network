@@ -25,6 +25,8 @@ Usage:
 """
 from typing import Optional, Tuple, Dict, List
 
+from vali_objects.enums.miner_bucket_enum import MinerBucket
+
 from template.protocol import SubaccountRegistration, EntityEndpointUpdate
 from shared_objects.rpc.rpc_client_base import RPCClientBase
 from vali_objects.vali_config import ValiConfig, RPCConnectionMode
@@ -94,6 +96,7 @@ class EntityClient(RPCClientBase):
         asset_class: str,
         collateral_exempt: bool = False,
         drawdown_criteria: str = "trailing",
+        account_type: str = "standard",
     ) -> Tuple[bool, Optional[dict], str]:
         """
         Create a new subaccount for an entity.
@@ -104,11 +107,13 @@ class EntityClient(RPCClientBase):
             asset_class: Asset class selection
             collateral_exempt: If True, skip collateral slashing and exclude from payouts
             drawdown_criteria: "trailing" or "static"
+            account_type: "standard" or "pro"
 
         Returns:
             (success: bool, subaccount_info_dict: Optional[dict], message: str)
         """
-        return self._server.create_subaccount_rpc(entity_hotkey, account_size, asset_class, collateral_exempt=collateral_exempt, drawdown_criteria=drawdown_criteria)
+        return self._server.create_subaccount_rpc(entity_hotkey, account_size, asset_class, collateral_exempt=collateral_exempt,
+                                                  drawdown_criteria=drawdown_criteria, account_type=account_type)
 
     def create_hl_subaccount(
         self,
@@ -117,7 +122,7 @@ class EntityClient(RPCClientBase):
         hl_address: str,
         asset_class: str = "hl_all",
         collateral_exempt: bool = False,
-        payout_address: Optional[str] = None
+        payout_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[dict], str]:
         """
         Create a new subaccount linked to a Hyperliquid address.
@@ -133,7 +138,8 @@ class EntityClient(RPCClientBase):
         Returns:
             (success: bool, subaccount_info_dict: Optional[dict], message: str)
         """
-        return self._server.create_hl_subaccount_rpc(entity_hotkey, account_size, hl_address, asset_class=asset_class, collateral_exempt=collateral_exempt, payout_address=payout_address)
+        return self._server.create_hl_subaccount_rpc(entity_hotkey, account_size, hl_address, asset_class=asset_class,
+                                                     collateral_exempt=collateral_exempt, payout_address=payout_address)
 
     def get_all_active_hl_subaccounts(self) -> List[Tuple[str, dict]]:
         """
@@ -167,6 +173,19 @@ class EntityClient(RPCClientBase):
             SubaccountInfo dict if found, None otherwise
         """
         return self._server.get_subaccount_info_for_synthetic_rpc(synthetic_hotkey)
+
+    def apply_bucket_account_size(
+        self,
+        synthetic_hotkey: str,
+        target_bucket: MinerBucket,
+        pro_account_size: Optional[float] = None,
+    ) -> Tuple[bool, str]:
+        """Point a subaccount at the account size its target bucket trades."""
+        return self._server.apply_bucket_account_size_rpc(synthetic_hotkey, target_bucket, pro_account_size)
+
+    def get_payout_scale(self, synthetic_hotkey: str) -> float:
+        """Multiplier applied to this subaccount's PnL when folded into the entity payout."""
+        return self._server.get_payout_scale_rpc(synthetic_hotkey)
 
     def get_hl_subaccount_limits_data(self, hl_address: str) -> Optional[dict]:
         """

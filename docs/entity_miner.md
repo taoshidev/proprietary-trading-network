@@ -198,6 +198,78 @@ Once in SUBACCOUNT_FUNDED, the subaccount keeps the same `drawdown_criteria` it 
 
 After **90 days** in SUBACCOUNT_FUNDED meeting the thresholds, the subaccount is eligible for additional funding.
 
+### Account Types
+
+Every subaccount is created as `standard`. A pro account is granted at Taoshi's discretion through
+the admin endpoint `POST /admin/miner-bucket/<synthetic_hotkey>` — there is no way to create one
+directly, and `account_type: "pro"` is rejected at subaccount creation.
+
+Pro accounts run on a parallel bucket track with their own carry, stock-borrow and margin-interest
+rates, drawdown thresholds, correlated-exposure caps, and permitted trade pairs. They are
+Vanta-native only: they trade Vanta-sourced pairs (forex and equities) and cannot trade
+Hyperliquid-sourced pairs, so Hyperliquid subaccounts have no pro tier.
+
+| Bucket                        | Account traded | Earns payouts | Payout basis            |
+|-------------------------------|----------------|---------------|-------------------------|
+| `PRO_CHALLENGE_TRANSITION`    | standard       | yes           | standard account size   |
+| `PRO_CHALLENGE_FROM_STANDARD` | pro            | yes           | standard account size   |
+| `PRO_CHALLENGE_DIRECT`        | pro            | no            | —                       |
+| `PRO_FUNDED`                  | pro            | yes           | pro account size        |
+
+Every pro bucket is subject to two drawdown rules, both checked continuously:
+- **Daily loss limit:** equity cannot drop **5%** below the day's opening equity at any point during the day.
+- **EOD trailing loss limit:** equity cannot drop **8%** below the end-of-day equity high-water mark.
+
+`PRO_CHALLENGE_TRANSITION` is still trading the standard account, so it keeps the `SUBACCOUNT_FUNDED` rules instead.
+
+#### Traders who have already passed the standard challenge
+
+A `SUBACCOUNT_FUNDED` trader offered a pro account is moved to `PRO_CHALLENGE_TRANSITION`, a
+one-week wind-down window on their existing standard account. During that week they keep the
+`SUBACCOUNT_FUNDED` rules and keep earning payouts, but they cannot open new positions or increase
+existing ones — those orders are rejected and only closes and reductions are accepted. They move to
+`PRO_CHALLENGE_FROM_STANDARD` as soon as they are promoted again, or automatically at the end of
+the week, at which point any remaining positions are force closed, the account is resized to the
+pro account size, and the ledgers restart.
+
+Throughout `PRO_CHALLENGE_FROM_STANDARD` the trader trades the larger pro account but is paid on
+the size of the standard account they came from: `standard_account_size / pro_account_size × PnL`.
+A soft breach (all-time Calmar or return consistency) does **not** withhold their payout during
+either of these two buckets. Scaling stops once they reach `PRO_FUNDED`.
+
+#### Traders who have not passed the standard challenge
+
+A `SUBACCOUNT_CHALLENGE` trader offered a pro account is moved to `PRO_CHALLENGE_DIRECT` and starts
+the pro challenge from scratch on the pro account. They earn no payouts until `PRO_FUNDED`, and
+soft breaches apply.
+
+#### Passing the pro challenge
+
+Promotion from a pro challenge bucket to `PRO_FUNDED` requires all of:
+
+- **90 days** in the bucket.
+- **6% return** on the account. Missing this target only prevents promotion — pro buckets have no
+  time limit, so it never demotes or eliminates the trader.
+- **All-time Calmar of at least 1.75** — realized return since the start of the challenge divided by
+  the max drawdown over the same period.
+- **Return consistency of at most 20%** — after capping each day's profit at 1.5%, no single day may
+  account for more than 20% of the account's total return. The total is the sum of these capped daily
+  returns, with losing days counted in full.
+
+The last two are also **soft breaches**: in `PRO_CHALLENGE_DIRECT` and `PRO_FUNDED`, breaching either
+one defers that week's payout without eliminating or demoting the trader. Both resolve by continuing
+to trade until the value recovers past its threshold. Calmar is measured over the account's whole
+history from the first day of the challenge onward, so a funded account keeps the ratio it passed
+with.
+
+#### Failing the pro challenge
+
+A drawdown breach in `PRO_CHALLENGE_FROM_STANDARD` demotes back to `SUBACCOUNT_FUNDED`, and one in
+`PRO_CHALLENGE_DIRECT` demotes back to `SUBACCOUNT_CHALLENGE`; in both cases the account is resized
+back to the standard account size. A breach in `PRO_CHALLENGE_TRANSITION` (still the standard
+funded account) or in `PRO_FUNDED` eliminates the subaccount. Re-promotion to pro after passing the
+standard challenge again goes through the admin endpoint like any other pro promotion.
+
 ## Getting Started
 
 ### Prerequisites
@@ -453,6 +525,7 @@ curl -X POST http://localhost:8088/api/create-subaccount \
 | `asset_class` | string | Yes | `"crypto"`, `"forex"`, `"equities"`, `"commodities"`, `"hl_all"` |
 | `account_size` | float | Yes | Account size in USD                                                          |
 | `drawdown_criteria` | string | No | `"trailing"` (default) or `"static"` — see [Elimination](#elimination). Set once at creation; immutable afterward. |
+| `account_type` | string | No | Must be `"standard"` (default). Pro accounts are granted by admin promotion — see [Account Types](#account-types). |
 
 ### 12. Submit Orders
 

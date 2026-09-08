@@ -234,6 +234,17 @@ class ValiConfig:
         },
     }
 
+    # Annualization factor per miner asset class (ASSET_CLASS_BREAKDOWN is keyed by trade pair category)
+    #TODO might be unnecessary
+    MINER_ASSET_CLASS_DAYS_IN_YEAR = {
+        MinerAssetClass.CRYPTO: DAYS_IN_YEAR_CRYPTO,
+        MinerAssetClass.FOREX: DAYS_IN_YEAR_FOREX,
+        MinerAssetClass.EQUITIES: DAYS_IN_YEAR_CRYPTO,
+        MinerAssetClass.COMMODITIES: DAYS_IN_YEAR_CRYPTO,
+        MinerAssetClass.HL_ALL: DAYS_IN_YEAR_CRYPTO,
+        MinerAssetClass.ALL_MARKETS: DAYS_IN_YEAR_CRYPTO,
+    }
+
     # Time Configurations
     TARGET_CHECKPOINT_DURATION_MS = 1000 * 60 * 60 * 12  # 12 hours
     DAILY_MS = 1000 * 60 * 60 * 24  # 1 day
@@ -432,6 +443,37 @@ class ValiConfig:
     SUBACCOUNT_STATIC_EOD_DRAWDOWN_THRESHOLD = 0.05  # retired rule, no longer enforced — kept for dashboard/API payload compatibility
     SUBACCOUNT_STATIC_INTRADAY_DRAWDOWN_THRESHOLD = 0.05  # Rule 2: flat intraday-drawdown threshold for static accounts, regardless of bucket entry time
 
+    # Pro account (entity subaccount) rules.
+    PRO_CHALLENGE_RETURNS_THRESHOLD_DEFAULT = 0.06
+    PRO_CHALLENGE_RETURNS_THRESHOLD = {
+        MinerAssetClass.CRYPTO: 0.06,
+        MinerAssetClass.FOREX: 0.06,
+        MinerAssetClass.EQUITIES: 0.06,
+        MinerAssetClass.HL_ALL: 0.06,
+        MinerAssetClass.ALL_MARKETS: 0.06,
+        MinerAssetClass.COMMODITIES: 0.06,
+    }
+    # Rule 1: intraday drop from day-open equity. Rule 2: drop from the highest EOD equity,
+    # measured against live equity rather than once a day.
+    PRO_CHALLENGE_INTRADAY_DRAWDOWN_THRESHOLD = 0.05
+    PRO_CHALLENGE_EOD_DRAWDOWN_THRESHOLD = 0.08
+    PRO_FUNDED_INTRADAY_DRAWDOWN_THRESHOLD = 0.05
+    PRO_FUNDED_EOD_DRAWDOWN_THRESHOLD = 0.08
+    PRO_STATIC_DRAWDOWN_THRESHOLD = 0.05
+    PRO_STATIC_EOD_DRAWDOWN_THRESHOLD = 0.05
+
+    # Pro promotion criteria.
+    PRO_CHALLENGE_MINIMUM_DAYS = 90
+    PRO_CHALLENGE_MINIMUM_MS = PRO_CHALLENGE_MINIMUM_DAYS * DAILY_MS
+    PRO_CHALLENGE_CALMAR_THRESHOLD = 1.75  # All-time realized return over all-time max drawdown
+    PRO_CHALLENGE_DAILY_CONSISTENCY_THRESHOLD = 0.2  # Best day must be at most this share of total return
+    PRO_DAILY_RETURN_CAP = 0.015  # Each day's profit counts for at most this much toward the total
+    CALMAR_DRAWDOWN_MINIMUM = 0.001  # Floor on the calmar denominator, mirrors SHARPE_STDDEV_MINIMUM
+
+    # Grace period for traders transitioning from standard funded to pro
+    PRO_TRANSITION_GRACE_PERIOD_DAYS = 7
+    PRO_TRANSITION_GRACE_PERIOD_MS = PRO_TRANSITION_GRACE_PERIOD_DAYS * DAILY_MS
+
     # Subaccount promotion requirements
     SUBACCOUNT_FUNDED_MINIMUM_DAYS = 90  # Minimum days in FUNDED before promoting to ALPHA
 
@@ -552,6 +594,21 @@ class ValiConfig:
         4: {MinerAssetClass.CRYPTO: 4.0, MinerAssetClass.FOREX: 20.0, MinerAssetClass.EQUITIES: 2.0, MinerAssetClass.COMMODITIES: 4.0, MinerAssetClass.HL_ALL: 12.0, MinerAssetClass.ALL_MARKETS: 24.0},
     }
 
+    # Correlated-exposure limits, pro accounts only. Multiples of account balance, applied
+    # separately to the *gross long* and the *gross short* exposure summed across a correlation
+    # group (see leverage_utils)
+    PRO_CURRENCY_EXPOSURE_LIMITS = {
+        "USD": 30.0, "EUR": 30.0, "GBP": 30.0, "JPY": 30.0,
+        "CHF": 30.0, "CAD": 30.0, "AUD": 30.0, "NZD": 20.0,
+    }
+    PRO_SECTOR_EXPOSURE_LIMIT = 3.0
+    PRO_US_INDEX_EXPOSURE_LIMIT = 25.0  # shared across the six instruments below
+    # US index pairs and broad US market ETFs carry the same beta, so they share one limit.
+    # EWY, single stocks, and all other ETFs are excluded.
+    PRO_US_INDEX_TRADE_PAIR_IDS = frozenset({
+        "SP500USDC", "XYZ100USDC", "SPY", "QQQ", "IWM", "DIA",
+    })
+
     # Collateral limits
     MIN_COLLATERAL_BALANCE_THETA = 300  # Required minimum total collateral balance per miner in Theta. Approx $150k capital account size
     MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
@@ -564,6 +621,7 @@ class ValiConfig:
     ENTITY_COST_PER_THETA_LOW = 2500  # CPT value used for smaller account sizes <=10k
     ENTITY_COST_PER_THETA_LOW_THRESHOLD = 10_000  # Account sizes at or below this use ENTITY_COST_PER_THETA_LOW
     MAX_SUBACCOUNT_ACCOUNT_SIZE = 100_000  # Maximum account size in USD for entity subaccounts
+    MAX_PRO_ACCOUNT_SIZE = 2_000_000  # Maximum account size in USD for pro accounts
 
     # Entity margin collateral requirement (funded subaccounts only):
     #   required_theta = sum(max_slash_usd - cumulative_slashed_usd) / CPT_RISK
