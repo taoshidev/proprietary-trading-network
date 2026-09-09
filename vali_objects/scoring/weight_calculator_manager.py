@@ -387,7 +387,7 @@ class WeightCalculatorManager(CacheController):
                 )
                 emissions_paid = sum(
                     cp.chunk_emissions_usd for cp in emissions_checkpoints
-                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms < prev_target_end_ms
+                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms
                 )
                 overflow = max(0.0, payouts_owed - emissions_paid)
             else:
@@ -438,7 +438,7 @@ class WeightCalculatorManager(CacheController):
                 payouts_owed = max(0.0, DebtBasedScoring.calculate_payout_from_checkpoints(payouts_owed_checkpoints))
                 emissions_paid = sum(
                     cp.chunk_emissions_usd for cp in entity_emissions_checkpoints
-                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms < prev_target_end_ms
+                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms
                 )
                 overflow = max(0.0, payouts_owed - emissions_paid)
             else:
