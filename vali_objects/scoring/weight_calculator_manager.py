@@ -379,7 +379,7 @@ class WeightCalculatorManager(CacheController):
             emissions_checkpoints = all_emissions_ledgers[hotkey].checkpoints if hotkey in all_emissions_ledgers else []
             if prior_payouts and emissions_checkpoints:
                 first_full_payout_week_ms = prior_payouts[0].start_ms
-                first_full_emissions_week_ms = self._first_full_week_start_ms(emissions_checkpoints[0].timestamp_ms)
+                first_full_emissions_week_ms = self._first_full_week_start_ms(emissions_checkpoints[0].chunk_start_ms)
                 overflow_start_ms = max(first_full_payout_week_ms, first_full_emissions_week_ms)
 
                 payouts_owed = sum(
@@ -387,7 +387,7 @@ class WeightCalculatorManager(CacheController):
                 )
                 emissions_paid = sum(
                     cp.chunk_emissions_usd for cp in emissions_checkpoints
-                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms
+                    if overflow_start_ms + MS_IN_WEEK <= cp.chunk_start_ms
                 )
                 overflow = max(0.0, payouts_owed - emissions_paid)
             else:
@@ -428,7 +428,7 @@ class WeightCalculatorManager(CacheController):
             entity_emissions_checkpoints = all_emissions_ledgers[hotkey].checkpoints if hotkey in all_emissions_ledgers else []
             if entity_checkpoints and entity_emissions_checkpoints:
                 first_full_payout_week_ms = self._first_full_week_start_ms(entity_checkpoints[0].timestamp_ms)
-                first_full_emissions_week_ms = self._first_full_week_start_ms(entity_emissions_checkpoints[0].timestamp_ms)
+                first_full_emissions_week_ms = self._first_full_week_start_ms(entity_emissions_checkpoints[0].chunk_start_ms)
                 overflow_start_ms = max(first_full_payout_week_ms, first_full_emissions_week_ms)
 
                 payouts_owed_checkpoints = [
@@ -438,7 +438,7 @@ class WeightCalculatorManager(CacheController):
                 payouts_owed = max(0.0, DebtBasedScoring.calculate_payout_from_checkpoints(payouts_owed_checkpoints))
                 emissions_paid = sum(
                     cp.chunk_emissions_usd for cp in entity_emissions_checkpoints
-                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms
+                    if overflow_start_ms + MS_IN_WEEK <= cp.chunk_start_ms
                 )
                 overflow = max(0.0, payouts_owed - emissions_paid)
             else:
