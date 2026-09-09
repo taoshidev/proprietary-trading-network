@@ -263,6 +263,14 @@ class WeightCalculatorManager(CacheController):
 
         return checkpoint_results, transformed_list
 
+    @staticmethod
+    def _first_full_week_start_ms(first_timestamp_ms: int) -> int:
+        """Start of the first week fully covered by data beginning at first_timestamp_ms."""
+        week_start_ms = TimeUtil.ms_at_start_of_week(first_timestamp_ms)
+        if first_timestamp_ms > week_start_ms:
+            return week_start_ms + MS_IN_WEEK
+        return week_start_ms
+
     def _compute_miner_weights(
         self,
         hotkeys_to_compute_weights_for: List[str],
@@ -355,19 +363,35 @@ class WeightCalculatorManager(CacheController):
             start_time_ms=payout_activation_start_ms,
             end_time_ms=prev_target_end_ms
         )
-        # Lifetime emissions to carry forward any underpayment from prior weeks
+        # Lifetime emissions, kept for logging below.
         all_time_emissions = {
             hotkey: sum(cp.chunk_emissions_usd for cp in ledger.checkpoints)
             for hotkey, ledger in all_emissions_ledgers.items()
         }
 
-        # pnl weight = current_week_required + max(0, all_time_required - current_week_required - all_time_emissions)
+        # Underpayment carry: prior weeks' payouts owed minus emissions paid against them.
         miner_required_payouts = {}
         miner_overflow_by_hotkey = {}
         for hotkey, payouts in miner_required_payout_settlements.items():
             current_week_required = payouts[-1].payout_penalized if payouts else 0.0
-            all_time_required = sum(p.payout_penalized for p in payouts)
-            overflow = max(0.0, all_time_required - current_week_required - all_time_emissions.get(hotkey, 0.0))
+            prior_payouts = payouts[:-1]
+
+            emissions_checkpoints = all_emissions_ledgers[hotkey].checkpoints if hotkey in all_emissions_ledgers else []
+            if prior_payouts and emissions_checkpoints:
+                first_full_payout_week_ms = prior_payouts[0].start_ms
+                first_full_emissions_week_ms = self._first_full_week_start_ms(emissions_checkpoints[0].timestamp_ms)
+                overflow_start_ms = max(first_full_payout_week_ms, first_full_emissions_week_ms)
+
+                payouts_owed = sum(
+                    p.payout_penalized for p in prior_payouts if p.start_ms >= overflow_start_ms
+                )
+                emissions_paid = sum(
+                    cp.chunk_emissions_usd for cp in emissions_checkpoints
+                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms < prev_target_end_ms
+                )
+                overflow = max(0.0, payouts_owed - emissions_paid)
+            else:
+                overflow = 0.0
             miner_overflow_by_hotkey[hotkey] = overflow
             miner_required_payouts[hotkey] = current_week_required + overflow
 
@@ -400,8 +424,25 @@ class WeightCalculatorManager(CacheController):
                 0.0, cumulative_through_this_week - cumulative_through_prior_week
             )
 
-            # cumulative through prior week = all time required - current week required
-            overflow = max(0.0, cumulative_through_prior_week - all_time_emissions.get(hotkey, 0.0))
+            # Same underpayment-carry logic as regular hotkeys, applied to entities' checkpoint series.
+            entity_emissions_checkpoints = all_emissions_ledgers[hotkey].checkpoints if hotkey in all_emissions_ledgers else []
+            if entity_checkpoints and entity_emissions_checkpoints:
+                first_full_payout_week_ms = self._first_full_week_start_ms(entity_checkpoints[0].timestamp_ms)
+                first_full_emissions_week_ms = self._first_full_week_start_ms(entity_emissions_checkpoints[0].timestamp_ms)
+                overflow_start_ms = max(first_full_payout_week_ms, first_full_emissions_week_ms)
+
+                payouts_owed_checkpoints = [
+                    cp for cp in entity_checkpoints
+                    if overflow_start_ms <= cp.timestamp_ms <= prev_target_end_ms - MS_IN_WEEK
+                ]
+                payouts_owed = max(0.0, DebtBasedScoring.calculate_payout_from_checkpoints(payouts_owed_checkpoints))
+                emissions_paid = sum(
+                    cp.chunk_emissions_usd for cp in entity_emissions_checkpoints
+                    if overflow_start_ms + MS_IN_WEEK <= cp.timestamp_ms < prev_target_end_ms
+                )
+                overflow = max(0.0, payouts_owed - emissions_paid)
+            else:
+                overflow = 0.0
             entity_miner_required_payouts[hotkey] = current_week_required + overflow
             # Small hotkey count (few entities); log unconditionally, not gated on `verbose`,
             # so this is visible on every run while diagnosing the this-week-vs-prior-week diff.
