@@ -470,6 +470,15 @@ def test_prune_removes_missing_regular(manager):
     assert hk not in manager.miner_states
 
 
+def test_prune_removes_development_hotkey(manager):
+    """The development hotkey has positions but is never a miner, so any state it picked up is pruned."""
+    hk = ValiConfig.DEVELOPMENT_HOTKEY
+    manager.miner_states[hk] = _state(MinerBucket.CHALLENGE)
+    manager._position_client.get_all_hotkeys.return_value = [hk]
+    assert manager._prune_hotkeys_no_positions() is True
+    assert hk not in manager.miner_states
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 7 — set_miner_drawdown_stats
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -600,3 +609,19 @@ def test_drawdown_stats_endpoint_rejects_invalid_body(dd_endpoint, raw):
     assert status == 400
     assert "error" in payload
     set_stats.assert_not_called()
+
+
+def test_daemon_iteration_skips_refresh_after_shutdown_during_wait():
+    """Shutdown signaled while waiting for the MDD trigger must not start a refresh."""
+    import threading
+    from vali_objects.challenge_period.challengeperiod_server import ChallengePeriodServer
+
+    host = MagicMock()
+    host._refresh_requested = threading.Event()
+    host._refresh_requested.set()  # the wait ends on a trigger
+    host._fallback_refresh_s = 0
+    host._is_shutdown.return_value = True
+    host.sync_in_progress = False
+
+    assert ChallengePeriodServer.run_daemon_iteration(host) is None
+    host._manager.refresh.assert_not_called()

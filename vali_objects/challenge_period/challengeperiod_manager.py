@@ -1255,6 +1255,8 @@ class ChallengePeriodManager(CacheController):
             hotkeys = set(self._position_client.get_all_hotkeys())
         else:
             hotkeys = set(hotkeys)
+        # The development hotkey has positions but is never a miner; prune any state it picked up
+        hotkeys.discard(ValiConfig.DEVELOPMENT_HOTKEY)
 
         hotkeys_prune = []
         for hotkey, state in self.miner_states.items():

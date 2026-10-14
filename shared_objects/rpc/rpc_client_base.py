@@ -499,14 +499,17 @@ class RPCClientBase:
 
     def _get_rpc_executor(self) -> ThreadPoolExecutor:
         """Lazily create the small executor that carries bounded RPC calls."""
-        if self._rpc_executor is None:
-            with self._rpc_executor_lock:
-                if self._rpc_executor is None:
-                    self._rpc_executor = ThreadPoolExecutor(
-                        max_workers=self.RPC_EXECUTOR_WORKERS,
-                        thread_name_prefix=f"rpc-{self.service_name}",
-                    )
-        return self._rpc_executor
+        # Read once: a concurrent _recycle_rpc_executor can set the field to None between two reads
+        executor = self._rpc_executor
+        if executor is not None:
+            return executor
+        with self._rpc_executor_lock:
+            if self._rpc_executor is None:
+                self._rpc_executor = ThreadPoolExecutor(
+                    max_workers=self.RPC_EXECUTOR_WORKERS,
+                    thread_name_prefix=f"rpc-{self.service_name}",
+                )
+            return self._rpc_executor
 
     def _recycle_rpc_executor(self, force: bool = False) -> None:
         """

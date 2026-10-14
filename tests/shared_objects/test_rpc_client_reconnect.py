@@ -459,3 +459,32 @@ def test_disconnect_shares_the_recycle_path(client):
     client.disconnect()
     assert client._rpc_executor is None
     assert executor._shutdown is True
+
+
+class _RecycledBetweenReadsClient(_HarnessClient):
+    """Scripts successive reads of _rpc_executor, to land a concurrent recycle between two reads."""
+
+    @property
+    def _rpc_executor(self):
+        reads = self.__dict__.get("_scripted_reads")
+        if reads:
+            return reads.pop(0)
+        return self.__dict__.get("_rpc_executor_value")
+
+    @_rpc_executor.setter
+    def _rpc_executor(self, value):
+        self.__dict__["_rpc_executor_value"] = value
+
+
+def test_get_executor_never_returns_none_when_recycled_between_reads():
+    """A recycle that sets the field to None right after the not-None check must not hand back None."""
+    c = _RecycledBetweenReadsClient()
+    executor = object()
+    c.__dict__["_scripted_reads"] = [executor, None]
+    try:
+        assert c._get_rpc_executor() is executor
+    finally:
+        c.__dict__["_scripted_reads"] = None
+        c._rpc_executor = None
+        if c in RPCClientBase._active_instances:
+            c.disconnect()

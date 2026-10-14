@@ -761,10 +761,12 @@ class PositionManager:
     def get_first_order_times(self, hotkeys: List[str] = None) -> Dict[str, int]:
         """
         First order time per hotkey with live positions, without shipping the positions themselves.
-        Same values as the hk_to_first_order_time half of filtered_positions_for_scoring.
+        Same values as the hk_to_first_order_time half of filtered_positions_for_scoring, which
+        also excludes the development hotkey.
         """
         if hotkeys is None:
             hotkeys = list(self.hotkey_to_positions.keys())
+        hotkeys = [hk for hk in hotkeys if hk != ValiConfig.DEVELOPMENT_HOTKEY]
 
         hk_to_first_order_time = {}
         for hotkey in hotkeys:

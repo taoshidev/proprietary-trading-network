@@ -103,6 +103,10 @@ class ChallengePeriodServer(RPCServerBase):
             logger.warning(f"[CP_SERVER] No MDD trigger in {self._fallback_refresh_s:.0f}s, refreshing on fallback")
         self._refresh_requested.clear()
 
+        # Shutdown may have been signaled during the wait; don't start a refresh against stopping servers
+        if self._is_shutdown():
+            return
+
         if self.sync_in_progress:
             logger.warning("ChallengePeriodManager: Sync in progress, skipping refresh until MDD's next pass")
             return

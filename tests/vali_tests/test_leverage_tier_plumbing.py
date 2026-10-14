@@ -407,6 +407,17 @@ class TestLeverageTierUpdate(TestBase):
         stats = receiver.sync_entity_data(checkpoint)
         self.assertEqual(stats['subaccounts_updated'], 1)
         self.assertEqual(receiver.get_entity_data(self.BROADCAST_ENTITY_HOTKEY).subaccounts[0].leverage_tier, 2)
+        # Entity sync only touches entity state; MinerAccount.leverage_tier comes from the account-size sync
+        self.assertIsNone(self._account_tier(synthetic))
+
+    def test_broadcast_with_tier_persists_other_updates(self):
+        # The tier push runs before the subaccount copy is stored, so a failure there would drop every
+        # other field adopted from the same broadcast
+        receiver, synthetic, data = self._receiver_with_legacy_subaccount(0)
+        self.assertTrue(self._receive(receiver, {**data, "leverage_tier": 2, "status": "eliminated"}))
+        sub = receiver.get_entity_data(self.BROADCAST_ENTITY_HOTKEY).subaccounts[0]
+        self.assertEqual(sub.leverage_tier, 2)
+        self.assertEqual(sub.status, "eliminated")
         self.assertEqual(self._account_tier(synthetic), 2)
 
     # ==================== guards on what other validators send ====================

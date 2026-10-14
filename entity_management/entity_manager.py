@@ -3078,7 +3078,10 @@ class EntityManager(ValidatorBroadcastBase):
                                     f"[ENTITY_MANAGER] Set leverage_tier {new_tier} for subaccount {synthetic_hotkey}"
                                 )
                                 changed = True
-                            self._push_leverage_tiers({synthetic_hotkey: new_tier})
+                            if self._miner_account_client:
+                                account = self._miner_account_client.get_accounts([synthetic_hotkey]).get(synthetic_hotkey)
+                                if account is None or account.leverage_tier != new_tier:
+                                    self._miner_account_client.set_leverage_tier(synthetic_hotkey, new_tier)
                         if changed:
                             entity_data.subaccounts[subaccount_id] = existing_sub
                             self._write_entities_from_memory_to_disk()
