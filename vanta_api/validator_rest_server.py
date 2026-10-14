@@ -2340,6 +2340,11 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
         Fee history entries are identified by (time_ms, fee_type). Only 'amount' is editable;
         set to 0 to zero out a fee without removing the timestamp anchor used for accrual.
 
+        order_type is editable. quantity/value/leverage signs are normalized to the new direction.
+        Changing a FLAT order to LONG/SHORT requires a quantity, which lets an accidental close be
+        turned into a partial reduce, reopening the position. Rejected with 409 if another open position
+        exists for the trade pair, and with 422 if the edits close the position before its last order.
+
         Example:
         curl -X PATCH "http://localhost:48888/admin/<hotkey>/positions/<position_uuid>" \\
           -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -2385,6 +2390,17 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
                     return jsonify({'error': f'Cannot patch fields: {denied}'}), 422
                 if edit['order_uuid'] not in order_by_uuid:
                     return jsonify({'error': f"Order {edit['order_uuid']} not found in position"}), 404
+                if 'order_type' in edit['edits']:
+                    try:
+                        new_type = OrderType(edit['edits']['order_type'])
+                    except ValueError:
+                        return jsonify({'error': f"Invalid order_type: {edit['edits']['order_type']}"}), 400
+                    edit['edits']['order_type'] = new_type.value
+                    # A FLAT order's stored quantity is derived during rebuild (-net_quantity),
+                    # so converting it to LONG/SHORT needs an explicit size.
+                    if order_by_uuid[edit['order_uuid']].order_type == OrderType.FLAT and new_type != OrderType.FLAT:
+                        if not edit['edits'].get('quantity'):
+                            return jsonify({'error': 'Changing a FLAT order to LONG/SHORT requires a non-zero quantity'}), 400
 
             # Validate all fee_history edits before applying any
             fee_index = {(f.time_ms, f.fee_type): i for i, f in enumerate(position.fee_history)}
@@ -2414,8 +2430,17 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
 
                 new_order = Order.from_dict(merged)
 
-                # Recalculate value and leverage when price or quantity changes
-                if ('price' in edit['edits'] or 'quantity' in edit['edits']) and new_order.quantity is not None:
+                # Size fields are signed by direction (LONG > 0, SHORT < 0); normalize them to the order type
+                if new_order.order_type in (OrderType.LONG, OrderType.SHORT):
+                    sign = 1 if new_order.order_type == OrderType.LONG else -1
+                    for field in ('quantity', 'value', 'leverage'):
+                        size = getattr(new_order, field)
+                        if size is not None:
+                            setattr(new_order, field, sign * abs(size))
+
+                # Recalculate value and leverage when price, quantity, or direction changes
+                size_fields_changed = {'price', 'quantity', 'order_type'} & set(edit['edits'])
+                if size_fields_changed and new_order.order_type != OrderType.FLAT and new_order.quantity is not None:
                     portfolio_value = self._miner_account_client.get_miner_account_size(
                         hotkey, timestamp_ms=new_order.processed_ms, use_account_floor=True
                     )
@@ -2438,7 +2463,23 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
                 key = (fee_edit['time_ms'], fee_edit['fee_type'])
                 position.fee_history[fee_index[key]].amount = fee_edit['amount']
 
+            was_closed = position.is_closed_position
             position.rebuild_position_with_updated_orders()
+
+            # Rebuild stops at the closing order, so any orders after it would be silently ignored
+            if position.is_closed_position and position.orders[-1].processed_ms != position.close_ms:
+                return jsonify({'error': 'Edits close the position before its last order; '
+                                         'orders after the close would be ignored'}), 422
+
+            # Reopening a closed position must not collide with a newer open position on the same trade pair
+            if was_closed and position.is_open_position:
+                open_pos = self._position_client.get_open_position_for_trade_pair(
+                    hotkey, position.trade_pair.trade_pair_id
+                )
+                if open_pos and open_pos.position_uuid != position_uuid:
+                    return jsonify({'error': f'Cannot reopen position: open position {open_pos.position_uuid} '
+                                             f'already exists for {position.trade_pair.trade_pair_id}. '
+                                             f'Close or delete it first.'}), 409
 
             if position.is_open_position and position.last_price_source:
                 now_ms = TimeUtil.now_in_millis()
@@ -2463,6 +2504,7 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
                 'position_uuid': position_uuid,
                 'orders_patched': len(order_edits),
                 'fees_patched': len(fee_edits),
+                'is_closed_position': position.is_closed_position,
             })
         except Exception as e:
             logger.error(f"Error patching position {position_uuid} for hotkey {hotkey}: {e}")
