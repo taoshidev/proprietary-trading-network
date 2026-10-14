@@ -366,6 +366,27 @@ class TestPositionManager(TestBase):
         self.assertEqual(inc_fo["sl_order@1"]["pr"], 3990.0)
         self.assertEqual(inc_fo["sl_order@2"]["pr"], 4013.5489)
 
+    def test_get_first_order_times_excludes_development_hotkey(self):
+        """Matches filtered_positions_for_scoring: the development hotkey never enters the challenge period."""
+        from vali_objects.vali_dataclasses.order import Order
+        from vali_objects.vali_config import ValiConfig
+
+        for hotkey, open_ms in ((self.DEFAULT_MINER_HOTKEY, 1000), (ValiConfig.DEVELOPMENT_HOTKEY, 2000)):
+            position = deepcopy(self.default_position)
+            position.miner_hotkey = hotkey
+            position.position_uuid = f"{hotkey}_position"
+            position.open_ms = open_ms
+            position.orders = [Order(price=60000.0, slippage=0.0, processed_ms=open_ms, order_uuid=f"{hotkey}_order",
+                                     trade_pair=position.trade_pair, order_type=OrderType.LONG, leverage=0.1)]
+            position.rebuild_position_with_updated_orders(self.live_price_fetcher_client)
+            self.position_client.save_miner_position(position)
+
+        self.assertEqual(self.position_client.get_first_order_times(), {self.DEFAULT_MINER_HOTKEY: 1000})
+        self.assertEqual(
+            self.position_client.get_first_order_times(hotkeys=[self.DEFAULT_MINER_HOTKEY, ValiConfig.DEVELOPMENT_HOTKEY]),
+            {self.DEFAULT_MINER_HOTKEY: 1000},
+        )
+
     # ==================== RACE CONDITION TESTS ====================
     # These tests demonstrate race conditions in PositionManager when accessed concurrently.
     # Based on actual access patterns in the codebase (market_order_manager.py, etc.)

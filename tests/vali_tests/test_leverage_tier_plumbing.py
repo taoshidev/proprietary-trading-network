@@ -407,6 +407,17 @@ class TestLeverageTierUpdate(TestBase):
         stats = receiver.sync_entity_data(checkpoint)
         self.assertEqual(stats['subaccounts_updated'], 1)
         self.assertEqual(receiver.get_entity_data(self.BROADCAST_ENTITY_HOTKEY).subaccounts[0].leverage_tier, 2)
+        # Entity sync only touches entity state; MinerAccount.leverage_tier comes from the account-size sync
+        self.assertIsNone(self._account_tier(synthetic))
+
+    def test_broadcast_with_tier_persists_other_updates(self):
+        # The tier push runs before the subaccount copy is stored, so a failure there would drop every
+        # other field adopted from the same broadcast
+        receiver, synthetic, data = self._receiver_with_legacy_subaccount(0)
+        self.assertTrue(self._receive(receiver, {**data, "leverage_tier": 2, "status": "eliminated"}))
+        sub = receiver.get_entity_data(self.BROADCAST_ENTITY_HOTKEY).subaccounts[0]
+        self.assertEqual(sub.leverage_tier, 2)
+        self.assertEqual(sub.status, "eliminated")
         self.assertEqual(self._account_tier(synthetic), 2)
 
     # ==================== guards on what other validators send ====================
@@ -442,7 +453,6 @@ class TestLeverageTierUpdate(TestBase):
         checkpoint[self.BROADCAST_ENTITY_HOTKEY]["subaccounts"][0]["leverage_tier"] = 0
         stats = receiver.sync_entity_data(checkpoint)
         self.assertEqual(stats['subaccounts_updated'], 0)
-        self.assertEqual(stats['leverage_tiers_pushed'], 0)
         self.assertIsNone(entity().subaccounts[0].leverage_tier)
         self.assertIsNone(self._account_tier(synthetic))
 
@@ -471,24 +481,6 @@ class TestLeverageTierUpdate(TestBase):
         self.assertTrue(self._receive(receiver, {**data, "leverage_tier": 3}))
         self.assertEqual(receiver.get_entity_data(self.BROADCAST_ENTITY_HOTKEY).subaccounts[0].leverage_tier, 3)
         self.assertEqual(self._account_tier(synthetic), 3)
-
-    def test_checkpoint_sync_repairs_miner_account_that_lost_the_tier(self):
-        # An account-size sync from a validator without the field replaces the MinerAccount; the entity
-        # sync that follows puts the stored tier back although nothing changed on the entity side
-        self.assertTrue(self._update(3)[0])
-        self.miner_account_client.set_leverage_tier(self.synthetic, None)
-        self.assertIsNone(self._account_tier())
-
-        checkpoint = {self.ENTITY_HOTKEY: self.entity_client.get_entity_data(self.ENTITY_HOTKEY)}
-        stats = self.entity_client.sync_entity_data(checkpoint)
-        self.assertEqual(stats['subaccounts_updated'], 0)
-        self.assertEqual(stats['leverage_tiers_pushed'], 1)
-        self.assertEqual(self._stored_tier(), 3)
-        self.assertEqual(self._account_tier(), 3)
-        # Nothing left to repair on the next pass
-        checkpoint = {self.ENTITY_HOTKEY: self.entity_client.get_entity_data(self.ENTITY_HOTKEY)}
-        self.assertEqual(self.entity_client.sync_entity_data(checkpoint)['leverage_tiers_pushed'], 0)
-
 
 class TestStandardTierOrderPath(TestBase):
     """Orders for a standard subaccount go through MarketOrderManager and are clamped by the standard

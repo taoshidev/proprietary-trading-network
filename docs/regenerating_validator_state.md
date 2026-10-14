@@ -20,6 +20,19 @@ If you receive a decompressed `.json` file instead of `.gz`, simply rename it to
 
 The steps detailed below regenerate the `validation/*` directory by fetching the latest trade data and metrics from the mainnet, ensuring your validator remains in sync with the network.
 
+## What the Restore Overwrites
+
+The restore replaces local state with the checkpoint's contents. It deletes the following first, then writes them back from the checkpoint:
+
+- Per-miner `positions/`, `archived_positions/` and `limit_orders/` directories (including cancelled limit order history, which the checkpoint does not carry)
+- Eliminations, perf ledgers (including frozen perf ledgers), challenge period buckets, miner accounts, asset selections, entities and weekly seals
+
+Debt, emissions and penalty ledgers are synced from the checkpoint but their existing files are not deleted first.
+
+**Use a recent checkpoint.** If the checkpoint is missing a section (older checkpoints have no entities, weekly seals or debt/emissions/penalty ledgers), that state is deleted and not replaced. A checkpoint with challenge period records in an older format restores no buckets at all. The script does not check the checkpoint's version.
+
+**No backup is taken.** The script writes straight into `validation/` and does not copy the old state anywhere. Back it up yourself first (step 3) if you may want it back.
+
 
 ## Steps 
 1. **Get Restoration File**: Ping a Taoshi team member in the Discord and they will send you a near realtime checkpoint file. (Distribution limited to once a week for verified validators)
@@ -28,7 +41,13 @@ The steps detailed below regenerate the `validation/*` directory by fetching the
    - **If you receive a compressed file**: Name it `validator_checkpoint.json.gz`
    - **If you receive an uncompressed file**: Name it `validator_checkpoint.json`
    - **Auto-detection**: The script will automatically detect which format you have
-3. **Stop Validator**: Temporarily halt your validator with PM2 using `pm2 stop sn8 vanta`
+3. **Stop Validator**: Stop `sn8` and every validator app, then confirm the RPC ports are free, as described in steps 1 and 2 of [Stopping and Restarting Your Validator](validator.md#stopping-and-restarting-your-validator). Every app must be stopped, `vanta-state` included: it holds the position files this procedure replaces.
+
+   Then back up your current state, in case you need to roll back:
+
+    ```bash
+    cp -r validation validation_backup_$(date +%Y%m%d_%H%M%S)
+    ```
 4. **Run Restoration Script**: Within the `vanta-network` directory, execute:
 
     ```bash
@@ -46,9 +65,10 @@ The steps detailed below regenerate the `validation/*` directory by fetching the
     
      Successful restoration is indicated by:
     ```
+    INFO | == RESTORE COMPLETED SUCCESSFULLY ==
     INFO | regeneration complete in 19.78 seconds
     ```
-     If restoration fails, consult the failure log for troubleshooting steps.
+     A failed restoration logs `RESTORE FAILED:` followed by a traceback. Partially written state is left in `validation/`; restore your backup from step 3 or fix the problem (see Troubleshooting below) and run the script again.
 
 ## Troubleshooting Common Issues
 
@@ -74,21 +94,8 @@ ERROR | No checkpoint file found at validator_checkpoint.json or validator_check
 ```
 **Solution**: Ensure your checkpoint file is in the root directory with the correct name.
 
-5. **Restart Validator**: Resume your PM2 processes with `pm2 start sn8` (will launch `vanta` automatically).
+5. **Restart Validator**: Run `pm2 start sn8`. It recreates and starts every validator app in the right order (see steps 4 and 5 of [Stopping and Restarting Your Validator](validator.md#stopping-and-restarting-your-validator)).
 
-
-## Verify Backups (optional)
-
-Confirm the creation of a `backups/` directory containing previous data (positions, eliminations, plagiarism). For example:
-    ```
-    (venv) jbonilla@MacBook-Air prop-net % ls -lh backups/20240325_010535
-
-
-    total 16
-    -rw-r--r--  1 jbonilla staff 164B Mar 25 01:05 eliminations.json
-    drwxr-xr-x 148 jbonilla staff 4.6K Mar 25 00:36 miners
-    -rw-r--r--  1 jbonilla staff 165B Mar 25 01:05 plagiarism.json
-    ```
 
 ## Future Improvements
 

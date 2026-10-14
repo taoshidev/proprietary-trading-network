@@ -264,7 +264,8 @@ The `run.sh` script provides production deployment with:
 - Git pull and automatic updates from GitHub (taoshidev/vanta-network)
 - Exponential backoff retry logic (1s → 60s max) for version checks
 - Process monitoring with auto-restart on failure
-- Minimum uptime: 5 minutes, Max restarts: 5
+- Minimum uptime: 5 minutes, Max restarts: 20, exponential restart backoff starting at 1s (`exp_backoff_restart_delay`)
+- `kill_timeout` 10s for `vanta`, `vanta-state`, `vanta-orders`, `vanta-rest` and `vanta-ws` (PM2's default is 1.6s)
 
 ### Version Management
 - Current version: 8.16.0 (in `meta/meta.json`)
@@ -273,8 +274,9 @@ The `run.sh` script provides production deployment with:
 - Safe rollback: git pull only if version is newer
 
 ### State Management
-- **Backups**: Automatic timestamped validator state backups via `vali_bkp_utils.py`
-  - Compressed checkpoint files (`validator_checkpoint.json.gz`)
+- **Checkpoints**: Compressed validator checkpoint (`validator_checkpoint.json.gz`) written by `vali_objects/data_export/core_outputs_manager.py`
+  - Covers positions, archived positions, limit orders, eliminations, perf/debt/emissions/penalty ledgers, challenge period, miner accounts, asset selections, entities and weekly seals
+  - Consumed by auto-sync (`data_sync/validator_sync_base.py`) and by `restore_validator_from_backup.py`
   - Migration scripts in `runnable/` for state transformations
 - **Persistence**:
   - Position data per miner in `validation/miners/`
@@ -282,7 +284,7 @@ The `run.sh` script provides production deployment with:
   - Debt, penalty, and weekly-seal ledgers (RPC service)
   - Elimination tracking (RPC service)
   - Plagiarism flags held in memory by the plagiarism RPC service, refreshed from `ValiConfig.PLAGIARISM_URL`
-- **Recovery**: State regeneration via `restore_validator_from_backup.py`
+- **Recovery**: `restore_validator_from_backup.py` overwrites `validation/` from a checkpoint (no local backup is taken first); see `docs/regenerating_validator_state.md`
 
 ### RPC Service Management
 - Server orchestrator manages 23 RPC services
