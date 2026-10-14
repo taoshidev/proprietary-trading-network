@@ -84,7 +84,7 @@ from shared_objects.log import logger
 
 # current_equity and current_balance are recomputed from the account on every refresh, so they are
 # not settable. The manager enforces the rules between the settable fields.
-SETTABLE_DRAWDOWN_FIELDS = ('daily_open_equity', 'eod_hwm', 'last_eod_equity', 'last_eod_checked_ms')
+SETTABLE_DRAWDOWN_FIELDS = ('daily_open_equity', 'daily_open_balance', 'eod_hwm', 'last_eod_equity', 'last_eod_checked_ms')
 
 
 class ValidatorRestServer(BaseRestServer, RPCServerBase):
@@ -2051,9 +2051,10 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
         in the body are changed; the rest are left as they are.
         Requires tier 500 access.
 
-        Settable fields: daily_open_equity, eod_hwm, last_eod_equity, last_eod_checked_ms.
+        Settable fields: daily_open_equity, daily_open_balance, eod_hwm, last_eod_equity, last_eod_checked_ms.
         - last_eod_checked_ms must be a UTC day boundary no later than today
-        - daily_open_equity and last_eod_equity require last_eod_checked_ms to be today's open
+        - daily_open_equity, daily_open_balance and last_eod_equity require last_eod_checked_ms to be today's open
+        - daily_open_balance only on accounts whose daily loss limit is measured from it
         - eod_hwm cannot go below 1.0, last_eod_equity or daily_open_equity
         - "force": true is required when a change pushes a drawdown past its threshold or deepens
           a pro account's max_drawdown

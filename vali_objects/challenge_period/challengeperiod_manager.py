@@ -40,7 +40,7 @@ from vali_objects.plagiarism.plagiarism_client import PlagiarismClient
 from vali_objects.miner_account.miner_account_client import MinerAccountClient
 from vali_objects.miner_account.miner_account_manager import MinerAccount
 from shared_objects.rpc.common_data_client import CommonDataClient
-from entity_management.entity_utils import is_synthetic_hotkey
+from entity_management.entity_utils import is_created_through_challenge, is_synthetic_hotkey
 from entity_management.entity_client import EntityClient
 
 
@@ -49,15 +49,18 @@ class DrawdownStats:
     current_equity: float = 1.0
     current_balance: float = 1.0
     daily_open_equity: float | None = 1.0
+    # Set only on accounts whose daily loss limit is measured from the day-open balance; None uses daily_open_equity
+    daily_open_balance: float | None = None
     eod_hwm: float = 1.0
     last_eod_equity: float = 1.0
     last_eod_checked_ms: int | None = None
 
     @property
     def intraday_drawdown_pct(self) -> float:
-        if not self.daily_open_equity:
+        day_open = self.daily_open_balance if self.daily_open_balance is not None else self.daily_open_equity
+        if not day_open:
             return 0.0
-        return (1.0 - self.current_equity / self.daily_open_equity) * 100.0
+        return (1.0 - self.current_equity / day_open) * 100.0
 
     @property
     def eod_drawdown_pct(self) -> float:
@@ -212,7 +215,8 @@ class MinerBucketState:
         return (
             f"{self.hotkey} {self.current_bucket.value} {start} rank={self.rank} criteria={criteria_str} idt_override={self.intraday_drawdown_threshold_override} "
             f"eod_override={self.eod_hwm_threshold_override} "
-            f"equity={dd.current_equity:.4f} balance={dd.current_balance:.4f} daily_open={f'{dd.daily_open_equity:.4f}' if dd.daily_open_equity is not None else 'None'} | "
+            f"equity={dd.current_equity:.4f} balance={dd.current_balance:.4f} daily_open={f'{dd.daily_open_equity:.4f}' if dd.daily_open_equity is not None else 'None'} "
+            f"daily_open_balance={f'{dd.daily_open_balance:.4f}' if dd.daily_open_balance is not None else 'None'} | "
             f"intraday_dd={dd.intraday_drawdown_pct:.2f}% eod_dd={dd.eod_drawdown_pct:.2f}% "
             f"static_dd={dd.static_drawdown_pct:.2f}% static_eod_dd={dd.static_eod_drawdown_pct:.2f}% "
             f"eod_hwm={dd.eod_hwm:.4f} | "
@@ -707,7 +711,7 @@ class ChallengePeriodManager(CacheController):
 
             # Pro runs the pro rules even on a static subaccount, so static reporting is non-pro only
             is_static = state.drawdown_criteria == DrawdownCriteria.STATIC and not is_pro
-            # intraday_drawdown_pct always holds the literal equity-vs-day-open number
+            # intraday_drawdown_pct always holds the equity-vs-day-open number (day-open balance or equity)
             intraday_drawdown_pct = state.drawdown.intraday_drawdown_pct
             # eod_drawdown_pct holds the account's other rule: static equity-vs-starting-balance for
             # static accounts, or the EOD-vs-high-water-mark check otherwise
@@ -1014,6 +1018,25 @@ class ChallengePeriodManager(CacheController):
         eod_hwm = max(max(cp.equity_ret for cp in midnight_cps), 1.0) if midnight_cps else 1.0
         return last_eod, daily_open_equity, eod_hwm, last_eod_checked_ms
 
+    @staticmethod
+    def _daily_open_balance(account: MinerAccount, now_ms: int) -> float | None:
+        """Today's opening balance over account size, from the daily open snapshot. None when no snapshot
+        holds today's open, which leaves the day on the day-open equity."""
+        snapshot = account.daily_open_snapshot
+        if (snapshot and snapshot.account_size
+                and TimeUtil.get_start_of_day_ms(snapshot.snapshot_ms) == TimeUtil.get_start_of_day_ms(now_ms)):
+            return snapshot.balance / snapshot.account_size
+        return None
+
+    def _daily_loss_from_balance(self, hotkey: str, account: MinerAccount) -> bool:
+        """Standard subaccounts, created through SUBACCOUNT_CHALLENGE and not HL-linked, measure the daily
+        loss limit from the day-open balance while in the standard buckets. Every other account keeps the
+        day-open equity."""
+        if not self.miner_states[hotkey].current_bucket.daily_loss_from_balance or account.is_hl_linked:
+            return False
+        info = self._entity_client.get_subaccount_info_for_synthetic(hotkey)
+        return bool(info) and is_created_through_challenge(info.get("initial_bucket"))
+
     def _refresh_drawdown_cache(
         self,
         hotkeys: list[str],
@@ -1041,11 +1064,19 @@ class ChallengePeriodManager(CacheController):
 
             now_ms = current_time_ms if current_time_ms is not None else TimeUtil.now_in_millis()
             current_day_open_ms = TimeUtil.get_start_of_day_ms(now_ms)
+            try:
+                from_balance = self._daily_loss_from_balance(hotkey, account)
+            except Exception as e:
+                # Keep the account on the reference it has rather than abort every miner's drawdown check
+                from_balance = self.miner_states[hotkey].drawdown.daily_open_balance is not None
+                logger.warning(f"[CHALLENGE] {hotkey} entity lookup failed, keeping its daily loss reference: {e}")
             # Held so a manual set_miner_drawdown_stats cannot land between reading and writing eod_hwm
             with self._buckets_lock:
                 existing = self.miner_states[hotkey].drawdown
                 existing.current_equity = current_equity
                 existing.current_balance = current_balance
+                if not from_balance:
+                    existing.daily_open_balance = None
 
                 # EOD fields are locked in for today once the snapshot has been captured
                 if existing.last_eod_checked_ms == current_day_open_ms:
@@ -1069,6 +1100,8 @@ class ChallengePeriodManager(CacheController):
                     existing.current_balance = current_balance
                     existing.last_eod_equity = last_eod_equity
                     existing.daily_open_equity = daily_open_equity
+                    if from_balance:
+                        existing.daily_open_balance = self._daily_open_balance(account, now_ms)
                     existing.eod_hwm = max(existing.eod_hwm, last_eod_equity, eod_hwm)
                     existing.last_eod_checked_ms = last_eod_checked_ms
 
@@ -1383,9 +1416,11 @@ class ChallengePeriodManager(CacheController):
             if 'last_eod_checked_ms' in updates and (
                     TimeUtil.get_start_of_day_ms(checked_ms) != checked_ms or checked_ms > today_ms):
                 return False, f"last_eod_checked_ms must be a UTC day boundary no later than today ({today_ms})", None
-            if {'daily_open_equity', 'last_eod_equity'} & updates.keys() and checked_ms != today_ms:
-                return False, ("daily_open_equity and last_eod_equity only hold for today: wait for today's "
-                               f"EOD snapshot or set last_eod_checked_ms to {today_ms}"), None
+            if {'daily_open_equity', 'daily_open_balance', 'last_eod_equity'} & updates.keys() and checked_ms != today_ms:
+                return False, ("daily_open_equity, daily_open_balance and last_eod_equity only hold for today: "
+                               f"wait for today's EOD snapshot or set last_eod_checked_ms to {today_ms}"), None
+            if 'daily_open_balance' in updates and old.daily_open_balance is None:
+                return False, f"{hotkey} measures its daily loss limit from daily_open_equity, not daily_open_balance", None
 
             eod_hwm_floor = max(1.0, new.last_eod_equity, new.daily_open_equity or 0.0)
             if new.eod_hwm < eod_hwm_floor:

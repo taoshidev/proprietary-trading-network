@@ -232,6 +232,8 @@ Passing is evaluated continuously — a subaccount is promoted immediately once 
 - **Trailing** (default): eliminated if intraday drawdown from the day's opening equity, or drawdown from the end-of-day equity high-water mark, reaches **5%**.
 - **Static**: eliminated if equity (including unrealized PnL) drops more than **5%** below the subaccount's starting balance, or if intraday drawdown from the day's opening equity reaches **5%** (same intraday drawdown check as trailing, with a flat 5% threshold).
 
+**Day-open balance:** for standard subaccounts (not HL-linked, not Instant Funded), the intraday drawdown in both rule sets is measured from the day's opening **balance** instead of the opening equity: equity cannot drop more than the threshold below the balance at 00:00 UTC. This applies in `SUBACCOUNT_CHALLENGE`, `SUBACCOUNT_FUNDED` and `PRO_CHALLENGE_TRANSITION`. A position carried overnight at a loss therefore leaves less room that day, and one carried at a gain leaves more.
+
 **Intraday drawdown threshold (daily loss limit):** a subaccount may choose its own intraday drawdown threshold at creation (`intraday_drawdown_threshold`): **3%** or **5%**, sent as a decimal (`0.03` or `0.05`; the allowed values are `ValiConfig.SUBACCOUNT_INTRADAY_DRAWDOWN_VALUES`). It replaces the intraday drawdown threshold above. If omitted, each bucket keeps its default threshold.
 
 ### Leverage Limits
@@ -335,7 +337,7 @@ Once in SUBACCOUNT_FUNDED, the subaccount keeps the same `drawdown_criteria` it 
 - **Trailing** (default): the same two rules as regular miners — eliminated at a **5%** intraday drawdown from the day's opening equity, or an **8%** drawdown from the end-of-day equity high-water mark. Subaccounts registered before the cutoffs in `ValiConfig.FUNDED_V0_CUTOFF_MS` / `FUNDED_V1_CUTOFF_MS` keep the looser thresholds they were registered under.
 - **Static**: still eliminated at **5%** below starting balance, or **5%** intraday drawdown from the day's opening equity, same thresholds as during challenge — this rule set does not loosen after funding.
 
-A subaccount that chose an `intraday_drawdown_threshold` at creation keeps that value as its intraday threshold instead of the 5% above.
+A subaccount that chose an `intraday_drawdown_threshold` at creation keeps that value as its intraday threshold instead of the 5% above. Standard subaccounts keep measuring it from the day's opening balance (see [Day-open balance](#challenge-period-requirements) above).
 
 After **90 days** in SUBACCOUNT_FUNDED meeting the thresholds, the subaccount is eligible for additional funding.
 
@@ -1044,6 +1046,7 @@ Subaccounts can be eliminated for:
 - **Trailing criteria, funded period failure** — drawdown exceeds 8%
 - **Static criteria (challenge or funded)** — equity drops more than 5% below starting balance, or intraday drawdown from the day's opening equity reaches 5%
 - **Chosen intraday drawdown threshold (any bucket but `PRO_FUNDED`)** — intraday drawdown from the day's opening equity exceeds the `intraday_drawdown_threshold` chosen at creation, which replaces the intraday threshold in each rule above
+- Standard subaccounts (not HL-linked, not Instant Funded) in `SUBACCOUNT_CHALLENGE`, `SUBACCOUNT_FUNDED` and `PRO_CHALLENGE_TRANSITION` measure every intraday drawdown above from the day's opening balance instead of the opening equity
 - **Plagiarism** — detected order similarity with other miners
 
 Eliminated subaccount ids are permanently retired. Create a new subaccount to replace an eliminated one.
