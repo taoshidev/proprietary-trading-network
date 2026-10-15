@@ -580,7 +580,8 @@ Perf Ledger schema
           "realized_pnl": -12.34,
           "unrealized_pnl": 5.67,
           "equity_ret": 0.9999,
-          "cumulative_fees_usd": 8.21
+          "cumulative_fees_usd": 8.21,
+          "min_equity_ret": 0.9987
         }
       ]
     }
@@ -605,6 +606,7 @@ Perf Ledger schema
 | `unrealized_pnl` | float | Unrealized PnL snapshot in USD at end of checkpoint |
 | `equity_ret` | float | `(account_size + cumulative_realized_pnl - cumulative_fees_usd + unrealized_pnl) / account_size` |
 | `cumulative_fees_usd` | float | Running total of all fees paid up to and including this checkpoint |
+| `min_equity_ret` | float \| null | Lowest `equity_ret` reached during this checkpoint. `null` where equity is not tracked (no account size) and on checkpoints started before this field existed |
 
 Perf ledgers are built based off realtime price data and are consumed in the scoring logic. More info in the Vanta repo.
 
@@ -644,7 +646,8 @@ Returns the portfolio-level performance ledger for a single miner. Requires a va
         "realized_pnl": -12.34,
         "unrealized_pnl": 5.67,
         "equity_ret": 0.9999,
-        "cumulative_fees_usd": 8.21
+        "cumulative_fees_usd": 8.21,
+        "min_equity_ret": 0.9987
       }
     ]
   }
