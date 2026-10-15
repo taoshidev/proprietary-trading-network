@@ -1911,7 +1911,7 @@ class EntityManager(ValidatorBroadcastBase):
             if debt_ledger is None:
                 logger.warning(
                     f"[ENTITY_MANAGER] No debt ledger for {synthetic_hotkey}; payout falls back to "
-                    f"unsegmented, unscaled weeks"
+                    f"unsegmented weeks priced at the current bucket"
                 )
 
             miner_bucket = (
@@ -2119,8 +2119,8 @@ class EntityManager(ValidatorBroadcastBase):
                 segment_end = week_end if next_boundary is None else next_boundary
                 end_time = min(segment_end, end_time_ms)
                 # +1 because a checkpoint stamped at T closes the window *ending* at T: the segment
-                # starting at T is governed by the next checkpoint, not the one that just closed
-                segment_bucket = debt_ledger.bucket_at(segment_start + 1) if debt_ledger else None
+                # starting at T is governed by the next checkpoint, not the one that just closed.
+                segment_bucket = debt_ledger.bucket_at(segment_start + 1) if debt_ledger else miner_bucket
                 week_orders = []
                 while idx_order < len(orders) and orders[idx_order].processed_ms < end_time:
                     running_balance += orders[idx_order].realized_pnl

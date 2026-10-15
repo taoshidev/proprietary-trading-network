@@ -1207,7 +1207,8 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
     def _payout_result(self, blocked_checkpoint_indices=(), week_buckets=None,
                        current_bucket=MinerBucket.PRO_FUNDED, payout_scale=1.0,
                        sealed_weeks=None, settled_segments=(), orders=None,
-                       checkpoint_buckets=None, has_perf_ledger=True, subaccount=None):
+                       checkpoint_buckets=None, has_perf_ledger=True, subaccount=None,
+                       has_debt_ledger=True):
         """Two payout weeks of 12h checkpoints. `week_buckets` maps a payout-week index (0 or 1) to
         the bucket stamped on that week's checkpoints (default PRO_FUNDED); `checkpoint_buckets`
         overrides individual checkpoints, which is how a bucket change lands mid-week;
@@ -1215,7 +1216,8 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         pro_account_size; `settled_segments` are stretches settled early by an account switch;
         `orders` overrides the default one-order-per-cell history (pass [] for an account that has
         not traded since); `has_perf_ledger=False` is the state a switch leaves behind, where the
-        perf ledger bundle is dropped along with the positions. `subaccount`, when given, replaces
+        perf ledger bundle is dropped along with the positions; `has_debt_ledger=False` is a subaccount
+        no debt ledger has been built for yet. `subaccount`, when given, replaces
         the `payout_scale` stub with the real get_payout_scale read off that record."""
         from entity_management.entity_manager import EntityManager
 
@@ -1254,7 +1256,8 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         else:
             manager.get_payout_scale = lambda _hk: payout_scale
         manager._debt_ledger_client = SimpleNamespace(
-            get_ledger=lambda _hk: DebtLedger(self.SUBACCOUNT_HOTKEY, checkpoints=debt_checkpoints),
+            get_ledger=lambda _hk: (DebtLedger(self.SUBACCOUNT_HOTKEY, checkpoints=debt_checkpoints)
+                                   if has_debt_ledger else None),
             # Nothing sealed by default: every week is recomputed, which is what most cases exercise
             get_sealed_weeks=lambda _hk: sealed_weeks or {},
             # Nothing settled early by default: no account switch has wound this subaccount down
@@ -1566,6 +1569,25 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         self.assertEqual(result['payout'], 1843.20)
         self.assertEqual(len(result['weekly_settlements']), 1)
         self.assertTrue(result['weekly_settlements'][0]['settled_segment'])
+
+    def test_no_debt_ledger_prices_weeks_at_the_current_bucket(self):
+        """Without a debt ledger every segment takes the current bucket, so the payout scale applies
+        only in PRO_CHALLENGE_FROM_STANDARD. The live scale is below 1.0 in every pro bucket, so
+        applying it regardless of bucket would underpay PRO_CHALLENGE_TRANSITION and PRO_FUNDED."""
+        unscaled = self._payout_result(has_debt_ledger=False, current_bucket=MinerBucket.PRO_FUNDED,
+                                       payout_scale=1.0)['payout']
+        self.assertGreater(unscaled, 0)
+        for bucket, expected in (
+            (MinerBucket.PRO_CHALLENGE_FROM_STANDARD, 0.5 * unscaled),
+            (MinerBucket.PRO_CHALLENGE_TRANSITION, unscaled),
+            (MinerBucket.PRO_FUNDED, unscaled),
+        ):
+            with self.subTest(bucket=bucket):
+                result = self._payout_result(has_debt_ledger=False, current_bucket=bucket, payout_scale=0.5)
+                self.assertAlmostEqual(result['payout'], expected)
+                self.assertTrue(result['weekly_settlements'])
+                for week in result['weekly_settlements']:
+                    self.assertEqual(week['bucket'], bucket.value)
 
     def test_no_perf_ledger_and_nothing_settled_is_still_not_found(self):
         """Nothing settled means there is nothing to report without a ledger."""
