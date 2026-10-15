@@ -1974,14 +1974,6 @@ class EntityManager(ValidatorBroadcastBase):
                     # Perf ledgers for eliminated funded/alpha subaccounts get moved to frozen storage.
                     frozen_ledgers = self._perf_ledger_client.get_frozen_ledgers()
                     perf_ledger = frozen_ledgers.get(synthetic_hotkey) if frozen_ledgers else None
-                if not perf_ledger:
-                    # The switch archives every position, and the perf ledger manager drops the
-                    # bundle for a hotkey that has none. A subaccount that promoted and has not
-                    # traded since sits in exactly that state, so its settled money is reported
-                    # without a ledger rather than reading as a subaccount that does not exist.
-                    if settled_settlements:
-                        return _finalize([], checkpoints_dict, 0.0)
-                    return None
 
             EMPTY_RESPONSE = {
                 'hotkey': synthetic_hotkey,
@@ -1994,6 +1986,10 @@ class EntityManager(ValidatorBroadcastBase):
                 'off_track': off_track,
             }
             if miner_bucket is None or not miner_bucket.is_subaccount_earning:
+                # A subaccount that promoted into a non-earning bucket still reports the money
+                # settled at the switch.
+                if settled_settlements:
+                    return _finalize([], checkpoints_dict, 0.0)
                 return EMPTY_RESPONSE
 
             positions = self._position_client.get_positions_for_one_hotkey(synthetic_hotkey, sort_positions=True)
@@ -2157,6 +2153,12 @@ class EntityManager(ValidatorBroadcastBase):
                     if snapshot is not None:
                         unrealized_pnl = snapshot.equity - snapshot.balance
                     else:
+                        if not perf_ledger:
+                            logger.warning(
+                                f"[ENTITY_MANAGER] No account snapshot or perf ledger near "
+                                f"end_time={end_time} for {synthetic_hotkey}; cannot determine unrealized PnL"
+                            )
+                            return None
                         cp = perf_ledger.get_checkpoint_at_time(end_time, CP_DURATION)
                         unrealized_pnl = cp.unrealized_pnl if cp else 0.0
                         logger.warning(
