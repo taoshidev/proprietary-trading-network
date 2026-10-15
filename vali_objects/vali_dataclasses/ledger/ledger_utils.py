@@ -227,6 +227,30 @@ class LedgerUtils:
         return ledger.realized_pnl_net_usd / account_size
 
     @staticmethod
+    def eod_hwm_drawdown(ledger: PerfLedger) -> Optional[float]:
+        """
+        Worst equity against the end-of-day high-water mark in force at the time, in mdd ratio form
+        (0.95 is a 5% drawdown), from each checkpoint's lowest equity. The mark is the highest UTC
+        midnight equity_ret up to the start of the checkpoint's window, floored at 1.0, as in the
+        drawdown cache, so this is the live pro ratchet replayed at the ledger's resolution.
+
+        Returns None when any checkpoint's lowest equity is unknown (min_equity_ret is None).
+
+        Args:
+            ledger: PerfLedger - the ledger of the miner
+        """
+        worst = 1.0
+        eod_hwm = 1.0
+        for cp in ledger.cps:
+            if cp.min_equity_ret is None:
+                return None
+            # A 12h checkpoint never spans a midnight, so one mark governs its whole window
+            worst = min(worst, cp.min_equity_ret / eod_hwm)
+            if cp.last_update_ms % ValiConfig.DAILY_MS == 0 and cp.equity_ret > 0:
+                eod_hwm = max(eod_hwm, cp.equity_ret)
+        return worst
+
+    @staticmethod
     def daily_pnl_by_date(ledger: PerfLedger) -> dict[datetime.date, float]:
         """
         Calculate daily PnL from performance checkpoints, only including full days

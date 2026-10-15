@@ -401,6 +401,13 @@ class ChallengePeriodManager(CacheController):
         self._cached_asset_softmaxed_scores: dict[MinerAssetClass, dict[str, float]] = {}
         self._cached_asset_competitiveness: dict[MinerAssetClass, float] = {}
 
+        # Auto-promotion: subaccounts' creation buckets (fixed once created), the candidates seen on
+        # the last refresh, and the ledger rebuilds requested by this process
+        self._initial_buckets: dict[str, str | None] = {}
+        self._auto_promotion_candidates: set[str] = set()
+        self._ledger_rebuilds_requested: set[str] = set()
+        self._ledger_rebuilds_unresolved: set[str] = set()
+
         logger.info(f"[CP_MANAGER] ChallengePeriodManager initialized with {len(self.miner_states)} state data")
 
     # ==================== Core Business Logic ====================
@@ -1107,10 +1114,18 @@ class ChallengePeriodManager(CacheController):
 
     def _refresh_pro_stats(self, hotkeys: list[str], ledgers: dict[str, PerfLedger],
                            accounts: dict[str, MinerAccount]) -> None:
+        """Pro stats for every pro-track miner, and for the auto-promotion candidates in
+        SUBACCOUNT_FUNDED, measured the same way."""
+        candidates = set()
+        ledgers_to_rebuild = []
         for hotkey in hotkeys:
             state = self.miner_states[hotkey]
-            if not state.current_bucket.is_pro_track:
+            candidate = (state.current_bucket == MinerBucket.SUBACCOUNT_FUNDED
+                         and self._is_auto_promotion_candidate(hotkey, accounts.get(hotkey)))
+            if not (state.current_bucket.is_pro_track or candidate):
                 continue
+            if candidate:
+                candidates.add(hotkey)
 
             # Worst live equity against the end-of-day high-water mark, in mdd ratio form.
             # eod_hwm only advances at UTC midnight, so an intraday peak never deepens it.
@@ -1123,13 +1138,24 @@ class ChallengePeriodManager(CacheController):
 
             ledger = ledgers.get(hotkey)
             if ledger is None:
-                logger.warning(f"[CHALLENGE] {hotkey} missing ledger, skipping pro stats")
+                # A candidate has no ledger until it trades, nor while its ledger rebuilds
+                if not candidate:
+                    logger.warning(f"[CHALLENGE] {hotkey} missing ledger, skipping pro stats")
                 continue
 
             account = accounts.get(hotkey)
             if account is None or account.account_size <= 0:
                 logger.warning(f"[CHALLENGE] {hotkey} invalid account, skipping pro stats")
                 continue
+
+            if candidate:
+                # The ratchet only began when the account started being tracked, and misses any
+                # time the validator was down: the ledger replays the whole funded period
+                ledger_drawdown = LedgerUtils.eod_hwm_drawdown(ledger)
+                if ledger_drawdown is None:
+                    ledgers_to_rebuild.append(hotkey)
+                else:
+                    max_drawdown = min(max_drawdown, ledger_drawdown)
 
             log_returns = LedgerUtils.daily_return_log(ledger)
             state.pro_stats = ProStats(
@@ -1142,6 +1168,51 @@ class ChallengePeriodManager(CacheController):
                 # erase the days that withhold this week's payout
                 soft_breach_days=state.pro_stats.soft_breach_days,
             )
+
+        self._auto_promotion_candidates = candidates
+        self._request_ledger_rebuilds(ledgers_to_rebuild)
+
+    def _is_auto_promotion_candidate(self, hotkey: str, account: MinerAccount | None) -> bool:
+        """A standard subaccount that can be auto-promoted out of SUBACCOUNT_FUNDED: created through
+        SUBACCOUNT_CHALLENGE (not Instant Funded) and not HL-linked. A failed lookup reads as not
+        a candidate until the next refresh."""
+        try:
+            if account is None or account.is_hl_linked:
+                return False
+            if hotkey not in self._initial_buckets:
+                info = self._entity_client.get_subaccount_info_for_synthetic(hotkey)
+                if not info:
+                    return False
+                self._initial_buckets[hotkey] = info.get("initial_bucket")
+            return is_created_through_challenge(self._initial_buckets[hotkey])
+        except Exception as e:
+            logger.warning(f"[CHALLENGE] {hotkey} auto-promotion candidacy lookup failed, skipping this refresh: {e}")
+            return False
+
+    def _request_ledger_rebuilds(self, hotkeys: list[str]) -> None:
+        """Rebuild, once per process, the ledgers of auto-promotion candidates whose checkpoints do
+        not all record their lowest equity (checkpoints started before the field existed), so their
+        drawdown covers the whole funded period. At most AUTO_PROMOTION_MAX_PENDING_LEDGER_REBUILDS
+        wait at a time: the perf ledger update runs them back to back."""
+        new = []
+        for hotkey in hotkeys:
+            if hotkey not in self._ledger_rebuilds_requested:
+                new.append(hotkey)
+            elif hotkey not in self._ledger_rebuilds_unresolved:
+                self._ledger_rebuilds_unresolved.add(hotkey)
+                logger.error(f"[CHALLENGE] {hotkey} ledger still has checkpoints with no lowest equity after "
+                             f"its rebuild; its funded drawdown stays incomplete")
+        if not new:
+            return
+
+        try:
+            pending = self._ledger_rebuilds_requested & set(self._perf_ledger_client.get_perf_ledger_hks_to_invalidate())
+            for hotkey in new[:max(0, ValiConfig.AUTO_PROMOTION_MAX_PENDING_LEDGER_REBUILDS - len(pending))]:
+                self._perf_ledger_client.set_hotkey_to_invalidate(hotkey, 0)
+                self._ledger_rebuilds_requested.add(hotkey)
+                logger.info(f"[CHALLENGE] {hotkey} ledger rebuild requested to record its lowest equity per checkpoint")
+        except Exception as e:
+            logger.warning(f"[CHALLENGE] ledger rebuild request failed, retrying next refresh: {e}")
 
     def _latch_soft_breaches(self, hotkeys: list[str], current_time_ms: int) -> None:
         """Record today as breached for every miner currently breaking a pro rule.
@@ -1402,7 +1473,8 @@ class ChallengePeriodManager(CacheController):
         """Overwrite drawdown fields on a miner's live stats and persist to disk.
 
         force is required for a change that deepens a drawdown
-        past its threshold, or that deepens a pro account's ratcheted max_drawdown.
+        past its threshold, or that deepens the ratcheted max_drawdown of a pro account or of an
+        auto-promotion candidate.
         """
         today_ms = TimeUtil.get_start_of_day_ms(now_ms if now_ms is not None else TimeUtil.now_in_millis())
         with self._buckets_lock:
@@ -1436,7 +1508,8 @@ class ChallengePeriodManager(CacheController):
                     if after > threshold and after > before:
                         return False, (f"{rule} drawdown would go from {before:.2f}% to {after:.2f}%, past the "
                                        f"{threshold:.2f}% threshold; pass force to apply"), None
-                if state.current_bucket.is_pro_track and new.current_equity / new.eod_hwm < state.pro_stats.max_drawdown:
+                ratchets = state.current_bucket.is_pro_track or hotkey in self._auto_promotion_candidates
+                if ratchets and new.current_equity / new.eod_hwm < state.pro_stats.max_drawdown:
                     return False, ("eod_hwm would permanently deepen pro max_drawdown "
                                    f"({state.pro_stats.max_drawdown:.4f} -> {new.current_equity / new.eod_hwm:.4f}); pass force to apply"), None
 

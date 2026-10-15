@@ -599,6 +599,11 @@ class ValiConfig:
     # challenge period checkpoint cannot grow without limit.
     PRO_SOFT_BREACH_LATCH_RETENTION_DAYS = 60
 
+    # Standard funded subaccounts are tracked for auto-promotion. A ledger whose checkpoints do not all
+    # record their lowest equity is rebuilt once, and at most this many rebuilds wait on the perf ledger
+    # update at a time, since the update runs them back to back.
+    AUTO_PROMOTION_MAX_PENDING_LEDGER_REBUILDS = 2
+
     # Payout basis for a trader running the pro challenge after passing the standard challenge
     # (PRO_CHALLENGE_FROM_STANDARD). PnL earned on the pro account is paid as though it had been
     # earned on this multiple of their standard account size: at 2.0, $5K of eligible PnL on a

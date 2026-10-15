@@ -2057,7 +2057,7 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
         - daily_open_balance only on accounts whose daily loss limit is measured from it
         - eod_hwm cannot go below 1.0, last_eod_equity or daily_open_equity
         - "force": true is required when a change pushes a drawdown past its threshold or deepens
-          a pro account's max_drawdown
+          the max_drawdown of a pro account or of an auto-promotion candidate
 
         Example:
         curl -X POST http://localhost:48888/admin/drawdown-stats/<hotkey> \\
