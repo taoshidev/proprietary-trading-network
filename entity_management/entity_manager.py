@@ -1047,6 +1047,7 @@ class EntityManager(ValidatorBroadcastBase):
         target_bucket: MinerBucket,
         pro_account_size: Optional[float] = None,
         broadcast: bool = True,
+        waive_promotion_fee: bool = False,
     ) -> Tuple[bool, str]:
         """
         Point a subaccount at the account size its target bucket trades.
@@ -1060,6 +1061,9 @@ class EntityManager(ValidatorBroadcastBase):
 
         broadcast=False leaves telling the other validators to the caller: create_subaccount_ex
         broadcasts the new subaccount once, after it is registered with the challenge period.
+
+        waive_promotion_fee grants the pro size without the promotion fee or its collateral check: the
+        network, not the entity, promoted the subaccount (auto-promotion).
 
         There is no network default pro size. The entity picks it when it promotes the subaccount
         (POST /entity/subaccount/promote), and this is the last check before it is stored:
@@ -1133,7 +1137,8 @@ class EntityManager(ValidatorBroadcastBase):
             # the increase over the fee already assessed is billed, and the charge floors at zero: a size
             # already paid for is free rather than crediting theta back. Collateral-exempt subaccounts
             # (reg_fee_theta == 0) stay exempt on the pro track.
-            if target_bucket.is_pro and subaccount.reg_fee_theta > 0 and target_size != subaccount.account_size:
+            if (target_bucket.is_pro and subaccount.reg_fee_theta > 0 and target_size != subaccount.account_size
+                    and not waive_promotion_fee):
                 target_fee_theta = ValiConfig.promotion_fee_theta(pro_account_size, standard_account_size,
                                                                   subaccount.intraday_drawdown_threshold)
                 promotion_fee_theta = max(0.0, target_fee_theta - subaccount.pro_fee_theta)

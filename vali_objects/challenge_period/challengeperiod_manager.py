@@ -482,6 +482,9 @@ class ChallengePeriodManager(CacheController):
         self._move_failure_logged: dict[str, int] = {}
         self._incomplete_ledgers_logged: set[str] = set()
         self._mothership: bool | None = None
+        # One lock per subaccount, held across a promotion of it (an auto-promotion's from its decision on)
+        self._promotion_locks: dict[str, threading.RLock] = {}
+        self._promotion_locks_guard = threading.Lock()
 
         logger.info(f"[CP_MANAGER] ChallengePeriodManager initialized with {len(self.miner_states)} state data")
 
@@ -592,7 +595,7 @@ class ChallengePeriodManager(CacheController):
                         eliminations[hotkey] = reason
                     continue
 
-            # The transition wind-down ends on the week boundary, regardless of performance
+            # The transition wind-down ends on schedule (see _check_transition_expiry), regardless of performance
             if self._check_transition_expiry(state, current_time_ms):
                 promotions.append(hotkey)
                 continue
@@ -722,12 +725,16 @@ class ChallengePeriodManager(CacheController):
 
     @staticmethod
     def _check_transition_expiry(state: MinerBucketState, current_time_ms: int) -> bool:
-        """True once PRO_CHALLENGE_TRANSITION has run past the first Monday 00:00 UTC after the
-        miner entered it"""
+        """True once PRO_CHALLENGE_TRANSITION has run its course: AUTO_PROMOTION_TRANSITION_DAYS after an
+        auto-promotion, else past the first Monday 00:00 UTC after the miner entered it"""
         if state.current_bucket != MinerBucket.PRO_CHALLENGE_TRANSITION:
             return False
-        expired = (TimeUtil.ms_at_start_of_week(current_time_ms)
-                   > TimeUtil.ms_at_start_of_week(state.current_bucket_start_ms))
+        if state.auto_promotion is not None:
+            promoted_ms = state.auto_promotion.promoted_ms or state.current_bucket_start_ms
+            expired = current_time_ms >= promoted_ms + ValiConfig.AUTO_PROMOTION_TRANSITION_DAYS * ValiConfig.DAILY_MS
+        else:
+            expired = (TimeUtil.ms_at_start_of_week(current_time_ms)
+                       > TimeUtil.ms_at_start_of_week(state.current_bucket_start_ms))
         if expired:
             logger.info(f"[CHALLENGE] transition window closed: {state}")
         return expired
@@ -849,9 +856,13 @@ class ChallengePeriodManager(CacheController):
         wound down in that case: the caller must leave the miner in their current bucket rather
         than strand them on the new one with the old size and no history.
         """
-        # Point the subaccount at the size the target bucket trades before resetting the account
+        # Point the subaccount at the size the target bucket trades before resetting the account. An
+        # auto-promoted subaccount goes onto its pro account free of the promotion fee.
         if is_synthetic_hotkey(hotkey):
-            success, message = self._entity_client.apply_bucket_account_size(hotkey, target_bucket)
+            state = self.miner_states.get(hotkey)
+            waive_fee = state is not None and state.auto_promotion is not None
+            success, message = self._entity_client.apply_bucket_account_size(
+                hotkey, target_bucket, waive_promotion_fee=waive_fee)
             if not success:
                 logger.error(
                     f"[CHALLENGE] {hotkey} bucket change to {target_bucket.value} ABORTED - "
@@ -941,14 +952,28 @@ class ChallengePeriodManager(CacheController):
         pro_account_size is the size the entity asked for: entering the pro track needs one, and None
         keeps the size already recorded (see EntityManager.apply_bucket_account_size, which rejects a
         subaccount that has neither). from_bucket, when given, rejects the call unless the subaccount
-        is still in it, so a caller that decided on one hop never makes the next.
+        is still in it, so a caller that decided on one hop never makes the next. A subaccount promoted
+        automatically cannot be promoted out of PRO_CHALLENGE_TRANSITION: it moves on by itself, on the
+        size the network granted.
 
         Only a target with switches_account wipes trading state, which is the two hops landing on a
         pro account (PRO_CHALLENGE_DIRECT and PRO_CHALLENGE_FROM_STANDARD): positions closed, limit
         orders cancelled, ledgers restarted. PRO_CHALLENGE_TRANSITION is a wind-down week on the
         standard account, so the hop into it keeps the positions, limit orders and ledgers as they
         are and only sweeps the entry orders (see admin_set_bucket).
+
+        Runs under the subaccount's promotion lock, so two promotions of it never interleave their
+        sizing and bucket moves. Without from_bucket the bucket at the time of the call is used, so a
+        duplicate request that waited on the lock is rejected instead of making the next hop.
         """
+        if from_bucket is None and hotkey in self.miner_states:
+            from_bucket = self.miner_states[hotkey].current_bucket
+        with self._promotion_lock(hotkey):
+            return self._promote_subaccount(hotkey, current_time_ms, pro_account_size, from_bucket)
+
+    def _promote_subaccount(self, hotkey: str, current_time_ms: int, pro_account_size: float | None,
+                            from_bucket: MinerBucket | None) -> tuple[bool, str]:
+        """promote_subaccount, run under the subaccount's promotion lock."""
         state = self.miner_states.get(hotkey)
         if state is None:
             return False, f"{hotkey} not found in challenge period manager"
@@ -956,6 +981,9 @@ class ChallengePeriodManager(CacheController):
         current_bucket = state.current_bucket
         if from_bucket is not None and current_bucket != from_bucket:
             return False, f"{hotkey} is in {current_bucket.value}, no longer {from_bucket.value}"
+        if current_bucket == MinerBucket.PRO_CHALLENGE_TRANSITION and state.auto_promotion is not None:
+            return False, (f"{hotkey} was promoted automatically and moves to "
+                           f"{MinerBucket.PRO_CHALLENGE_FROM_STANDARD.value} by itself")
         target_bucket = current_bucket.promotion_target
         if target_bucket is None:
             return False, f"{hotkey} cannot be promoted out of {current_bucket.value}"
@@ -1364,20 +1392,26 @@ class ChallengePeriodManager(CacheController):
 
             qualified = self._auto_promotion_path(stats, payouts.total_usd / account.account_size,
                                                   payouts.paid_weeks)
-            if qualified is not None and self._move_to_auto_promotion(
-                    hotkey, state, account, stats, qualified, payouts, current_time_ms):
-                promoted.append(hotkey)
+            if qualified is None:
+                continue
+            with self._promotion_lock(hotkey):
+                if self._move_to_auto_promotion(hotkey, account, stats, qualified, payouts, current_time_ms):
+                    promoted.append(hotkey)
         return promoted
 
-    def _move_to_auto_promotion(self, hotkey: str, state: MinerBucketState, account: MinerAccount,
-                                stats: AutoPromotionStats, qualified: tuple[str, int], payouts: FundedPayouts,
-                                current_time_ms: int) -> bool:
-        """Move one qualifying candidate into PRO_CHALLENGE_TRANSITION. True when it moved.
+    def _move_to_auto_promotion(self, hotkey: str, account: MinerAccount, stats: AutoPromotionStats,
+                                qualified: tuple[str, int], payouts: FundedPayouts, current_time_ms: int) -> bool:
+        """Move one qualifying candidate into PRO_CHALLENGE_TRANSITION. Called with its promotion lock held.
+        True when it moved.
 
         Only the mothership chooses the pro size (the path's multiple of the standard account), and its
         sizing reaches the other validators by broadcast, or by the nightly sync when a broadcast is
         missed. Every other validator moves only once that size is on its record, and follows it.
         """
+        # Checked again under the lock: the entity may have promoted it since the decision
+        state = self.miner_states.get(hotkey)
+        if state is None or state.current_bucket != MinerBucket.SUBACCOUNT_FUNDED or state.auto_promotion:
+            return False
         path, multiple = qualified
         try:
             info = self._entity_client.get_subaccount_info_for_synthetic(hotkey) or {}
@@ -1420,6 +1454,10 @@ class ChallengePeriodManager(CacheController):
         logger.info(f"[CHALLENGE] AUTO-PROMOTED {hotkey} on the {path} path at {record.multiplier:g}x "
                     f"(pro size ${pro_account_size:,.0f}): {record}")
         return True
+
+    def _promotion_lock(self, hotkey: str) -> threading.RLock:
+        with self._promotion_locks_guard:
+            return self._promotion_locks.setdefault(hotkey, threading.RLock())
 
     def _is_mothership(self) -> bool:
         """Whether this validator is the mothership, read once from the entity server."""

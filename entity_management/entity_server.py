@@ -284,9 +284,11 @@ class EntityServer(RPCServerBase):
         synthetic_hotkey: str,
         target_bucket: MinerBucket,
         pro_account_size: Optional[float] = None,
+        waive_promotion_fee: bool = False,
     ) -> Tuple[bool, str]:
         """Point a subaccount at the account size its target bucket trades."""
-        return self._manager.apply_bucket_account_size(synthetic_hotkey, target_bucket, pro_account_size)
+        return self._manager.apply_bucket_account_size(synthetic_hotkey, target_bucket, pro_account_size,
+                                                       waive_promotion_fee=waive_promotion_fee)
 
     def snapshot_bucket_account_size_rpc(self, synthetic_hotkey: str) -> Optional[dict]:
         """The sizing fields apply_bucket_account_size writes, read before it runs."""

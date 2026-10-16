@@ -8,6 +8,7 @@ On the same check it takes the larger multiple. Payouts are the payout endpoint'
 payout weeks.
 """
 import contextlib
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,22 +25,26 @@ from tests.vali_tests.test_challengeperiod_pro import (  # noqa: F401 - manager 
     hop_manager,
     manager,
 )
+from entity_management.entity_client import EntityClient
+from entity_management.entity_server import EntityServer
 from tests.vali_tests.test_pro_account_size import STANDARD_SIZE, _add_standard, _bare_manager
 from vali_objects.challenge_period.challengeperiod_manager import (
     AutoPromotion,
     AutoPromotionStats,
     ChallengePeriodManager,
+    FundedPayouts,
     MinerBucketState,
 )
 from vali_objects.enums.miner_asset_class_enum import MinerAssetClass
 from vali_objects.enums.miner_bucket_enum import MinerBucket
-from vali_objects.vali_config import ValiConfig
+from vali_objects.vali_config import RPCConnectionMode, ValiConfig
 
 PAYOUT = AutoPromotion.PAYOUT_PATH
 TRACK_RECORD = AutoPromotion.TRACK_RECORD_PATH
 TRANSITION = MinerBucket.PRO_CHALLENGE_TRANSITION
 WEEK_MS = 7 * DAILY_MS
 READABLE_MS = ChallengePeriodManager.AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS  # into a week, its payouts can be read
+SEVEN_DAYS_MS = ValiConfig.AUTO_PROMOTION_TRANSITION_DAYS * DAILY_MS
 
 
 def _stats(calmar: float = 1.5, consistency: float = 0.5, days: int = 60,
@@ -468,6 +473,163 @@ def test_a_week_counts_as_paid_only_when_it_paid_something(hop_manager):
     assert _auto_promote(hop_manager) == []
 
 
+# ── In the transition: seven days, no fee, no entity hop, one promotion at a time ──
+
+GROW = MinerBucket.PRO_CHALLENGE_FROM_STANDARD
+_expired = ChallengePeriodManager._check_transition_expiry
+
+
+def _in_transition(manager, entered_ms: int = NOW_MS, auto_promoted: bool = True,
+                   hotkey: str = HOTKEY) -> MinerBucketState:
+    manager.set_miner_bucket(hotkey, MinerBucket.SUBACCOUNT_FUNDED, NOW_MS - 60 * DAILY_MS)
+    state = manager.miner_states[hotkey]
+    state.add_bucket_entry(TRANSITION, entered_ms)
+    if auto_promoted:
+        state.auto_promotion = AutoPromotion(path=PAYOUT, multiplier=3.0, pro_account_size=300_000,
+                                             promoted_ms=entered_ms)
+    return state
+
+
+def test_an_auto_promoted_account_moves_on_seven_days_after_its_promotion(manager):
+    state = _in_transition(manager)
+    assert not _expired(state, NEXT_MONDAY_MS + 60_000)   # not at the next Monday
+    assert not _expired(state, NOW_MS + SEVEN_DAYS_MS - 1)
+    assert _expired(state, NOW_MS + SEVEN_DAYS_MS)
+
+
+def test_a_self_service_transition_still_moves_on_at_the_next_monday(manager):
+    state = _in_transition(manager, auto_promoted=False)
+    assert not _expired(state, NEXT_MONDAY_MS - 1)
+    assert _expired(state, NEXT_MONDAY_MS)
+
+
+def test_the_seven_days_count_from_the_promotion_even_when_the_transition_was_entered_later(manager):
+    state = _in_transition(manager, entered_ms=NOW_MS + 3 * DAILY_MS)
+    state.auto_promotion.promoted_ms = NOW_MS
+    assert not _expired(state, NOW_MS + SEVEN_DAYS_MS - 1)
+    assert _expired(state, NOW_MS + SEVEN_DAYS_MS)
+
+
+def test_a_record_without_its_promotion_time_counts_from_entering_the_transition(manager):
+    state = _in_transition(manager)
+    state.auto_promotion.promoted_ms = 0
+    assert not _expired(state, NOW_MS + SEVEN_DAYS_MS - 1)
+    assert _expired(state, NOW_MS + SEVEN_DAYS_MS)
+
+
+@pytest.mark.parametrize("auto_promoted", [True, False])
+def test_only_an_auto_promoted_account_moves_on_free_of_the_fee(hop_manager, auto_promoted):
+    subaccount = "entity_hk_0"  # the switch only sizes subaccounts
+    _in_transition(hop_manager, auto_promoted=auto_promoted, hotkey=subaccount)
+    assert hop_manager.promote_hotkeys([subaccount], NOW_MS + SEVEN_DAYS_MS)
+    assert hop_manager.miner_states[subaccount].current_bucket == GROW
+    hop_manager._entity_client.apply_bucket_account_size.assert_called_with(
+        subaccount, GROW, waive_promotion_fee=auto_promoted)
+
+
+@pytest.mark.parametrize("waive", [True, False])
+def test_the_entity_manager_waives_the_fee_and_its_collateral_check_on_request(waive):
+    """A fee-paying subaccount whose entity holds no collateral at all."""
+    entity_manager = _bare_manager()
+    entity_manager._entity_collateral_client = MagicMock()
+    entity_manager._entity_collateral_client.get_cached_collateral.return_value = 0.0
+    hotkey = _add_standard(entity_manager)
+    entity_manager.get_subaccount_info_for_synthetic(hotkey).reg_fee_theta = STANDARD_SIZE / 1_500
+    assert entity_manager.apply_bucket_account_size(hotkey, TRANSITION, 300_000)[0]
+
+    success, message = entity_manager.apply_bucket_account_size(hotkey, GROW, waive_promotion_fee=waive)
+
+    info = entity_manager.get_subaccount_info_for_synthetic(hotkey)
+    if waive:
+        assert success and info.account_size == 300_000 and info.pro_fee_theta == 0
+    else:
+        assert not success and "Insufficient collateral" in message and info.account_size == STANDARD_SIZE
+
+
+@pytest.mark.parametrize("waive", [True, False])
+def test_the_waiver_reaches_the_entity_manager_through_the_client_and_server(waive):
+    server = EntityServer.__new__(EntityServer)  # only its forwarding is under test
+    server._manager = MagicMock()
+    client = EntityClient(connection_mode=RPCConnectionMode.LOCAL, running_unit_tests=True)
+    client.set_direct_server(server)
+    client.apply_bucket_account_size(HOTKEY, GROW, waive_promotion_fee=waive)
+    server._manager.apply_bucket_account_size.assert_called_once_with(HOTKEY, GROW, None, waive_promotion_fee=waive)
+
+
+def test_the_entity_cannot_promote_an_auto_promoted_account_out_of_the_transition(hop_manager):
+    _in_transition(hop_manager)
+    success, message = hop_manager.promote_subaccount(HOTKEY, NOW_MS + DAILY_MS, 500_000)
+    assert not success and "promoted automatically" in message
+    assert hop_manager.miner_states[HOTKEY].current_bucket == TRANSITION
+    hop_manager._entity_client.apply_bucket_account_size.assert_not_called()
+
+
+def test_the_entity_can_still_move_its_own_promotion_on(hop_manager):
+    _in_transition(hop_manager, auto_promoted=False)
+    assert hop_manager.promote_subaccount(HOTKEY, NOW_MS + DAILY_MS)[0]
+    assert hop_manager.miner_states[HOTKEY].current_bucket == GROW
+
+
+def _runs_only_after_the_lock_is_released(manager, call) -> None:
+    """Hold the subaccount's promotion lock, start `call` on another thread, and check it waits for it."""
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (call(), done.set()))
+    with manager._promotion_lock(HOTKEY):
+        worker.start()
+        assert not done.wait(0.2)
+        state = manager.miner_states[HOTKEY]
+        assert state.current_bucket == MinerBucket.SUBACCOUNT_FUNDED and state.auto_promotion is None
+    worker.join(5)
+    assert done.is_set()
+
+
+def test_an_entity_promotion_waits_for_the_subaccounts_promotion_lock(hop_manager):
+    hop_manager.set_miner_bucket(HOTKEY, MinerBucket.SUBACCOUNT_FUNDED, NOW_MS - DAILY_MS)
+    _runs_only_after_the_lock_is_released(hop_manager, lambda: hop_manager.promote_subaccount(HOTKEY, NOW_MS, 250_000))
+    assert hop_manager.miner_states[HOTKEY].current_bucket == TRANSITION
+
+
+def test_an_auto_promotion_waits_for_the_subaccounts_promotion_lock(hop_manager):
+    _candidate(hop_manager, weeks=_weeks(20_000))
+    _runs_only_after_the_lock_is_released(hop_manager, lambda: _auto_promote(hop_manager))
+    assert hop_manager.miner_states[HOTKEY].auto_promotion.multiplier == 3
+
+
+def test_a_duplicate_request_that_waited_on_the_lock_makes_no_second_hop(hop_manager):
+    hop_manager.set_miner_bucket(HOTKEY, MinerBucket.SUBACCOUNT_FUNDED, NOW_MS - DAILY_MS)
+    results = []
+    duplicate = threading.Thread(
+        target=lambda: results.append(hop_manager.promote_subaccount(HOTKEY, NOW_MS, 250_000)))
+    with hop_manager._promotion_lock(HOTKEY):
+        duplicate.start()
+        duplicate.join(0.2)
+        assert duplicate.is_alive()  # waiting on the lock
+        assert hop_manager.promote_subaccount(HOTKEY, NOW_MS, 250_000)[0]
+    duplicate.join(5)
+    success, message = results[0]
+    assert not success and "no longer" in message
+    assert hop_manager.miner_states[HOTKEY].current_bucket == TRANSITION
+
+
+@pytest.mark.parametrize("since_the_decision", ["promoted by the entity", "already auto-promoted"])
+def test_the_move_checks_the_account_again_before_promoting_it(hop_manager, since_the_decision):
+    """Nothing is moved or recorded when the account changed after the decision."""
+    _candidate(hop_manager, weeks=_weeks(20_000))
+    state = hop_manager.miner_states[HOTKEY]
+    if since_the_decision == "promoted by the entity":
+        state.add_bucket_entry(TRANSITION, NOW_MS - 1_000)
+    else:
+        state.auto_promotion = AutoPromotion(path=PAYOUT, multiplier=3.0, pro_account_size=300_000,
+                                             promoted_ms=NOW_MS - SEVEN_DAYS_MS)
+    record = state.auto_promotion
+
+    payouts = FundedPayouts(week_start_ms=MONDAY_MS, ledger_start_ms=LEDGER_START_MS, total_usd=20_000, paid_weeks=1)
+    with patch.object(hop_manager, "promote_subaccount") as promote:
+        assert not hop_manager._move_to_auto_promotion(HOTKEY, _account(), _stats(), (PAYOUT, 3), payouts, NOW_MS)
+    promote.assert_not_called()
+    assert state.auto_promotion is record
+
+
 # ── EntityManager.get_funded_week_payouts ─────────────────────────────────────
 
 def _row(start_ms: int, end_ms: int, payout: float, bucket: MinerBucket = MinerBucket.SUBACCOUNT_FUNDED) -> dict:
@@ -547,11 +709,15 @@ def _full_refresh(manager, hotkey: str, now_ms: int, ledger=None, eliminated: bo
         return manager.refresh(current_time_ms=now_ms)
 
 
-def test_through_refresh_a_qualifying_account_moves_and_reaches_grow_on_monday(hop_manager):
+def test_through_refresh_a_qualifying_account_reaches_grow_seven_days_later_free_of_the_fee(hop_manager):
     """7% realized over a 2% drawdown is calmar 3.5: the 10x tier. The transition records the pro size
-    and keeps trading the standard account; the next Monday puts it on the pro size."""
+    and keeps trading the standard account, past the next Monday; seven days after the promotion it
+    goes onto the pro size, with no promotion fee charged even though the entity holds no collateral."""
     entity_manager = _bare_manager()
+    entity_manager._entity_collateral_client = MagicMock()
+    entity_manager._entity_collateral_client.get_cached_collateral.return_value = 0.0
     hotkey = _add_standard(entity_manager)
+    entity_manager.get_subaccount_info_for_synthetic(hotkey).reg_fee_theta = STANDARD_SIZE / 1_500
     hop_manager._entity_client = _EntityClient(entity_manager, _weeks(1_000, 1_000, 1_500))
     _seed(hop_manager, hotkey)
 
@@ -566,9 +732,15 @@ def test_through_refresh_a_qualifying_account_moves_and_reaches_grow_on_monday(h
     assert info.account_size == STANDARD_SIZE
 
     _full_refresh(hop_manager, hotkey, NEXT_MONDAY_MS + 60_000)
+    assert hop_manager.miner_states[hotkey].current_bucket == TRANSITION
+
+    _full_refresh(hop_manager, hotkey, NOW_MS + SEVEN_DAYS_MS)
 
     assert hop_manager.miner_states[hotkey].current_bucket == MinerBucket.PRO_CHALLENGE_FROM_STANDARD
-    assert entity_manager.get_subaccount_info_for_synthetic(hotkey).account_size == 10 * STANDARD_SIZE
+    info = entity_manager.get_subaccount_info_for_synthetic(hotkey)
+    assert info.account_size == 10 * STANDARD_SIZE
+    assert info.pro_fee_theta == 0
+    entity_manager._entity_collateral_client.offset_collateral_cache.assert_not_called()
 
 
 def test_through_refresh_a_ledger_missing_lows_holds_the_promotion(hop_manager):
