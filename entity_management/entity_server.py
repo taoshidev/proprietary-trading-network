@@ -262,6 +262,10 @@ class EntityServer(RPCServerBase):
     def is_instant_funded_rpc(self, synthetic_hotkey: str) -> bool:
         return self._manager.is_instant_funded(synthetic_hotkey)
 
+    def is_mothership_rpc(self) -> bool:
+        """Whether this validator is the mothership, the one whose subaccount sizing is broadcast."""
+        return self._manager.is_mothership
+
     def get_subaccount_info_for_synthetic_rpc(self, synthetic_hotkey: str) -> Optional[dict]:
         """
         Get SubaccountInfo for a synthetic hotkey.
@@ -475,6 +479,10 @@ class EntityServer(RPCServerBase):
             start_time_ms,
             end_time_ms
         )
+
+    def get_funded_week_payouts_rpc(self, synthetic_hotkey: str, end_time_ms: int) -> Optional[dict]:
+        """RPC method for the payout of each payout week traded in SUBACCOUNT_FUNDED."""
+        return self._manager.get_funded_week_payouts(synthetic_hotkey, end_time_ms)
 
     # ==================== Validator Broadcast RPC Methods ====================
 

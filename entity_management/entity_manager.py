@@ -1880,6 +1880,33 @@ class EntityManager(ValidatorBroadcastBase):
             return None
         return self._calculate_payout_for_hotkey(synthetic_hotkey, start_time_ms, end_time_ms)
 
+    def get_funded_week_payouts(self, synthetic_hotkey: str, end_time_ms: int) -> Optional[Dict[int, float]]:
+        """
+        The payout, as the payout endpoint reports it, of each payout week a subaccount in
+        SUBACCOUNT_FUNDED traded there, up to end_time_ms, keyed by the week's Monday 00:00 UTC. Every
+        such week of the account counts, across a reverted elimination too; a week split by a bucket
+        change counts only its funded part. Read by auto-promotion, which passes a payout week boundary.
+
+        Returns:
+            week_start_ms -> payout in USD, or None when no payout can be calculated or its weeks
+            cannot be told apart by bucket yet
+        """
+        result = self._calculate_payout_for_hotkey(synthetic_hotkey, 0, end_time_ms,
+                                                   bucket_override=MinerBucket.SUBACCOUNT_FUNDED)
+        if result is None:
+            return None
+        # Rows carry no bucket while the subaccount has no debt ledger yet (it is built every 12h):
+        # unknown, not unpaid
+        if any(row['bucket'] in (None, MinerBucket.UNKNOWN.value) for row in result['weekly_settlements']):
+            return None
+        weeks: Dict[int, float] = {}
+        for row in result['weekly_settlements']:
+            if row['bucket'] != MinerBucket.SUBACCOUNT_FUNDED.value or row['end_ms'] > end_time_ms:
+                continue
+            week_start_ms = TimeUtil.ms_at_start_of_week(row['start_ms'])
+            weeks[week_start_ms] = weeks.get(week_start_ms, 0.0) + row['payout']
+        return weeks
+
     def _calculate_payout_for_hotkey(
         self,
         synthetic_hotkey: str,

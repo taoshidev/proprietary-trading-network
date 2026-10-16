@@ -1,9 +1,12 @@
 """
-Standard subaccounts in SUBACCOUNT_FUNDED (created through SUBACCOUNT_CHALLENGE, not HL-linked) are
-tracked for auto-promotion with the pro stats: calmar, daily consistency and trading days. Their
-max_drawdown is the live pro ratchet combined with the ledger replay of the whole funded period
-(LedgerUtils.eod_hwm_drawdown), and a ledger that cannot replay it is rebuilt once.
+Auto-promotion candidates are standard subaccounts in SUBACCOUNT_FUNDED (created through SUBACCOUNT_CHALLENGE,
+not HL-linked). From the first refresh that sees one, its drawdown is tracked live in DrawdownStats, ratcheted
+as the pro challenge ratchets its own; the time before is replayed from the perf ledger
+(LedgerUtils.eod_hwm_drawdown). Calmar, daily consistency and trading days are measured as in the pro challenge
+into AutoPromotionStats. The pro track and every other account are unaffected.
 """
+from unittest.mock import patch
+
 import pytest
 
 from tests.vali_tests.test_challengeperiod_pro import (  # noqa: F401 - manager is a pytest fixture
@@ -11,6 +14,7 @@ from tests.vali_tests.test_challengeperiod_pro import (  # noqa: F401 - manager 
     CP_MS,
     DAILY_MS,
     HOTKEY,
+    LEDGER_START_MS,
     MIDNIGHT_MS,
     NOW_MS,
     _even_ledger,
@@ -29,6 +33,8 @@ from vali_objects.vali_dataclasses.ledger.perf.perf_ledger import PerfCheckpoint
 HL_ADDRESS = "0x" + "d" * 40
 DAYS = 60
 REALIZED_USD = 7_000.0  # 7% on the account
+PRO_BUCKETS = (MinerBucket.PRO_CHALLENGE_TRANSITION, MinerBucket.PRO_CHALLENGE_FROM_STANDARD,
+               MinerBucket.PRO_CHALLENGE_DIRECT, MinerBucket.PRO_FUNDED)
 
 
 def _account(hotkey: str = HOTKEY, hl_address: str | None = None,
@@ -56,16 +62,19 @@ def _seed(manager, hotkey: str = HOTKEY, bucket: MinerBucket = MinerBucket.SUBAC
                                                           last_eod_checked_ms=MIDNIGHT_MS)
 
 
-def _refresh(manager, ledgers: dict, accounts: dict | None = None) -> None:
+def _refresh(manager, ledgers: dict, accounts: dict | None = None, now_ms: int = NOW_MS) -> None:
     accounts = accounts if accounts is not None else {hk: _account(hk) for hk in ledgers}
-    manager._refresh_pro_stats(list(ledgers), ledgers, accounts)
+    manager._refresh_auto_promotion_stats(list(ledgers), ledgers, accounts, now_ms)
+
+
+def _stats(manager, hotkey: str = HOTKEY):
+    return manager._auto_promotion_stats.get(hotkey)
 
 
 @pytest.fixture(autouse=True)
 def _standard_subaccount(manager):
-    """The entity record of a subaccount created through SUBACCOUNT_CHALLENGE, and no rebuild pending."""
+    """The entity record of a subaccount created through SUBACCOUNT_CHALLENGE."""
     manager._entity_client.get_subaccount_info_for_synthetic.return_value = {"initial_bucket": None}
-    manager._perf_ledger_client.get_perf_ledger_hks_to_invalidate.return_value = {}
 
 
 # ── LedgerUtils.eod_hwm_drawdown ──────────────────────────────────────────────
@@ -117,8 +126,37 @@ def test_the_mark_is_floored_at_the_starting_equity():
     assert LedgerUtils.eod_hwm_drawdown(ledger) == pytest.approx(0.96)
 
 
-def test_an_unknown_low_makes_the_replay_unknown():
+def test_a_checkpoint_that_tracked_equity_without_its_low_makes_the_replay_unknown():
     ledger = PerfLedger(cps=[_cp(DAY0 + CP_MS, low=None, close=1.0), _cp(DAY0 + DAILY_MS, low=0.99, close=1.0)])
+    assert LedgerUtils.eod_hwm_drawdown(ledger) is None
+
+
+def test_a_checkpoint_with_a_position_open_but_no_equity_tracked_makes_the_replay_unknown():
+    """Equity moved (a position was open) but was never recorded, e.g. built while the account had no
+    account size: not a checkpoint without a drawdown."""
+    untracked = _cp(DAY0 + CP_MS, low=None, close=0.0)
+    untracked.open_ms = CP_MS
+    ledger = PerfLedger(cps=[untracked, _cp(DAY0 + DAILY_MS, low=0.99, close=1.0)])
+    assert LedgerUtils.eod_hwm_drawdown(ledger) is None
+
+
+def test_a_checkpoint_that_never_tracked_equity_is_skipped():
+    """Before the first position opens the ledger has no equity sample, and nothing to replay."""
+    ledger = PerfLedger(cps=[_cp(DAY0 + CP_MS, low=None, close=0.0), _cp(DAY0 + DAILY_MS, low=None, close=0.0),
+                             _cp(DAY0 + DAILY_MS + CP_MS, low=0.97, close=0.99)])
+    assert LedgerUtils.eod_hwm_drawdown(ledger) == pytest.approx(0.97)
+
+
+def test_the_replay_stops_at_the_boundary():
+    """Only checkpoints whose window starts before before_ms count: the one straddling it does, the
+    next does not, and nor does an unknown low after it."""
+    ledger = PerfLedger(cps=[_cp(DAY0 + CP_MS, low=0.99, close=1.0),
+                             _cp(DAY0 + DAILY_MS, low=0.97, close=1.0),
+                             _cp(DAY0 + DAILY_MS + CP_MS, low=0.90, close=1.0),
+                             _cp(DAY0 + 2 * DAILY_MS, low=None, close=1.0)])
+    assert LedgerUtils.eod_hwm_drawdown(ledger, before_ms=DAY0 + DAILY_MS - 1) == pytest.approx(0.97)
+    assert LedgerUtils.eod_hwm_drawdown(ledger, before_ms=DAY0 + CP_MS) == pytest.approx(0.99)
+    assert LedgerUtils.eod_hwm_drawdown(ledger, before_ms=DAY0 + DAILY_MS + CP_MS) == pytest.approx(0.90)
     assert LedgerUtils.eod_hwm_drawdown(ledger) is None
 
 
@@ -148,31 +186,76 @@ def test_it_replays_the_live_ratchet_over_a_ledger_built_minute_by_minute():
     assert LedgerUtils.eod_hwm_drawdown(ledger) == pytest.approx(worst)
 
 
-# ── Auto-promotion candidates get pro stats ──────────────────────────────────
+# ── The live ratchet, in DrawdownStats ────────────────────────────────────────
 
-def test_a_candidate_gets_pro_stats(manager):
-    """7% realized over a 4% replayed drawdown: calmar 1.75, measured as for pro."""
+def test_tracking_starts_at_the_first_refresh_and_never_recovers(manager):
+    _seed(manager, current_equity=0.97)
+    _refresh(manager, {HOTKEY: _ledger()})
+    drawdown = manager.miner_states[HOTKEY].drawdown
+    assert drawdown.max_drawdown == pytest.approx(0.97)
+    assert drawdown.max_drawdown_since_ms == NOW_MS
+
+    drawdown.current_equity = 1.02
+    _refresh(manager, {HOTKEY: _ledger()}, now_ms=NOW_MS + 60_000)
+    assert drawdown.max_drawdown == pytest.approx(0.97)
+    assert drawdown.max_drawdown_since_ms == NOW_MS
+
+
+def test_the_ratchet_reads_live_equity_against_the_eod_high_water_mark(manager):
+    _seed(manager, current_equity=1.04, eod_hwm=1.08)
+    _refresh(manager, {HOTKEY: _ledger(close=1.08)})
+    assert manager.miner_states[HOTKEY].drawdown.max_drawdown == pytest.approx(1.04 / 1.08)
+
+
+def test_the_ratchet_is_saved_with_the_drawdown_stats():
+    stats = DrawdownStats(max_drawdown=0.95, max_drawdown_since_ms=NOW_MS)
+    restored = DrawdownStats.from_dict(stats.to_dict())
+    assert (restored.max_drawdown, restored.max_drawdown_since_ms) == (0.95, NOW_MS)
+    assert DrawdownStats.from_dict({"current_equity": 1.0}).max_drawdown_since_ms is None
+
+
+# ── Stats, measured as in the pro challenge ──────────────────────────────────
+
+def test_a_candidate_gets_stats_measured_as_in_pro(manager):
+    """7% realized over a 4% replayed drawdown: calmar 1.75."""
     _seed(manager)
     _refresh(manager, {HOTKEY: _ledger(low=0.96)})
 
-    stats = manager.miner_states[HOTKEY].pro_stats
+    stats = _stats(manager)
     assert stats.max_drawdown == pytest.approx(0.96)
     assert stats.calmar == pytest.approx(1.75)
     assert stats.trading_days == DAYS
     assert stats.daily_consistency == pytest.approx(1 / DAYS)
+    assert stats.ledger_start_ms == LEDGER_START_MS
 
 
-def test_the_live_ratchet_and_the_ledger_replay_both_count(manager):
+def test_the_ledger_only_replays_the_time_before_live_tracking(manager):
+    """A ledger low after tracking began is the live ratchet's to see, not the replay's."""
+    _seed(manager)
+    manager.miner_states[HOTKEY].drawdown.max_drawdown_since_ms = LEDGER_START_MS + 30 * DAILY_MS
+    ledger = _ledger(low=0.99)
+    ledger.cps[20].min_equity_ret = 0.97   # day 10: before tracking
+    ledger.cps[80].min_equity_ret = 0.90   # day 40: after it
+
+    _refresh(manager, {HOTKEY: ledger})
+
+    assert _stats(manager).max_drawdown == pytest.approx(0.97)
+
+
+def test_the_live_ratchet_and_the_replay_both_count_and_only_the_ratchet_is_kept(manager):
     _seed(manager, current_equity=0.95)
     _refresh(manager, {HOTKEY: _ledger(low=0.98)})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.95)
+    assert _stats(manager).max_drawdown == pytest.approx(0.95)
 
-    # Recovered live, but the ledger now replays a deeper dip, and the ratchet never gives back
+    # Recovered live, but the replay now shows a deeper dip
     manager.miner_states[HOTKEY].drawdown.current_equity = 1.02
     _refresh(manager, {HOTKEY: _ledger(low=0.93)})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.93)
+    assert _stats(manager).max_drawdown == pytest.approx(0.93)
+
+    # A corrected ledger is read afresh; the live ratchet still holds its own worst
     _refresh(manager, {HOTKEY: _ledger(low=0.99)})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.93)
+    assert _stats(manager).max_drawdown == pytest.approx(0.95)
+    assert manager.miner_states[HOTKEY].drawdown.max_drawdown == pytest.approx(0.95)
 
 
 @pytest.mark.parametrize("record", [
@@ -182,33 +265,34 @@ def test_the_live_ratchet_and_the_ledger_replay_both_count(manager):
 ])
 def test_only_subaccounts_created_through_the_challenge_are_candidates(manager, record):
     manager._entity_client.get_subaccount_info_for_synthetic.return_value = record
-    _seed(manager)
+    _seed(manager, current_equity=0.97)
     _refresh(manager, {HOTKEY: _ledger(low=0.96)})
-    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
-    manager._perf_ledger_client.set_hotkey_to_invalidate.assert_not_called()
+    assert _stats(manager) is None
+    assert manager.miner_states[HOTKEY].drawdown.max_drawdown_since_ms is None
+    assert HOTKEY not in manager._auto_promotion_candidates
 
 
 @pytest.mark.parametrize("account_kwargs", [{"hl_address": HL_ADDRESS}, {"asset_class": MinerAssetClass.HL_ALL}])
 def test_hl_linked_subaccounts_are_not_candidates(manager, account_kwargs):
     _seed(manager)
     _refresh(manager, {HOTKEY: _ledger(low=0.96)}, {HOTKEY: _account(**account_kwargs)})
-    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
+    assert _stats(manager) is None
 
 
-@pytest.mark.parametrize("bucket", [MinerBucket.SUBACCOUNT_CHALLENGE, MinerBucket.MAINCOMP])
-def test_other_standard_buckets_get_no_pro_stats(manager, bucket):
-    _seed(manager, bucket=bucket)
-    _refresh(manager, {HOTKEY: _ledger(low=0.96)})
-    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
-
-
-@pytest.mark.parametrize("bucket", [MinerBucket.PRO_CHALLENGE_TRANSITION, MinerBucket.PRO_CHALLENGE_FROM_STANDARD,
-                                    MinerBucket.PRO_CHALLENGE_DIRECT, MinerBucket.PRO_FUNDED])
-def test_the_pro_track_keeps_the_live_ratchet_alone(manager, bucket):
+@pytest.mark.parametrize("bucket", [MinerBucket.SUBACCOUNT_CHALLENGE, MinerBucket.MAINCOMP, *PRO_BUCKETS])
+def test_no_other_bucket_is_tracked(manager, bucket):
     _seed(manager, bucket=bucket, current_equity=0.97)
     _refresh(manager, {HOTKEY: _ledger(low=0.50)})
+    assert _stats(manager) is None
+    assert manager.miner_states[HOTKEY].drawdown.max_drawdown == 1.0
+    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
+
+
+@pytest.mark.parametrize("bucket", PRO_BUCKETS)
+def test_the_pro_track_keeps_its_own_ratchet(manager, bucket):
+    _seed(manager, bucket=bucket, current_equity=0.97)
+    manager._refresh_pro_stats([HOTKEY], {HOTKEY: _ledger(low=0.50)}, {HOTKEY: _account()})
     assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.97)
-    manager._perf_ledger_client.set_hotkey_to_invalidate.assert_not_called()
 
 
 def test_the_creation_record_is_looked_up_once(manager):
@@ -222,75 +306,35 @@ def test_a_failed_lookup_skips_the_account_until_the_next_refresh(manager):
     _seed(manager)
     manager._entity_client.get_subaccount_info_for_synthetic.side_effect = RuntimeError("entity server down")
     _refresh(manager, {HOTKEY: _ledger(low=0.96)})
-    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
+    assert _stats(manager) is None
 
     manager._entity_client.get_subaccount_info_for_synthetic.side_effect = None
     _refresh(manager, {HOTKEY: _ledger(low=0.96)})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.96)
+    assert _stats(manager).max_drawdown == pytest.approx(0.96)
 
 
-def test_a_candidate_with_no_ledger_yet_keeps_the_live_ratchet(manager):
+def test_a_candidate_with_no_ledger_yet_is_tracked_but_has_no_stats(manager):
     _seed(manager, current_equity=0.98)
     _refresh(manager, {HOTKEY: None})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.98)
+    assert _stats(manager) is None
+    assert manager.miner_states[HOTKEY].drawdown.max_drawdown == pytest.approx(0.98)
 
 
-# ── Rebuilding ledgers that cannot replay the funded period ──────────────────
-
-def _legacy_ledger() -> PerfLedger:
-    """Checkpoints started before they recorded their lowest equity."""
+def test_a_ledger_missing_lows_gets_no_stats_and_is_logged_once(manager):
+    """Until the one-time regeneration rebuilds it, a ledger from before lows were recorded cannot be
+    replayed, so the account is not evaluated."""
+    _seed(manager)
     ledger = _ledger(low=0.99)
     ledger.cps[0].min_equity_ret = None
-    return ledger
 
+    with patch("vali_objects.challenge_period.challengeperiod_manager.logger") as log:
+        _refresh(manager, {HOTKEY: ledger})
+        _refresh(manager, {HOTKEY: ledger})
+    assert _stats(manager) is None
+    assert log.warning.call_count == 1
 
-def test_a_ledger_without_every_low_is_rebuilt_once_and_holds_the_live_ratchet(manager):
-    _seed(manager, current_equity=0.98)
-    _refresh(manager, {HOTKEY: _legacy_ledger()})
-
-    manager._perf_ledger_client.set_hotkey_to_invalidate.assert_called_once_with(HOTKEY, 0)
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.98)
-
-    # Rebuilt but still unknown: never requested again
-    _refresh(manager, {HOTKEY: _legacy_ledger()})
-    _refresh(manager, {HOTKEY: _legacy_ledger()})
-    manager._perf_ledger_client.set_hotkey_to_invalidate.assert_called_once()
-
-    # Once the rebuilt ledger replays the period, it counts
     _refresh(manager, {HOTKEY: _ledger(low=0.94)})
-    assert manager.miner_states[HOTKEY].pro_stats.max_drawdown == pytest.approx(0.94)
-
-
-def test_rebuilds_are_capped_while_earlier_ones_are_pending(manager):
-    cap = ValiConfig.AUTO_PROMOTION_MAX_PENDING_LEDGER_REBUILDS
-    hotkeys = [f"hk{i}" for i in range(cap + 2)]
-    for hotkey in hotkeys:
-        _seed(manager, hotkey)
-    invalidate = manager._perf_ledger_client.set_hotkey_to_invalidate
-
-    _refresh(manager, {hotkey: _legacy_ledger() for hotkey in hotkeys})
-    first = [call.args[0] for call in invalidate.call_args_list]
-    assert first == hotkeys[:cap]
-
-    # Still pending: nothing new. A pending ledger is left out of scoring, so it is absent here
-    manager._perf_ledger_client.get_perf_ledger_hks_to_invalidate.return_value = {hk: 0 for hk in first}
-    _refresh(manager, {hotkey: _legacy_ledger() for hotkey in hotkeys[cap:]})
-    assert invalidate.call_count == cap
-
-    # Done: the rest go in
-    manager._perf_ledger_client.get_perf_ledger_hks_to_invalidate.return_value = {}
-    _refresh(manager, {hotkey: _legacy_ledger() for hotkey in hotkeys[cap:]})
-    assert [call.args[0] for call in invalidate.call_args_list] == hotkeys
-
-
-def test_a_failed_rebuild_request_is_retried(manager):
-    _seed(manager)
-    manager._perf_ledger_client.set_hotkey_to_invalidate.side_effect = RuntimeError("perf ledger server down")
-    _refresh(manager, {HOTKEY: _legacy_ledger()})
-
-    manager._perf_ledger_client.set_hotkey_to_invalidate.side_effect = None
-    _refresh(manager, {HOTKEY: _legacy_ledger()})
-    assert manager._perf_ledger_client.set_hotkey_to_invalidate.call_count == 2
+    assert _stats(manager).max_drawdown == pytest.approx(0.94)
 
 
 # ── Nothing else reads the candidates' stats ─────────────────────────────────
@@ -306,16 +350,16 @@ def test_a_candidate_never_latches_a_soft_breach_or_shows_pro_stats(manager):
     _refresh(manager, {HOTKEY: _ledger(low=0.50)})  # calmar far below every pro line
     manager._latch_soft_breaches([HOTKEY], NOW_MS)
 
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == []
+    assert manager.miner_states[HOTKEY].pro_stats == ProStats()
     assert manager.get_pro_stats(HOTKEY) is None
 
 
 def test_an_admin_edit_cannot_silently_deepen_a_candidates_drawdown(manager):
-    _seed(manager, current_equity=1.0)
+    _seed(manager, current_equity=0.99)
     _refresh(manager, {HOTKEY: _ledger(low=0.99)})
 
     success, message, _ = manager.set_miner_drawdown_stats(HOTKEY, {"eod_hwm": 1.05}, now_ms=NOW_MS)
-    assert not success and "max_drawdown" in message
+    assert not success and "auto-promotion max_drawdown" in message
     success, _, _ = manager.set_miner_drawdown_stats(HOTKEY, {"eod_hwm": 1.05}, force=True, now_ms=NOW_MS)
     assert success
 
@@ -323,7 +367,7 @@ def test_an_admin_edit_cannot_silently_deepen_a_candidates_drawdown(manager):
 def test_an_admin_edit_on_a_funded_non_candidate_needs_no_force(manager):
     manager._entity_client.get_subaccount_info_for_synthetic.return_value = {
         "initial_bucket": MinerBucket.SUBACCOUNT_FUNDED.value}
-    _seed(manager, current_equity=1.0)
+    _seed(manager, current_equity=0.99)
     _refresh(manager, {HOTKEY: _ledger(low=0.99)})
 
     success, _, _ = manager.set_miner_drawdown_stats(HOTKEY, {"eod_hwm": 1.05}, now_ms=NOW_MS)

@@ -606,7 +606,7 @@ Perf Ledger schema
 | `unrealized_pnl` | float | Unrealized PnL snapshot in USD at end of checkpoint |
 | `equity_ret` | float | `(account_size + cumulative_realized_pnl - cumulative_fees_usd + unrealized_pnl) / account_size` |
 | `cumulative_fees_usd` | float | Running total of all fees paid up to and including this checkpoint |
-| `min_equity_ret` | float \| null | Lowest `equity_ret` reached during this checkpoint. `null` where equity is not tracked (no account size) and on checkpoints started before this field existed |
+| `min_equity_ret` | float \| null | Lowest `equity_ret` reached during this checkpoint. `null` where equity has not been tracked yet (no account size, or no position open since the ledger began) and on checkpoints started before this field existed |
 
 Perf ledgers are built based off realtime price data and are consumed in the scoring logic. More info in the Vanta repo.
 
@@ -1548,6 +1548,8 @@ Retrieve comprehensive dashboard data for a specific subaccount by aggregating i
       "daily_open_balance": null,
       "eod_hwm": 1.065,
       "last_eod_equity": 1.050,
+      "max_drawdown": 1.0,
+      "max_drawdown_since_ms": null,
       "intraday_drawdown_pct": 1.24,
       "eod_drawdown_pct": 1.41,
       "static_drawdown_pct": 0.0,
@@ -1993,6 +1995,8 @@ curl -H "Authorization: Bearer YOUR_TIER_200_API_KEY" \
       "daily_open_balance": null,
       "eod_hwm": 1.065,
       "last_eod_equity": 1.050,
+      "max_drawdown": 1.0,
+      "max_drawdown_since_ms": null,
       "intraday_drawdown_pct": 1.24,
       "eod_drawdown_pct": 1.41,
       "static_drawdown_pct": 3.2,
@@ -2185,6 +2189,8 @@ Only present after the first challenge period evaluation cycle (~60s after start
 - `daily_open_balance`: Balance at today's midnight UTC checkpoint, excluding unrealized PnL. Set only for standard subaccounts in `SUBACCOUNT_CHALLENGE`, `SUBACCOUNT_FUNDED` and `PRO_CHALLENGE_TRANSITION` (not HL-linked, not Instant Funded), whose intraday drawdown is measured from it; `null` for every other account.
 - `eod_hwm`: Highest end-of-day equity across all midnight checkpoints ever (trailing Rule 2 high water mark). Defaults to `1.0` if no midnight checkpoints exist.
 - `last_eod_equity`: Most recent midnight checkpoint equity. Defaults to `1.0` if no midnight checkpoints exist yet.
+- `max_drawdown`: Worst `current_equity / eod_hwm` seen at any evaluation, in ratio form (`0.96` is a 4% drawdown); recovering does not raise it. Updated only while the account is an auto-promotion candidate (a standard subaccount in `SUBACCOUNT_FUNDED`, not HL-linked, not Instant Funded). An account that stops being one keeps its last value until its account is reset; one that never was one shows `1.0`.
+- `max_drawdown_since_ms`: When `max_drawdown` started being tracked; `null` if it never was. Auto-promotion replays the perf ledger for the time before it.
 - `intraday_drawdown_pct`: Percentage drop from `daily_open_balance` (when set, else `daily_open_equity`) to `current_equity`. Positive = drawdown, negative = gain since open. Drives elimination for both `criteria` values — the check is identical, only `intraday_drawdown_threshold` differs.
 - `eod_drawdown_pct`: Percentage drop from `eod_hwm` to `last_eod_equity`. `0.0` if no midnight checkpoints exist. Drives elimination only when `criteria` is `"trailing"` (EOD rule).
 - `static_drawdown_pct`: Percentage drop from starting balance (`1.0`) to `current_equity` (includes unrealized PnL). Drives elimination when `criteria` is `"static"`.

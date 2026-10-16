@@ -599,10 +599,20 @@ class ValiConfig:
     # challenge period checkpoint cannot grow without limit.
     PRO_SOFT_BREACH_LATCH_RETENTION_DAYS = 60
 
-    # Standard funded subaccounts are tracked for auto-promotion. A ledger whose checkpoints do not all
-    # record their lowest equity is rebuilt once, and at most this many rebuilds wait on the perf ledger
-    # update at a time, since the update runs them back to back.
-    AUTO_PROMOTION_MAX_PENDING_LEDGER_REBUILDS = 2
+    # Auto-promotion moves a standard funded subaccount (created through the standard challenge, not
+    # HL-linked) into PRO_CHALLENGE_TRANSITION at a multiple of its account size, on whichever path it
+    # qualifies for first; on the same check, the larger multiple. Payouts are the weekly payouts of the
+    # payout endpoint (EntityManager._calculate_payout_for_hotkey) over the closed payout weeks it traded
+    # in SUBACCOUNT_FUNDED.
+    # Payout path: total payouts above this share of the account size, at any time
+    AUTO_PROMOTION_PAYOUT_PATH_SHARE = 0.10
+    AUTO_PROMOTION_PAYOUT_PATH_MULTIPLIER = 3
+    # Track record path: every condition below, sized by the highest calmar tier reached
+    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_DAYS = 60
+    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAID_WEEKS = 3
+    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAYOUT_SHARE = 0.03
+    AUTO_PROMOTION_TRACK_RECORD_MAX_DAILY_CONSISTENCY = 0.5
+    AUTO_PROMOTION_TRACK_RECORD_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
 
     # Payout basis for a trader running the pro challenge after passing the standard challenge
     # (PRO_CHALLENGE_FROM_STANDARD). PnL earned on the pro account is paid as though it had been
