@@ -604,15 +604,15 @@ class ValiConfig:
     # qualifies for first; on the same check, the larger multiple. Payouts are the weekly payouts of the
     # payout endpoint (EntityManager._calculate_payout_for_hotkey) over the closed payout weeks it traded
     # in SUBACCOUNT_FUNDED.
-    # Payout path: total payouts above this share of the account size, at any time
-    AUTO_PROMOTION_PAYOUT_PATH_SHARE = 0.10
-    AUTO_PROMOTION_PAYOUT_PATH_MULTIPLIER = 3
-    # Track record path: every condition below, sized by the highest calmar tier reached
-    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_DAYS = 60
-    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAID_WEEKS = 3
-    AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAYOUT_SHARE = 0.03
-    AUTO_PROMOTION_TRACK_RECORD_MAX_DAILY_CONSISTENCY = 0.5
-    AUTO_PROMOTION_TRACK_RECORD_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
+    # Fast track: total payouts above this share of the account size, at any time
+    AUTO_PROMOTION_FAST_TRACK_PAYOUT_SHARE = 0.10
+    AUTO_PROMOTION_FAST_TRACK_MULTIPLIER = 3
+    # Steady track: every condition below, sized by the highest calmar tier reached
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_DAYS = 60
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAID_WEEKS = 3
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAYOUT_SHARE = 0.03
+    AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY = 0.5
+    AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
     AUTO_PROMOTION_TRANSITION_DAYS = 7  # time in PRO_CHALLENGE_TRANSITION after an auto-promotion
 
     # Payout basis for a trader running the pro challenge after passing the standard challenge

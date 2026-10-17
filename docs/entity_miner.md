@@ -340,7 +340,7 @@ Once in SUBACCOUNT_FUNDED, the subaccount keeps the same `drawdown_criteria` it 
 
 A subaccount that chose an `intraday_drawdown_threshold` at creation keeps that value as its intraday threshold instead of the 5% above. Standard subaccounts keep measuring it from the day's opening balance (see [Day-open balance](#challenge-period-requirements) above).
 
-After **90 days** in SUBACCOUNT_FUNDED meeting the thresholds, the subaccount is eligible for additional funding.
+A standard funded subaccount that meets the [auto-promotion](#auto-promotion) criteria is moved onto the pro track automatically.
 
 ### Account Types
 
@@ -466,12 +466,11 @@ A subaccount qualifies on whichever of two paths it meets first:
 
 | Path | Requirements | Pro account size |
 |---|---|---|
-| Payout path | Total payouts above 10% of the account size | 3x the standard account size |
-| Track record path | All of: at least 60 full days on its funded ledger, at least 3 paid weeks, total payouts above 3% of the account size, return consistency of at most 50%, and all-time Calmar of at least 1.5 | 5x the standard account size, or 10x at a Calmar of at least 2.0 |
+| Fast track | Total payouts above 10% of the account size | 3x the standard account size |
+| Steady track | All of: at least 60 full days on its funded ledger, at least 3 paid weeks, total payouts above 3% of the account size, return consistency of at most 50%, and all-time Calmar of at least 1.5 | 5x the standard account size, or 10x at a Calmar of at least 2.0 |
 
-Meeting both on the same check takes the larger multiple. The pro account size is capped at
-$1,000,000 (`ValiConfig.MAX_PRO_ACCOUNT_SIZE`), and the thresholds are the `ValiConfig.AUTO_PROMOTION_*`
-values.
+Meeting both on the same check takes the larger multiple. The thresholds are the
+`ValiConfig.AUTO_PROMOTION_*` values.
 
 - **Payouts** are the weekly `payout` figures of the funded account
   (`POST /entity/subaccount/payout`, `weekly_settlements`), over closed payout weeks only (Monday

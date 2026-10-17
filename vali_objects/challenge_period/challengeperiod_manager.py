@@ -164,8 +164,8 @@ class AutoPromotion:
     rest of its pro journey. Every field has a default so a record written by another version still loads.
     multiplier is the pro size over the standard size, which is the path's multiple unless the size was
     already set by the mothership."""
-    PAYOUT_PATH = "payout"
-    TRACK_RECORD_PATH = "track_record"
+    FAST_TRACK = "fast_track"
+    STEADY_TRACK = "steady_track"
 
     path: str = ""
     multiplier: float = 0.0
@@ -1418,8 +1418,7 @@ class ChallengePeriodManager(CacheController):
             if info.get("account_type") == AccountType.PRO.value and info.get("pro_account_size"):
                 pro_account_size, requested_size = info["pro_account_size"], None
             elif self._is_mothership():
-                pro_account_size = min(multiple * account.account_size, ValiConfig.MAX_PRO_ACCOUNT_SIZE)
-                requested_size = pro_account_size
+                pro_account_size = requested_size = multiple * account.account_size
             else:
                 return False  # waiting for the mothership's pro size
         except Exception as e:
@@ -1451,7 +1450,7 @@ class ChallengePeriodManager(CacheController):
         # A nightly sync that replaced the state during the move has put the mothership's view in place,
         # with its own record or none: that one stands
         self._save_to_disk()
-        logger.info(f"[CHALLENGE] AUTO-PROMOTED {hotkey} on the {path} path at {record.multiplier:g}x "
+        logger.info(f"[CHALLENGE] AUTO-PROMOTED {hotkey} on the {path} at {record.multiplier:g}x "
                     f"(pro size ${pro_account_size:,.0f}): {record}")
         return True
 
@@ -1500,15 +1499,15 @@ class ChallengePeriodManager(CacheController):
         """The path a candidate qualifies on and its multiple, the larger when it qualifies on both, or
         None. payout_share is its total payout over its account size."""
         qualified = []
-        if payout_share > ValiConfig.AUTO_PROMOTION_PAYOUT_PATH_SHARE:
-            qualified.append((AutoPromotion.PAYOUT_PATH, ValiConfig.AUTO_PROMOTION_PAYOUT_PATH_MULTIPLIER))
-        if (stats.trading_days >= ValiConfig.AUTO_PROMOTION_TRACK_RECORD_MINIMUM_DAYS
-                and paid_weeks >= ValiConfig.AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAID_WEEKS
-                and payout_share > ValiConfig.AUTO_PROMOTION_TRACK_RECORD_MINIMUM_PAYOUT_SHARE
-                and stats.daily_consistency <= ValiConfig.AUTO_PROMOTION_TRACK_RECORD_MAX_DAILY_CONSISTENCY):
-            tiers = [m for calmar, m in ValiConfig.AUTO_PROMOTION_TRACK_RECORD_CALMAR_MULTIPLIERS if stats.calmar >= calmar]
+        if payout_share > ValiConfig.AUTO_PROMOTION_FAST_TRACK_PAYOUT_SHARE:
+            qualified.append((AutoPromotion.FAST_TRACK, ValiConfig.AUTO_PROMOTION_FAST_TRACK_MULTIPLIER))
+        if (stats.trading_days >= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_DAYS
+                and paid_weeks >= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAID_WEEKS
+                and payout_share > ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAYOUT_SHARE
+                and stats.daily_consistency <= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY):
+            tiers = [m for calmar, m in ValiConfig.AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS if stats.calmar >= calmar]
             if tiers:
-                qualified.append((AutoPromotion.TRACK_RECORD_PATH, max(tiers)))
+                qualified.append((AutoPromotion.STEADY_TRACK, max(tiers)))
         return max(qualified, key=lambda q: q[1], default=None)
 
     def _latch_soft_breaches(self, hotkeys: list[str], current_time_ms: int) -> None:

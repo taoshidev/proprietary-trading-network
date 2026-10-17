@@ -1,8 +1,8 @@
 """
 Auto-promotion moves a standard subaccount out of SUBACCOUNT_FUNDED into PRO_CHALLENGE_TRANSITION, with a
 pro size at a multiple of its standard account, on whichever of two paths it qualifies for first:
-  * payout path: total payouts above 10% of the account size, at any time (3x)
-  * track record path: 60 trading days, 3 paid weeks, payouts above 3%, daily consistency at most 0.5,
+  * fast track: total payouts above 10% of the account size, at any time (3x)
+  * steady track: 60 trading days, 3 paid weeks, payouts above 3%, daily consistency at most 0.5,
     and calmar of at least 1.5 (5x) or 2.0 (10x)
 On the same check it takes the larger multiple. Payouts are the payout endpoint's weekly figures over closed
 payout weeks.
@@ -39,8 +39,8 @@ from vali_objects.enums.miner_asset_class_enum import MinerAssetClass
 from vali_objects.enums.miner_bucket_enum import MinerBucket
 from vali_objects.vali_config import RPCConnectionMode, ValiConfig
 
-PAYOUT = AutoPromotion.PAYOUT_PATH
-TRACK_RECORD = AutoPromotion.TRACK_RECORD_PATH
+FAST = AutoPromotion.FAST_TRACK
+STEADY = AutoPromotion.STEADY_TRACK
 TRANSITION = MinerBucket.PRO_CHALLENGE_TRANSITION
 WEEK_MS = 7 * DAILY_MS
 READABLE_MS = ChallengePeriodManager.AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS  # into a week, its payouts can be read
@@ -86,47 +86,47 @@ _path = ChallengePeriodManager._auto_promotion_path
 
 @pytest.mark.parametrize("share,days,expected", [
     (0.10, 60, None),            # payouts must exceed 10%
-    (0.1001, 60, (PAYOUT, 3)),
-    (0.1001, 1, (PAYOUT, 3)),    # no minimum time
+    (0.1001, 60, (FAST, 3)),
+    (0.1001, 1, (FAST, 3)),    # no minimum time
 ])
-def test_the_payout_path(share, days, expected):
+def test_the_fast_track(share, days, expected):
     stats = _stats(calmar=0.0, days=days)
     assert _path(stats, share, paid_weeks=1) == expected
 
 
 @pytest.mark.parametrize("change,expected", [
-    ({}, (TRACK_RECORD, 5)),
+    ({}, (STEADY, 5)),
     ({"calmar": 1.4999}, None),
-    ({"calmar": 2.0}, (TRACK_RECORD, 10)),
-    ({"calmar": 1.9999}, (TRACK_RECORD, 5)),
+    ({"calmar": 2.0}, (STEADY, 10)),
+    ({"calmar": 1.9999}, (STEADY, 5)),
     ({"days": 59}, None),
     ({"paid_weeks": 2}, None),
     ({"share": 0.03}, None),     # payouts must exceed 3%
     ({"consistency": 0.5001}, None),
 ])
-def test_the_track_record_path_at_each_boundary(change, expected):
+def test_the_steady_track_at_each_boundary(change, expected):
     stats = _stats(calmar=change.get("calmar", 1.5), consistency=change.get("consistency", 0.5),
                    days=change.get("days", 60))
     assert _path(stats, change.get("share", 0.0301), change.get("paid_weeks", 3)) == expected
 
 
 def test_qualifying_on_both_paths_takes_the_larger_multiple():
-    assert _path(_stats(calmar=1.5), 0.12, 3) == (TRACK_RECORD, 5)
-    assert _path(_stats(calmar=2.0), 0.12, 3) == (TRACK_RECORD, 10)
-    assert _path(_stats(calmar=1.0), 0.12, 3) == (PAYOUT, 3)
+    assert _path(_stats(calmar=1.5), 0.12, 3) == (STEADY, 5)
+    assert _path(_stats(calmar=2.0), 0.12, 3) == (STEADY, 10)
+    assert _path(_stats(calmar=1.0), 0.12, 3) == (FAST, 3)
 
 
 def test_the_calmar_tiers_do_not_depend_on_their_order():
-    with patch.object(ValiConfig, "AUTO_PROMOTION_TRACK_RECORD_CALMAR_MULTIPLIERS", ((1.5, 5), (2.0, 10))):
-        assert _path(_stats(calmar=2.5), 0.05, 3) == (TRACK_RECORD, 10)
+    with patch.object(ValiConfig, "AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS", ((1.5, 5), (2.0, 10))):
+        assert _path(_stats(calmar=2.5), 0.05, 3) == (STEADY, 10)
 
 
 # ── The move ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("calmar,weeks,path,multiplier", [
-    (0.0, _weeks(4_000, 7_000), PAYOUT, 3),
-    (1.5, _weeks(1_000, 1_000, 1_500), TRACK_RECORD, 5),
-    (2.0, _weeks(1_000, 1_000, 1_500), TRACK_RECORD, 10),
+    (0.0, _weeks(4_000, 7_000), FAST, 3),
+    (1.5, _weeks(1_000, 1_000, 1_500), STEADY, 5),
+    (2.0, _weeks(1_000, 1_000, 1_500), STEADY, 10),
 ])
 def test_a_qualifying_candidate_moves_into_the_transition_at_its_multiple(hop_manager, calmar, weeks, path, multiplier):
     _candidate(hop_manager, stats=_stats(calmar=calmar), weeks=weeks)
@@ -142,17 +142,6 @@ def test_a_qualifying_candidate_moves_into_the_transition_at_its_multiple(hop_ma
         trading_days=60)
 
 
-def test_the_pro_size_is_capped(hop_manager):
-    _candidate(hop_manager, stats=_stats(calmar=2.0), weeks=_weeks(2_000, 2_000, 2_000))
-    account = _account()
-    account.collateral_records[0].account_size_theta = 120_000 / ValiConfig.COST_PER_THETA
-    assert account.account_size == 120_000
-
-    hop_manager._auto_promote({HOTKEY: account}, set(), NOW_MS)
-
-    assert hop_manager.miner_states[HOTKEY].auto_promotion.pro_account_size == ValiConfig.MAX_PRO_ACCOUNT_SIZE
-
-
 @pytest.mark.parametrize("mothership", [True, False])
 def test_a_pro_size_already_on_the_record_is_kept(hop_manager, mothership):
     """The mothership's sizing (or the entity's) is already on the record: it is followed, never
@@ -166,7 +155,7 @@ def test_a_pro_size_already_on_the_record_is_kept(hop_manager, mothership):
 
     hop_manager._entity_client.apply_bucket_account_size.assert_any_call(HOTKEY, TRANSITION, None)
     record = hop_manager.miner_states[HOTKEY].auto_promotion
-    assert (record.path, record.multiplier, record.pro_account_size) == (PAYOUT, 5.0, 500_000)
+    assert (record.path, record.multiplier, record.pro_account_size) == (FAST, 5.0, 500_000)
 
 
 def test_a_validator_other_than_the_mothership_waits_for_its_size(hop_manager):
@@ -206,7 +195,7 @@ def test_a_candidate_without_stats_is_not_evaluated(hop_manager):
 def test_an_account_promoted_automatically_before_is_never_evaluated_again(hop_manager):
     _candidate(hop_manager, weeks=_weeks(20_000))
     hop_manager.miner_states[HOTKEY].auto_promotion = AutoPromotion(
-        path=PAYOUT, multiplier=3, pro_account_size=300_000, promoted_ms=NOW_MS - WEEK_MS, payout_usd=11_000,
+        path=FAST, multiplier=3, pro_account_size=300_000, promoted_ms=NOW_MS - WEEK_MS, payout_usd=11_000,
         paid_weeks=2, calmar=0.0, daily_consistency=1.0, trading_days=20)
 
     assert _auto_promote(hop_manager) == []
@@ -259,7 +248,7 @@ def test_a_move_that_lands_before_raising_keeps_its_record(hop_manager):
 
 @pytest.mark.parametrize("mothership_record", [
     None,  # the entity promoted itself on the mothership
-    AutoPromotion(path=TRACK_RECORD, multiplier=5.0, pro_account_size=500_000, promoted_ms=NOW_MS - 60_000),
+    AutoPromotion(path=STEADY, multiplier=5.0, pro_account_size=500_000, promoted_ms=NOW_MS - 60_000),
 ])
 def test_a_sync_during_the_move_leaves_the_mothership_state_as_it_came(hop_manager, mothership_record):
     """An auto-sync swaps in the mothership's state, already in the transition, while the move runs:
@@ -327,7 +316,7 @@ def test_the_move_is_only_ever_the_hop_out_of_funded(hop_manager):
 # ── The record ────────────────────────────────────────────────────────────────
 
 def test_the_record_is_saved_with_the_state():
-    record = AutoPromotion(path=TRACK_RECORD, multiplier=10, pro_account_size=1_000_000, promoted_ms=NOW_MS,
+    record = AutoPromotion(path=STEADY, multiplier=10, pro_account_size=1_000_000, promoted_ms=NOW_MS,
                            payout_usd=8_000, paid_weeks=6, calmar=2.3, daily_consistency=0.3, trading_days=75)
     state = MinerBucketState.from_checkpoint_dict(HOTKEY, {"entries": [{"bucket": TRANSITION.value,
                                                                         "start_time_ms": NOW_MS}]})
@@ -339,9 +328,9 @@ def test_the_record_is_saved_with_the_state():
 def test_a_record_with_missing_or_unknown_fields_still_loads():
     """Written by another version: missing fields take their defaults, unknown ones are ignored."""
     data = {"entries": [{"bucket": TRANSITION.value, "start_time_ms": NOW_MS}],
-            "auto_promotion": {"path": PAYOUT, "multiplier": 3, "a_later_field": 1}}
+            "auto_promotion": {"path": FAST, "multiplier": 3, "a_later_field": 1}}
     record = MinerBucketState.from_checkpoint_dict(HOTKEY, data).auto_promotion
-    assert (record.path, record.multiplier, record.pro_account_size) == (PAYOUT, 3, 0.0)
+    assert (record.path, record.multiplier, record.pro_account_size) == (FAST, 3, 0.0)
 
 
 def test_a_sync_that_fails_to_parse_keeps_the_current_states(manager):
@@ -468,7 +457,7 @@ def test_a_failed_payout_lookup_is_retried_hourly_and_logged_once_a_week(hop_man
 
 
 def test_a_week_counts_as_paid_only_when_it_paid_something(hop_manager):
-    """Three weeks traded, one of them paying nothing: two paid weeks, short of the track record."""
+    """Three weeks traded, one of them paying nothing: two paid weeks, short of the steady track."""
     _candidate(hop_manager, stats=_stats(calmar=2.5), weeks=_weeks(2_000, 0.0, 2_000))
     assert _auto_promote(hop_manager) == []
 
@@ -485,7 +474,7 @@ def _in_transition(manager, entered_ms: int = NOW_MS, auto_promoted: bool = True
     state = manager.miner_states[hotkey]
     state.add_bucket_entry(TRANSITION, entered_ms)
     if auto_promoted:
-        state.auto_promotion = AutoPromotion(path=PAYOUT, multiplier=3.0, pro_account_size=300_000,
+        state.auto_promotion = AutoPromotion(path=FAST, multiplier=3.0, pro_account_size=300_000,
                                              promoted_ms=entered_ms)
     return state
 
@@ -619,13 +608,13 @@ def test_the_move_checks_the_account_again_before_promoting_it(hop_manager, sinc
     if since_the_decision == "promoted by the entity":
         state.add_bucket_entry(TRANSITION, NOW_MS - 1_000)
     else:
-        state.auto_promotion = AutoPromotion(path=PAYOUT, multiplier=3.0, pro_account_size=300_000,
+        state.auto_promotion = AutoPromotion(path=FAST, multiplier=3.0, pro_account_size=300_000,
                                              promoted_ms=NOW_MS - SEVEN_DAYS_MS)
     record = state.auto_promotion
 
     payouts = FundedPayouts(week_start_ms=MONDAY_MS, ledger_start_ms=LEDGER_START_MS, total_usd=20_000, paid_weeks=1)
     with patch.object(hop_manager, "promote_subaccount") as promote:
-        assert not hop_manager._move_to_auto_promotion(HOTKEY, _account(), _stats(), (PAYOUT, 3), payouts, NOW_MS)
+        assert not hop_manager._move_to_auto_promotion(HOTKEY, _account(), _stats(), (FAST, 3), payouts, NOW_MS)
     promote.assert_not_called()
     assert state.auto_promotion is record
 
@@ -725,7 +714,7 @@ def test_through_refresh_a_qualifying_account_reaches_grow_seven_days_later_free
 
     state = hop_manager.miner_states[hotkey]
     assert state.current_bucket == TRANSITION
-    assert state.auto_promotion.path == TRACK_RECORD and state.auto_promotion.multiplier == 10
+    assert state.auto_promotion.path == STEADY and state.auto_promotion.multiplier == 10
     assert hotkey in message
     info = entity_manager.get_subaccount_info_for_synthetic(hotkey)
     assert info.pro_account_size == 10 * STANDARD_SIZE
