@@ -613,7 +613,7 @@ class ValiConfig:
     AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAYOUT_SHARE = 0.03
     AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY = 0.5
     AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
-    AUTO_PROMOTION_TRANSITION_DAYS = 7  # time in PRO_CHALLENGE_TRANSITION after an auto-promotion
+    AUTO_PROMOTION_TRANSITION_DAYS = 7  # longest time in PRO_CHALLENGE_TRANSITION after an auto-promotion; ends early once flat
 
     # Payout basis for a trader running the pro challenge after passing the standard challenge
     # (PRO_CHALLENGE_FROM_STANDARD). PnL earned on the pro account is paid as though it had been

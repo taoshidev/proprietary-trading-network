@@ -445,8 +445,8 @@ reductions are accepted. They move to `PRO_CHALLENGE_FROM_STANDARD` as soon as t
 (`POST /api/promote`), or automatically at the first **Monday 00:00 UTC** after they entered the
 bucket — on the first challenge-period refresh at or after that boundary — at which point any
 remaining positions are force closed, the account is resized to the pro account size, and the
-ledgers restart. An [auto-promoted](#auto-promotion) trader instead stays exactly 7 days and cannot
-be promoted on early.
+ledgers restart. An [auto-promoted](#auto-promotion) trader instead stays at most 7 days, moving on
+as soon as they have no open positions, and can still be promoted on early.
 
 Throughout `PRO_CHALLENGE_FROM_STANDARD` the trader trades the larger pro account but is paid on
 **twice** the size of the standard account they came from:
@@ -488,11 +488,15 @@ Once it qualifies:
 
 1. It moves to `PRO_CHALLENGE_TRANSITION` with the pro account size above. The wind-down works as
    in any transition (see [above](#traders-who-have-already-passed-the-standard-challenge)), but it
-   lasts exactly **7 days** from the auto-promotion (`ValiConfig.AUTO_PROMOTION_TRANSITION_DAYS`),
-   whatever the day of the week. The entity cannot move it on early: `POST /api/promote` is rejected.
-2. Seven days later it moves to `PRO_CHALLENGE_FROM_STANDARD`: remaining positions are force closed,
-   the account is resized to the pro account size, and the ledgers restart. From then on it is like
-   any subaccount promoted there, paid at twice its standard account size and holding twice its
+   lasts at most **7 days** from the auto-promotion (`ValiConfig.AUTO_PROMOTION_TRANSITION_DAYS`),
+   whatever the day of the week. It ends early on the first challenge-period refresh that finds the
+   subaccount with no open positions, so one that had none when it was promoted moves on at once.
+   The entity can also move it on early with `POST /api/promote`, with positions open or not, but
+   only without a `pro_account_size`: the network has set the size, and a request that sends one is
+   rejected.
+2. When the transition ends it moves to `PRO_CHALLENGE_FROM_STANDARD`: remaining positions are force
+   closed, the account is resized to the pro account size, and the ledgers restart. From then on it is
+   like any subaccount promoted there, paid at twice its standard account size and holding twice its
    standard margin (see [Cross-Margin Requirement](#cross-margin-requirement)).
 3. No [promotion fee](#pro-promotion-fee) is charged, and the entity's collateral is not checked for
    the move.
@@ -1020,8 +1024,9 @@ the entity coldkey and forwards it to the validator's `POST /entity/subaccount/p
 the entity owns the subaccount before anything moves. The target bucket comes from the subaccount's
 current one, and only three hops exist: `SUBACCOUNT_CHALLENGE` → `PRO_CHALLENGE_DIRECT`,
 `SUBACCOUNT_FUNDED` → `PRO_CHALLENGE_TRANSITION`, and `PRO_CHALLENGE_TRANSITION` →
-`PRO_CHALLENGE_FROM_STANDARD`. A subaccount the network [auto-promoted](#auto-promotion) is refused
-the last hop: it moves on by itself after 7 days.
+`PRO_CHALLENGE_FROM_STANDARD`. A subaccount the network [auto-promoted](#auto-promotion) can take the
+last hop early, free of the promotion fee, but only without a `pro_account_size`: it keeps the size
+the network set.
 
 `pro_account_size` is required entering the pro track and optional on the hop within it (omitted
 keeps the recorded size) — see [Pro account size](#pro-account-size).

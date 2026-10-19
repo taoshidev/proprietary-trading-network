@@ -1274,10 +1274,11 @@ The target bucket is derived from the subaccount's current one, and only these t
 | `SUBACCOUNT_FUNDED` | `PRO_CHALLENGE_TRANSITION` |
 | `PRO_CHALLENGE_TRANSITION` | `PRO_CHALLENGE_FROM_STANDARD` |
 
-A subaccount in any other bucket is rejected with a 400, and so is one that was promoted automatically
-and is in `PRO_CHALLENGE_TRANSITION`: it moves on to `PRO_CHALLENGE_FROM_STANDARD` by itself, on the size
-the network granted. Every other bucket change on the network happens organically (the end-of-week
-promotions, auto-promotion, demotions and eliminations), not through this endpoint.
+A subaccount in any other bucket is rejected with a 400. One that was promoted automatically can take the
+`PRO_CHALLENGE_TRANSITION` hop early, on the size the network granted and free of the promotion fee, but a
+request that sends a `pro_account_size` for it is rejected with a 400. Every other bucket change on the
+network happens organically (the end-of-week promotions, auto-promotion, demotions and eliminations), not
+through this endpoint.
 
 Ownership is proven, not asserted: the entity coldkey signs the request, the coldkey must own
 `entity_hotkey` on chain, and `synthetic_hotkey` must be one of that hotkey's own subaccounts
@@ -1333,7 +1334,7 @@ subaccount created into `SUBACCOUNT_FUNDED` cannot be promoted onto the pro trac
 **Only the two hops onto a pro account wipe trading state.** A hop switches accounts when the target
 bucket changes the account size (`MinerBucket.switches_account`), and `PRO_CHALLENGE_TRANSITION` does
 not — it is a wind-down on the standard account, running to the first Monday 00:00 UTC after the
-hop (seven days after an auto-promotion):
+hop (after an auto-promotion, at most seven days, ending early once it has no open positions):
 
 | Hop | Positions | Limit orders | Ledgers |
 | --- | --- | --- | --- |

@@ -1225,7 +1225,8 @@ def test_each_hop_moves_to_its_own_target(hop_manager, source, target):
 
     assert success, message
     assert hop_manager.miner_states[HOTKEY].current_bucket == target
-    hop_manager._entity_client.apply_bucket_account_size.assert_any_call(HOTKEY, target, GRANTED_SIZE)
+    hop_manager._entity_client.apply_bucket_account_size.assert_any_call(
+        HOTKEY, target, GRANTED_SIZE, waive_promotion_fee=False)
 
 
 def test_an_omitted_size_is_passed_through_as_none(hop_manager):
@@ -1235,7 +1236,7 @@ def test_an_omitted_size_is_passed_through_as_none(hop_manager):
     assert hop_manager.promote_subaccount(HOTKEY, NOW_MS)[0]
 
     hop_manager._entity_client.apply_bucket_account_size.assert_any_call(
-        HOTKEY, MinerBucket.PRO_CHALLENGE_FROM_STANDARD, None
+        HOTKEY, MinerBucket.PRO_CHALLENGE_FROM_STANDARD, None, waive_promotion_fee=False
     )
 
 
@@ -1288,7 +1289,7 @@ def test_pro_funded_keeps_the_account_it_passed_on(hop_manager, challenge_bucket
     """
     _in_bucket(hop_manager, challenge_bucket)
 
-    assert hop_manager.promote_hotkeys([HOTKEY], NOW_MS)
+    assert hop_manager.promote_hotkeys({HOTKEY: challenge_bucket}, NOW_MS)
 
     assert hop_manager.miner_states[HOTKEY].current_bucket == MinerBucket.PRO_FUNDED
     hop_manager._position_client.close_all_positions.assert_not_called()
@@ -1436,11 +1437,11 @@ def test_organic_promotion_keeps_the_recorded_size(hop_manager):
     entity_manager, hotkey = _with_real_entity_manager(hop_manager)
     assert hop_manager.promote_subaccount(hotkey, NOW_MS, GRANTED_SIZE)[0]
 
-    assert hop_manager.promote_hotkeys([hotkey], NOW_MS)
+    assert hop_manager.promote_hotkeys({hotkey: MinerBucket.PRO_CHALLENGE_TRANSITION}, NOW_MS)
     assert hop_manager.miner_states[hotkey].current_bucket == MinerBucket.PRO_CHALLENGE_FROM_STANDARD
     assert entity_manager.get_subaccount_info_for_synthetic(hotkey).account_size == GRANTED_SIZE
 
-    assert hop_manager.promote_hotkeys([hotkey], NOW_MS + 1000)
+    assert hop_manager.promote_hotkeys({hotkey: MinerBucket.PRO_CHALLENGE_FROM_STANDARD}, NOW_MS + 1000)
     assert hop_manager.miner_states[hotkey].current_bucket == MinerBucket.PRO_FUNDED
     info = entity_manager.get_subaccount_info_for_synthetic(hotkey)
     assert info.pro_account_size == GRANTED_SIZE
