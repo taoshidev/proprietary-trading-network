@@ -1927,7 +1927,7 @@ class EntityManager(ValidatorBroadcastBase):
             realtime = True
 
         entity_hotkey, subaccount_id = parse_synthetic_hotkey(synthetic_hotkey)
-        if not entity_hotkey or not subaccount_id:
+        if not entity_hotkey or subaccount_id is None:
             return None
         entity_data = self.get_entity_data(entity_hotkey)
         if not entity_data:
