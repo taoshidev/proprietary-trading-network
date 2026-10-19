@@ -1802,5 +1802,33 @@ class TestSubaccountCreationRollback(unittest.TestCase):
         self.assertEqual(broadcast_info.account_size, 500_000)
         self.assertEqual(broadcast_info.asset_class, "all_markets")
 
+
+class TestAdminEliminateSubaccount(unittest.TestCase):
+    """POST /admin/eliminate/<hotkey> on the validator, with mocked RPC clients."""
+
+    def test_an_entitys_first_subaccount_can_be_eliminated(self):
+        """Subaccount ids start at 0: id 0 is a valid subaccount, not a malformed hotkey."""
+        from unittest.mock import MagicMock
+        from flask import Flask
+        from vanta_api.validator_rest_server import ValidatorRestServer
+
+        server = object.__new__(ValidatorRestServer)
+        server._get_api_key_safe = MagicMock(return_value="key")
+        server.is_valid_api_key = MagicMock(return_value=True)
+        server.can_access_tier = MagicMock(return_value=True)
+        for client in ("_entity_client", "_elimination_client", "_challenge_period_client", "_miner_account_client"):
+            setattr(server, client, MagicMock())
+        server._entity_client.eliminate_subaccount.return_value = (True, "eliminated")
+        app = Flask(__name__)
+        app.route("/admin/eliminate/<hotkey>", methods=["POST"])(server.eliminate_hotkey)
+
+        response = app.test_client().post("/admin/eliminate/entity_alpha_0", json={})
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        server._entity_client.eliminate_subaccount.assert_called_once_with(
+            entity_hotkey="entity_alpha", subaccount_id=0, reason="DEREGISTERED")
+        server._elimination_client.append_elimination_row.assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()

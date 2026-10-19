@@ -3543,7 +3543,7 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
 
             if is_synthetic_hotkey(hotkey):
                 entity_hotkey, subaccount_id = parse_synthetic_hotkey(hotkey)
-                if not entity_hotkey or not subaccount_id:
+                if not entity_hotkey or subaccount_id is None:
                     return jsonify({'error': f'Invalid synthetic hotkey: {hotkey}'}), 400
                 success, message = self._entity_client.eliminate_subaccount(
                     entity_hotkey=entity_hotkey,
