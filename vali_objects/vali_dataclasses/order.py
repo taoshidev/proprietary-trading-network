@@ -5,17 +5,30 @@ from typing import Optional as OptionalType
 import uuid
 
 from time_util.time_util import TimeUtil
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 
 from vali_objects.enums.order_source_enum import OrderSource
 from vali_objects.enums.execution_type_enum import ExecutionType
 from vali_objects.vali_config import TradePair
-from vali_objects.enums.order_type_enum import StopCondition
-from vali_objects.vali_dataclasses.order_signal import Signal
+from vali_objects.enums.order_type_enum import OrderType, StopCondition
+from vali_objects.vali_dataclasses.order_signal import OrderFields
 from vali_objects.vali_dataclasses.price_source import PriceSource
 
+# Execution types whose size fields are not sign-normalized against order_type
+_UNSIZED_EXECUTION_TYPES = (ExecutionType.LIMIT_EDIT, ExecutionType.LIMIT_CANCEL, ExecutionType.FLAT_ALL)
+# Execution types whose legacy top-level stop_loss/take_profit/trailing_stop are folded into bracket_orders
+_BRACKETABLE_EXECUTION_TYPES = (ExecutionType.MARKET, ExecutionType.LIMIT, ExecutionType.STOP_LIMIT, ExecutionType.LIMIT_EDIT)
 
-class Order(Signal):
+
+class Order(OrderFields):
+    """
+    A stored order record: a filled order, or a pending limit/stop-limit/bracket order.
+
+    Request rules (size fields, price rules, trailing stop ranges) are validated on Signal at the
+    API boundary, not here, because Orders are rebuilt from disk, checkpoints and RPC far more
+    often than they are created. The two validators below only canonicalize legacy shapes and fill
+    derived defaults; both are a few dict lookups for already-canonical data.
+    """
     price: float                # Quote currency
     bid: float = 0              # Quote currency
     ask: float = 0              # Quote currency
@@ -31,44 +44,79 @@ class Order(Signal):
     # Liquidity flag. None=unknown (priced as taker), True=taker, False=maker.
     is_hl_taker: OptionalType[bool] = None
 
-    @field_validator('trade_pair', mode='before')
-    @classmethod
-    def convert_trade_pair(cls, v):
-        """Convert trade_pair_id string or dict to TradePair object if needed."""
-        if isinstance(v, str):
-            return TradePair.from_trade_pair_id(v)
-        elif isinstance(v, dict):
-            # Handle dict with 'trade_pair_id' key (from disk serialization)
-            if 'trade_pair_id' in v:
-                return TradePair.from_trade_pair_id(v['trade_pair_id'])
-        elif isinstance(v, list) and len(v) >= 1:
-            # Handle list format ['BTCUSD', 'BTC/USD'] from to_python_dict()
-            return TradePair.from_trade_pair_id(v[0])
-        return v
-
-    @field_validator('execution_type', mode='before')
-    @classmethod
-    def convert_execution_type(cls, v):
-        """Convert execution_type string to ExecutionType enum if needed."""
-        if isinstance(v, str):
-            return ExecutionType.from_string(v)
-        return v
-
-    @field_validator('stop_condition', mode='before')
-    @classmethod
-    def convert_stop_condition(cls, v):
-        """Convert stop_condition string to StopCondition enum if needed."""
-        if isinstance(v, str):
-            return StopCondition.from_string(v)
-        return v
-
     @model_validator(mode='before')
     @classmethod
-    def handle_trade_pair_id(cls, values):
-        """Handle dict input with 'trade_pair_id' instead of 'trade_pair'."""
-        if isinstance(values, dict) and 'trade_pair_id' in values and 'trade_pair' not in values:
-            # Create new dict with trade_pair instead of trade_pair_id (immutable approach)
-            return {k: v for k, v in values.items() if k != 'trade_pair_id'} | {'trade_pair': values['trade_pair_id']}
+    def normalize(cls, values):
+        """Canonicalize input shapes in a single pass (one Python call per order instead of one per field)."""
+        if not isinstance(values, dict):
+            return values
+
+        # trade_pair: accept trade_pair_id, or a str / {'trade_pair_id': ...} / [id, name, ...] form
+        if 'trade_pair_id' in values and 'trade_pair' not in values:
+            values = {k: v for k, v in values.items() if k != 'trade_pair_id'} | {'trade_pair': values['trade_pair_id']}
+        tp = values.get('trade_pair')
+        if tp is not None and not isinstance(tp, TradePair):
+            if isinstance(tp, str):
+                values['trade_pair'] = TradePair.from_trade_pair_id(tp)
+            elif isinstance(tp, dict):
+                if 'trade_pair_id' in tp:
+                    values['trade_pair'] = TradePair.from_trade_pair_id(tp['trade_pair_id'])
+            elif isinstance(tp, list) and tp:
+                values['trade_pair'] = TradePair.from_trade_pair_id(tp[0])
+
+        # Enums arrive as their upper-case values from disk; tolerate legacy lower-case input
+        execution_type = values.get('execution_type')
+        if isinstance(execution_type, str) and not execution_type.isupper():
+            values['execution_type'] = ExecutionType.from_string(execution_type)
+        stop_condition = values.get('stop_condition')
+        if isinstance(stop_condition, str) and not stop_condition.isupper():
+            values['stop_condition'] = StopCondition.from_string(stop_condition)
+
+        price = values.get('price')
+        if price is not None and price < 0:
+            raise ValueError("Price must be greater than 0")
+        processed_ms = values.get('processed_ms')
+        if processed_ms is not None and processed_ms < 0:
+            raise ValueError("processed_ms must be greater than 0")
+
+        if 'order_uuid' in values and not isinstance(values['order_uuid'], str):
+            values['order_uuid'] = str(values['order_uuid'])
+
+        price_sources = values.get('price_sources')
+        if price_sources and isinstance(price_sources, list):
+            values['price_sources'] = [PriceSource(**ps) if isinstance(ps, dict) else ps for ps in price_sources]
+
+        # Size sign follows direction: SHORT sizes are negative, LONG sizes must not be
+        order_type = values.get('order_type')
+        if (order_type is OrderType.SHORT or order_type is OrderType.LONG) and execution_type not in _UNSIZED_EXECUTION_TYPES:
+            for field in ('leverage', 'value', 'quantity'):
+                size = values.get(field)
+                if size is not None:
+                    if order_type is OrderType.LONG and size < 0:
+                        raise ValueError(f"{field} must be positive for LONG orders.")
+                    elif order_type is OrderType.SHORT:
+                        values[field] = -1.0 * abs(size)
+
+        # Legacy top-level stop_loss/take_profit/trailing_stop become a bracket_orders entry
+        bracket_orders = values.get('bracket_orders')
+        bracketable = values.get('execution_type', ExecutionType.MARKET) in _BRACKETABLE_EXECUTION_TYPES
+        if bracketable and not bracket_orders:
+            stop_loss = values.get('stop_loss')
+            take_profit = values.get('take_profit')
+            trailing_stop = values.get('trailing_stop')
+            if stop_loss is not None or take_profit is not None or trailing_stop is not None:
+                bracket_entry = {'stop_loss': stop_loss, 'take_profit': take_profit, 'order_uuid': str(uuid.uuid4())}
+                if trailing_stop is not None:
+                    if 'trailing_percent' in trailing_stop:
+                        bracket_entry['trailing_percent'] = trailing_stop['trailing_percent']
+                    if 'trailing_value' in trailing_stop:
+                        bracket_entry['trailing_value'] = trailing_stop['trailing_value']
+                values['bracket_orders'] = [bracket_entry]
+        elif bracket_orders and isinstance(bracket_orders, list):
+            for sub in bracket_orders:
+                if isinstance(sub, dict) and ('order_uuid' not in sub or (bracketable and not sub['order_uuid'])):
+                    sub['order_uuid'] = str(uuid.uuid4())
+
         return values
 
     @model_validator(mode="after")
@@ -77,16 +125,19 @@ class Order(Signal):
         Initializes quote_usd_rate and usd_base_rate based on the trade pair.
         Only sets values if they were left at the default 0.
         """
+        if self.quote_usd_rate != 0 and self.usd_base_rate != 0:
+            return self
+
         # Skip for FLAT_ALL or other cases where trade_pair is None
         if self.trade_pair is None:
             return self
 
-        base = self.trade_pair.base  # e.g. BTC in BTCUSDC
-        quote = self.trade_pair.quote  # e.g. USDC in BTCUSDC
         price = self.price
-
         if price == 0:
             return self
+
+        base = self.trade_pair.base  # e.g. BTC in BTCUSDC
+        quote = self.trade_pair.quote  # e.g. USDC in BTCUSDC
 
         if self.quote_usd_rate == 0:
             if "USD" in quote:
@@ -101,68 +152,6 @@ class Order(Signal):
                 self.usd_base_rate = 1.0 / price
 
         return self
-
-    @field_validator('price', 'processed_ms', mode='before')
-    def validate_values(cls, v, info):
-        if info.field_name == 'price' and v < 0:
-            raise ValueError("Price must be greater than 0")
-        if info.field_name == 'processed_ms' and v < 0:
-            raise ValueError("processed_ms must be greater than 0")
-        return v
-
-    @field_validator('order_uuid', mode='before')
-    def ensure_order_uuid_is_string(cls, v):
-        if not isinstance(v, str):
-            v = str(v)
-        return v
-
-    @field_validator('price_sources', mode='before')
-    def validate_price_sources(cls, v):
-        if isinstance(v, list):
-            return [PriceSource(**ps) if isinstance(ps, dict) else ps for ps in v]
-        return v
-
-    @field_validator('bracket_orders', mode='before')
-    @classmethod
-    def ensure_bracket_order_uuids(cls, v):
-        if isinstance(v, list):
-            for sub in v:
-                if isinstance(sub, dict) and 'order_uuid' not in sub:
-                    sub['order_uuid'] = str(uuid.uuid4())
-        return v
-
-    # @model_validator(mode='before')
-    # def validate_size(cls, values):
-    #     """
-    #     Ensure that size meets min and maximum requirements
-    #     """
-    #     order_type = values['order_type']
-    #     is_flat_order = order_type == OrderType.FLAT or order_type == 'FLAT'
-    #     lev = values['leverage']
-    #     val = values.get('value')
-    #     if not is_flat_order and not (ValiConfig.ORDER_MIN_LEVERAGE <= abs(lev) <= ValiConfig.ORDER_MAX_LEVERAGE):
-    #         raise ValueError(
-    #             f"Order leverage must be between {ValiConfig.ORDER_MIN_LEVERAGE} and {ValiConfig.ORDER_MAX_LEVERAGE}, provided - lev [{lev}] and order_type [{order_type}] ({type(order_type)})")
-    #     if val is not None and not is_flat_order and not ValiConfig.ORDER_MIN_VALUE <= abs(val):
-    #         raise ValueError(f"Order value must be greater than {ValiConfig.ORDER_MIN_VALUE}, provided value is {abs(val)}")
-    #     return values
-
-    @model_validator(mode="before")
-    def validate_size_fields(cls, values):
-        """
-        Overrides inherited validate_size_fields from Signal.
-        Order can have all three leverage/value/quantity fields filled.
-        """
-        return values
-
-    @model_validator(mode='before')
-    @classmethod
-    def validate_price_fields(cls, values):
-        """
-        Overrides inherited validate_price_fields from Signal.
-        Filled orders don't require limit_price/stop_price — those were trigger conditions.
-        """
-        return values
 
     @classmethod
     def from_dict(cls, order_dict):

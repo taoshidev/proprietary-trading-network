@@ -8,7 +8,8 @@ from vali_objects.vali_config import TradePair
 from vali_objects.enums.order_type_enum import OrderType, StopCondition
 from pydantic import BaseModel, model_validator, field_validator
 
-class Signal(BaseModel):
+class OrderFields(BaseModel):
+    """Fields shared by Signal (an incoming request) and Order (a stored record). No validators."""
     trade_pair: Optional[TradePair] = None
     order_type: Optional[OrderType] = None
     leverage: Optional[float] = None    # Multiplier of account size
@@ -23,6 +24,10 @@ class Signal(BaseModel):
     stop_condition: Optional[StopCondition] = None
     trailing_stop: Optional[dict] = None
     bracket_orders: Optional[list[dict]] = None
+
+
+class Signal(OrderFields):
+    """An incoming order request. Request rules are validated here, once, at the API boundary."""
 
     @field_validator('trade_pair', mode='before')
     @classmethod

@@ -66,7 +66,7 @@ class Position(BaseModel):
     last_quote_usd_conversion: float = 1.0
 
     # Only used for UI to associate bracket orders
-    unfilled_orders: list = Field(default=[], exclude=True)
+    unfilled_orders: list = Field(default_factory=list, exclude=True)
 
     @model_validator(mode='before')
     def add_trade_pair_to_orders_and_self(cls, values):
@@ -84,7 +84,7 @@ class Position(BaseModel):
         for order in orders:
             if not isinstance(order, Order):
                 order['trade_pair'] = trade_pair
-            else:
+            elif order.trade_pair is not trade_pair:
                 order = order.model_copy(update={'trade_pair': trade_pair})
 
             updated_orders.append(order)
