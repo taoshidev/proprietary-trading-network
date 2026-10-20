@@ -1352,6 +1352,7 @@ class LimitOrderManager(CacheController):
                 slippage=slippage,
                 is_hl_taker=is_taker,
                 enforce_cooldown=is_market_order,
+                limit_price=order.limit_price if order.execution_type == ExecutionType.LIMIT else None,
             )
 
             if not result:

@@ -254,6 +254,7 @@ class TestLimitOrderIntegration(TestBase):
         self.assertAlmostEqual(limit_order_in_position.leverage, 0.2, places=3)
         self.assertGreater(limit_order_in_position.price, 0, "Filled order should have price set")
         self.assertEqual(limit_order_in_position.src, OrderSource.LIMIT_FILLED)
+        self.assertEqual(limit_order_in_position.limit_price, 48000.0, "Filled order keeps the miner's limit")
 
         # Verify position net leverage updated
         expected_leverage = 0.3 + 0.2
@@ -309,6 +310,21 @@ class TestLimitOrderIntegration(TestBase):
         # Verify net leverage reduced
         expected_leverage = 0.4 - 0.2
         self.assertAlmostEqual(updated_position.net_leverage, expected_leverage, places=2)
+
+    def test_immediate_fill_keeps_limit_price(self):
+        """A limit that is marketable on submission fills immediately; the filled order keeps the miner's limit."""
+        self.create_test_position(order_type=OrderType.LONG, leverage=0.3)
+        self.live_price_fetcher_client.set_test_market_open(True)
+        self.inject_price_data(self.DEFAULT_TRADE_PAIR, self.create_price_source(47500.0, bid=47500.0, ask=47500.0))
+        limit_order = self.create_limit_order(order_type=OrderType.LONG, limit_price=48000.0, leverage=0.2)
+
+        result = self.limit_order_client.process_limit_order(self.DEFAULT_MINER_HOTKEY, limit_order)
+
+        self.assertEqual(result["status"], "success")
+        position = self.position_client.get_open_position_for_trade_pair(self.DEFAULT_MINER_HOTKEY,
+                                                                         self.DEFAULT_TRADE_PAIR.trade_pair_id)
+        filled = next(o for o in position.orders if o.order_uuid == limit_order.order_uuid)
+        self.assertEqual(filled.limit_price, 48000.0)
 
     def test_end_to_end_bracket_order_creation_and_trigger(self):
         """
@@ -418,6 +434,8 @@ class TestLimitOrderIntegration(TestBase):
         self.assertEqual(bracket_fill.order_type, OrderType.FLAT)
         self.assertLess(bracket_fill.quantity, 0, "Bracket fill should offset the LONG position")
         self.assertEqual(bracket_fill.src, OrderSource.BRACKET_FILLED)
+        self.assertEqual(final_position.orders[1].limit_price, 48000.0, "Limit fill keeps the miner's limit")
+        self.assertIsNone(bracket_fill.limit_price, "Bracket fills have no limit price")
 
     def test_bracket_pct_full_close(self):
         """
@@ -960,6 +978,7 @@ class TestLimitOrderIntegration(TestBase):
         filled = self.last_fill()
         self.assertEqual(filled.src, OrderSource.LIMIT_FILLED)
         self.assertEqual(filled.price, 47900.0, "Marketable on arrival: limit or better, at the first trade")
+        self.assertEqual(filled.limit_price, 48000.0, "The miner's limit is kept for auditing the fill")
 
     def test_after_hours_resting_order_fills_at_limit_price(self):
         self.create_test_position(order_type=OrderType.LONG, leverage=0.3)
@@ -973,6 +992,7 @@ class TestLimitOrderIntegration(TestBase):
         self.daemon_pass()
         self.assertEqual(self.unfilled_orders(), [])
         self.assertEqual(self.last_fill().price, 48000.0, "A resting order fills at the miner's limit price")
+        self.assertEqual(self.last_fill().limit_price, 48000.0)
 
     def test_overnight_order_marketable_at_pre_market_open(self):
         # Submitted while closed; it arrives when pre-market opens and the market is already below the limit
