@@ -486,11 +486,6 @@ class EntityClient(RPCClientBase):
             end_time_ms
         )
 
-    def get_funded_week_payouts(self, synthetic_hotkey: str, end_time_ms: int) -> Optional[dict]:
-        """The payout, as the payout endpoint reports it, of each payout week traded in SUBACCOUNT_FUNDED,
-        up to end_time_ms, keyed by the week's Monday 00:00 UTC. None when no payout can be calculated."""
-        return self._server.get_funded_week_payouts_rpc(synthetic_hotkey, end_time_ms)
-
     # ==================== Validator Broadcast Methods ====================
 
     def broadcast_subaccount_registration(

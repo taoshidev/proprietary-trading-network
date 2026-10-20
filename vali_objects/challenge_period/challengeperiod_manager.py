@@ -13,7 +13,6 @@ from typing import Tuple
 
 from shared_objects.log import logger
 import threading
-import time
 from datetime import datetime
 
 from vali_objects.enums.order_source_enum import OrderSource
@@ -145,17 +144,6 @@ class AutoPromotionStats:
     daily_consistency: float
     max_drawdown: float
     trading_days: int
-    ledger_start_ms: int  # The funded account's first trade; payouts count from here
-
-
-@dataclass
-class FundedPayouts:
-    """A candidate's payouts over the closed payout weeks it traded in SUBACCOUNT_FUNDED, as read for one
-    payout week and one account (its ledger start)."""
-    week_start_ms: int
-    ledger_start_ms: int
-    total_usd: float
-    paid_weeks: int
 
 
 @dataclass
@@ -171,8 +159,8 @@ class AutoPromotion:
     multiplier: float = 0.0
     pro_account_size: float = 0.0
     promoted_ms: int = 0
-    payout_usd: float = 0.0
-    paid_weeks: int = 0
+    equity_return: float = 0.0
+    balance_return: float = 0.0
     calmar: float = 0.0
     daily_consistency: float = 1.0
     trading_days: int = 0
@@ -420,13 +408,8 @@ class ChallengePeriodManager(CacheController):
     - Manager creates its own clients internally (forward compatibility)
     """
     DRAWDOWN_ACTIVATION_MS = TimeUtil.formatted_date_str_to_millis("2026-10-01 00:00:00")   # TODO: remove
-    # Auto-promotion payout lookups run inside this loop, beside the eliminations: a refresh starts no new
-    # lookup once it has spent this long on them (one slow lookup can still run past it), and the rest wait
-    # for the next refresh.
-    AUTO_PROMOTION_PAYOUT_LOOKUP_BUDGET_S = 5
-    # A week's payouts are read this long after its Monday 00:00 UTC, once that hour's account snapshots
-    # exist, and an account is looked up at most this often, so a failing lookup is not retried every refresh
-    AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS = 60 * 60 * 1000
+    # The fast track's equity must hold on every refresh for this long, so a bad price tick cannot promote
+    AUTO_PROMOTION_FAST_TRACK_HOLD_MS = 3 * 60 * 1000
 
     def __init__(
         self,
@@ -470,15 +453,13 @@ class ChallengePeriodManager(CacheController):
         self._cached_asset_competitiveness: dict[MinerAssetClass, float] = {}
 
         # Auto-promotion: subaccounts' creation buckets (fixed once created), the candidates seen on the
-        # last refresh, the stats of those whose ledger covers the time before live tracking, each
-        # candidate's payouts, when each was last looked up, the payout week a failed lookup or move was
-        # last logged in, the ledgers logged incomplete, and whether this validator is the mothership
+        # last refresh, the stats of those whose ledger covers the time before live tracking, since when
+        # each candidate's equity has held the fast track's return, the payout week a failed move was last
+        # logged in, the ledgers logged incomplete, and whether this validator is the mothership
         self._initial_buckets: dict[str, str | None] = {}
         self._auto_promotion_candidates: set[str] = set()
         self._auto_promotion_stats: dict[str, AutoPromotionStats] = {}
-        self._funded_payouts: dict[str, FundedPayouts] = {}
-        self._payout_lookup_attempted_ms: dict[str, int] = {}
-        self._payout_lookup_warned: dict[str, int] = {}
+        self._fast_track_since_ms: dict[str, int] = {}
         self._move_failure_logged: dict[str, int] = {}
         self._incomplete_ledgers_logged: set[str] = set()
         self._mothership: bool | None = None
@@ -537,6 +518,8 @@ class ChallengePeriodManager(CacheController):
             logger.error(f"[CHALLENGE] auto-promotion stats failed, skipping auto-promotion this refresh: {e}",
                          exc_info=True)
             self._auto_promotion_stats = {}
+            # A refresh that could not check the fast track's equity starts its hold over
+            self._fast_track_since_ms.clear()
         timer.lap("auto_promotion_stats")
         # Latch before any bucket move below: soft_breach reads the bucket the miner traded today
         self._latch_soft_breaches(evaluation_hotkeys, current_time_ms)
@@ -1312,6 +1295,9 @@ class ChallengePeriodManager(CacheController):
         in DrawdownStats, as the pro challenge ratchets its own. The time before has no live record, so it
         is replayed from the perf ledger's per-checkpoint lowest equity, and the worse of the two is the
         drawdown. A candidate whose ledger cannot replay that time gets no stats, so it is not evaluated.
+
+        Also times how long each candidate's equity has held the fast track's return: any refresh below
+        it starts the hold over.
         """
         candidates = set()
         stats = {}
@@ -1330,6 +1316,10 @@ class ChallengePeriodManager(CacheController):
                 if drawdown.eod_hwm > 0:
                     drawdown.max_drawdown = min(drawdown.max_drawdown, 1.0,
                                                 drawdown.current_equity / drawdown.eod_hwm)
+            if drawdown.current_equity - 1.0 >= ValiConfig.AUTO_PROMOTION_FAST_TRACK_EQUITY_RETURN:
+                self._fast_track_since_ms.setdefault(hotkey, current_time_ms)
+            else:
+                self._fast_track_since_ms.pop(hotkey, None)
 
             ledger = ledgers.get(hotkey)
             if ledger is None or account.account_size <= 0:
@@ -1350,14 +1340,12 @@ class ChallengePeriodManager(CacheController):
                 daily_consistency=Metrics.return_consistency(log_returns),
                 max_drawdown=max_drawdown,
                 trading_days=len(log_returns),
-                ledger_start_ms=ledger.start_time_ms,
             )
 
         self._auto_promotion_candidates = candidates
         self._auto_promotion_stats = stats
         # Forget accounts that are no longer candidates
-        for cache in (self._funded_payouts, self._payout_lookup_attempted_ms, self._payout_lookup_warned,
-                      self._move_failure_logged):
+        for cache in (self._fast_track_since_ms, self._move_failure_logged):
             for hotkey in cache.keys() - candidates:
                 del cache[hotkey]
         self._incomplete_ledgers_logged &= candidates
@@ -1389,47 +1377,25 @@ class ChallengePeriodManager(CacheController):
         candidates with stats are evaluated (their drawdown covers the whole funded account), never one
         this refresh is eliminating, even if that elimination failed, and a subaccount is promoted
         automatically at most once. Returns the hotkeys moved."""
-        week_start_ms = TimeUtil.ms_at_start_of_week(current_time_ms)
-        payouts_readable = current_time_ms >= week_start_ms + self.AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS
-        lookup_deadline = time.monotonic() + self.AUTO_PROMOTION_PAYOUT_LOOKUP_BUDGET_S
         promoted = []
-        # The candidate looked up longest ago goes first, so one that keeps failing never holds up the rest
-        for hotkey in sorted(self._auto_promotion_stats,
-                             key=lambda hk: (self._payout_lookup_attempted_ms.get(hk, 0), hk)):
+        for hotkey, stats in list(self._auto_promotion_stats.items()):
             state = self.miner_states.get(hotkey)
             account = accounts.get(hotkey)
-            stats = self._auto_promotion_stats[hotkey]
             if (hotkey in eliminating or state is None or state.current_bucket != MinerBucket.SUBACCOUNT_FUNDED
                     or state.auto_promotion or account is None or account.account_size <= 0):
                 continue
-            # No payout week of this account has closed yet, so neither path can qualify
-            if stats.ledger_start_ms >= week_start_ms:
-                continue
-
-            payouts = self._funded_payouts.get(hotkey)
-            if (payouts is None or payouts.week_start_ms != week_start_ms
-                    or payouts.ledger_start_ms != stats.ledger_start_ms):
-                last_attempt_ms = self._payout_lookup_attempted_ms.get(hotkey)
-                if (not payouts_readable or time.monotonic() > lookup_deadline
-                        or (last_attempt_ms is not None
-                            and current_time_ms - last_attempt_ms < self.AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS)):
-                    continue
-                payouts = self._look_up_funded_payouts(hotkey, week_start_ms, stats.ledger_start_ms,
-                                                       current_time_ms)
-                if payouts is None:
-                    continue
-
-            qualified = self._auto_promotion_path(stats, payouts.total_usd / account.account_size,
-                                                  payouts.paid_weeks)
+            since_ms = self._fast_track_since_ms.get(hotkey)
+            held = since_ms is not None and current_time_ms - since_ms >= self.AUTO_PROMOTION_FAST_TRACK_HOLD_MS
+            qualified = self._auto_promotion_path(stats, held, state.drawdown.current_return)
             if qualified is None:
                 continue
             with self._promotion_lock(hotkey):
-                if self._move_to_auto_promotion(hotkey, account, stats, qualified, payouts, current_time_ms):
+                if self._move_to_auto_promotion(hotkey, account, stats, qualified, current_time_ms):
                     promoted.append(hotkey)
         return promoted
 
     def _move_to_auto_promotion(self, hotkey: str, account: MinerAccount, stats: AutoPromotionStats,
-                                qualified: tuple[str, int], payouts: FundedPayouts, current_time_ms: int) -> bool:
+                                qualified: tuple[str, int], current_time_ms: int) -> bool:
         """Move one qualifying candidate into PRO_CHALLENGE_TRANSITION. Called with its promotion lock held.
         True when it moved.
 
@@ -1456,7 +1422,8 @@ class ChallengePeriodManager(CacheController):
 
         record = AutoPromotion(path=path, multiplier=pro_account_size / account.account_size,
                                pro_account_size=pro_account_size, promoted_ms=current_time_ms,
-                               payout_usd=payouts.total_usd, paid_weeks=payouts.paid_weeks, calmar=stats.calmar,
+                               equity_return=state.drawdown.current_equity - 1.0,
+                               balance_return=state.drawdown.current_balance - 1.0, calmar=stats.calmar,
                                daily_consistency=stats.daily_consistency, trading_days=stats.trading_days)
         # Recorded before the move so it is saved to disk with it
         with self._buckets_lock:
@@ -1500,39 +1467,17 @@ class ChallengePeriodManager(CacheController):
             self._move_failure_logged[hotkey] = week_start_ms
             logger.error(f"[CHALLENGE] auto-promotion of {hotkey} failed, retrying on later refreshes: {message}")
 
-    def _look_up_funded_payouts(self, hotkey: str, week_start_ms: int, ledger_start_ms: int,
-                                current_time_ms: int) -> FundedPayouts | None:
-        """Total payout and number of paid weeks over the closed payout weeks the candidate traded in
-        SUBACCOUNT_FUNDED, cached until the payout week or the account (its ledger start) changes. None
-        when the lookup fails, which is retried at most once per AUTO_PROMOTION_PAYOUT_LOOKUP_DELAY_MS
-        and logged once a week."""
-        self._payout_lookup_attempted_ms[hotkey] = current_time_ms
-        try:
-            weeks = self._entity_client.get_funded_week_payouts(hotkey, week_start_ms)
-            failure = None if weeks is not None else "no payout to read yet"
-        except Exception as e:
-            weeks, failure = None, str(e)
-        if weeks is None:
-            if self._payout_lookup_warned.get(hotkey) != week_start_ms:
-                self._payout_lookup_warned[hotkey] = week_start_ms
-                logger.warning(f"[CHALLENGE] {hotkey} payout lookup failed, retrying on later refreshes: {failure}")
-            return None
-        payouts = FundedPayouts(week_start_ms=week_start_ms, ledger_start_ms=ledger_start_ms,
-                                total_usd=sum(weeks.values()), paid_weeks=sum(1 for p in weeks.values() if p > 0))
-        self._funded_payouts[hotkey] = payouts
-        return payouts
-
     @staticmethod
-    def _auto_promotion_path(stats: AutoPromotionStats, payout_share: float,
-                             paid_weeks: int) -> tuple[str, int] | None:
+    def _auto_promotion_path(stats: AutoPromotionStats, fast_track_held: bool,
+                             current_return: float) -> tuple[str, int] | None:
         """The path a candidate qualifies on and its multiple, the larger when it qualifies on both, or
-        None. payout_share is its total payout over its account size."""
+        None. fast_track_held is whether its equity has held the fast track's return for
+        AUTO_PROMOTION_FAST_TRACK_HOLD_MS; current_return is DrawdownStats.current_return."""
         qualified = []
-        if payout_share > ValiConfig.AUTO_PROMOTION_FAST_TRACK_PAYOUT_SHARE:
+        if fast_track_held:
             qualified.append((AutoPromotion.FAST_TRACK, ValiConfig.AUTO_PROMOTION_FAST_TRACK_MULTIPLIER))
         if (stats.trading_days >= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_DAYS
-                and paid_weeks >= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAID_WEEKS
-                and payout_share > ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAYOUT_SHARE
+                and current_return > ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MINIMUM_RETURN
                 and stats.daily_consistency <= ValiConfig.AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY):
             tiers = [m for calmar, m in ValiConfig.AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS if stats.calmar >= calmar]
             if tiers:

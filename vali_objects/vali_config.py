@@ -601,16 +601,16 @@ class ValiConfig:
 
     # Auto-promotion moves a standard funded subaccount (created through the standard challenge, not
     # HL-linked) into PRO_CHALLENGE_TRANSITION at a multiple of its account size, on whichever path it
-    # qualifies for first; on the same check, the larger multiple. Payouts are the weekly payouts of the
-    # payout endpoint (EntityManager._calculate_payout_for_hotkey) over the closed payout weeks it traded
-    # in SUBACCOUNT_FUNDED.
-    # Fast track: total payouts above this share of the account size, at any time
-    AUTO_PROMOTION_FAST_TRACK_PAYOUT_SHARE = 0.10
+    # qualifies for first; on the same check, the larger multiple. Returns are over the account size the
+    # account was reset to when it became funded.
+    # Fast track: equity, unrealized PnL included, at least this return, at any time, held for
+    # ChallengePeriodManager.AUTO_PROMOTION_FAST_TRACK_HOLD_MS
+    AUTO_PROMOTION_FAST_TRACK_EQUITY_RETURN = 0.10
     AUTO_PROMOTION_FAST_TRACK_MULTIPLIER = 3
-    # Steady track: every condition below, sized by the highest calmar tier reached
+    # Steady track: every condition below, sized by the highest calmar tier reached. The return is on the
+    # lower of balance and equity, so open losses count and open gains do not
     AUTO_PROMOTION_STEADY_TRACK_MINIMUM_DAYS = 60
-    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAID_WEEKS = 3
-    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_PAYOUT_SHARE = 0.03
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_RETURN = 0.03
     AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY = 0.5
     AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
     AUTO_PROMOTION_TRANSITION_DAYS = 7  # longest time in PRO_CHALLENGE_TRANSITION after an auto-promotion; ends early once flat

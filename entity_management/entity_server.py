@@ -482,10 +482,6 @@ class EntityServer(RPCServerBase):
             end_time_ms
         )
 
-    def get_funded_week_payouts_rpc(self, synthetic_hotkey: str, end_time_ms: int) -> Optional[dict]:
-        """RPC method for the payout of each payout week traded in SUBACCOUNT_FUNDED."""
-        return self._manager.get_funded_week_payouts(synthetic_hotkey, end_time_ms)
-
     # ==================== Validator Broadcast RPC Methods ====================
 
     def broadcast_subaccount_registration_rpc(

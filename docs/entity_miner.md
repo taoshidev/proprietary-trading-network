@@ -466,17 +466,19 @@ A subaccount qualifies on whichever of two paths it meets first:
 
 | Path | Requirements | Pro account size |
 |---|---|---|
-| Fast track | Total payouts above 10% of the account size | 3x the standard account size |
-| Steady track | All of: at least 60 full days on its funded ledger, at least 3 paid weeks, total payouts above 3% of the account size, return consistency of at most 50%, and all-time Calmar of at least 1.5 | 5x the standard account size, or 10x at a Calmar of at least 2.0 |
+| Fast track | Equity, unrealized PnL included, at least 10% above the account size, held there for 3 minutes | 3x the standard account size |
+| Steady track | All of: at least 60 full days on its funded ledger, balance and equity both more than 3% above the account size, return consistency of at most 50%, and all-time Calmar of at least 1.5 | 5x the standard account size, or 10x at a Calmar of at least 2.0 |
 
 Meeting both on the same check takes the larger multiple. The thresholds are the
 `ValiConfig.AUTO_PROMOTION_*` values.
 
-- **Payouts** are the weekly `payout` figures of the funded account
-  (`POST /entity/subaccount/payout`, `weekly_settlements`), over closed payout weeks only (Monday
-  00:00 UTC to Monday 00:00 UTC). A paid week is one whose payout is above zero. The week the
-  account became funded counts its funded part. A week's payout is read from 01:00 UTC on the
-  Monday it closes.
+- **Balance and equity** are the funded account's own, which starts at its account size when it
+  becomes funded. Balance is the account size plus realized PnL and dividends, net of fees; equity adds
+  the unrealized PnL of open positions.
+  The steady track reads the lower of the two, so open losses count and open gains do not.
+- **The fast track's hold**: equity must stay at or above the line on every challenge-period refresh
+  for 3 minutes (`ChallengePeriodManager.AUTO_PROMOTION_FAST_TRACK_HOLD_MS`), so a bad price tick
+  cannot trigger it. A refresh below the line starts the hold over.
 - **Return consistency** and **all-time Calmar** are measured as in the
   [pro challenge](#passing-the-pro-challenge), over the funded account. Calmar's drawdown is the
   largest drop of live equity below the end-of-day equity high-water mark, and it ratchets. Time

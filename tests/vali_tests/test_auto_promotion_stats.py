@@ -226,7 +226,6 @@ def test_a_candidate_gets_stats_measured_as_in_pro(manager):
     assert stats.calmar == pytest.approx(1.75)
     assert stats.trading_days == DAYS
     assert stats.daily_consistency == pytest.approx(1 / DAYS)
-    assert stats.ledger_start_ms == LEDGER_START_MS
 
 
 def test_the_ledger_only_replays_the_time_before_live_tracking(manager):
