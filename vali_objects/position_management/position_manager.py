@@ -1,6 +1,7 @@
 # developer: jbonilla
 # Copyright (c) 2024 Taoshi Inc
 import os
+import time
 import traceback
 from pickle import UnpicklingError
 
@@ -1420,6 +1421,11 @@ class PositionManager:
             logger.info("No positions directory found, starting fresh")
             return
 
+        load_start = time.perf_counter()
+        n_files = 0
+        read_s = 0.0
+        parse_s = 0.0
+
         # Iterate through all miner hotkey directories
         for hotkey_dir in base_dir.iterdir():
             if not hotkey_dir.is_dir():
@@ -1435,12 +1441,17 @@ class PositionManager:
             if not all_files:
                 continue
 
+            n_files += len(all_files)
             positions_dict = {}  # Build dict directly keyed by position_uuid
 
             for position_file in all_files:
                 try:
+                    t0 = time.perf_counter()
                     file_string = ValiBkpUtils.get_file(position_file)
+                    t1 = time.perf_counter()
                     position = Position.model_validate_json(file_string)
+                    parse_s += time.perf_counter() - t1
+                    read_s += t1 - t0
                     positions_dict[position.position_uuid] = position
                 except Exception as e:
                     logger.error(f"Error loading position file {position_file} for {hotkey}: {e}")
@@ -1449,15 +1460,22 @@ class PositionManager:
                 self.hotkey_to_positions[hotkey] = positions_dict
                 logger.debug(f"Loaded {len(positions_dict)} positions for {hotkey}")
 
+        active_s = time.perf_counter() - load_start
         total_positions = sum(len(positions_dict) for positions_dict in self.hotkey_to_positions.values())
         logger.info(
-            f"Loaded {total_positions} positions for {len(self.hotkey_to_positions)} hotkeys from disk"
+            f"Loaded {total_positions} positions ({n_files} files) for {len(self.hotkey_to_positions)} hotkeys "
+            f"from disk in {active_s:.2f}s (read {read_s:.2f}s, parse {parse_s:.2f}s, "
+            f"listing/other {active_s - read_s - parse_s:.2f}s)"
         )
 
         # Rebuild the open positions index after loading
+        index_start = time.perf_counter()
         self._rebuild_open_index()
+        index_s = time.perf_counter() - index_start
 
         # Load archived positions
+        archived_start = time.perf_counter()
+        n_archived_files = 0
         for hotkey_dir in base_dir.iterdir():
             if not hotkey_dir.is_dir():
                 continue
@@ -1471,6 +1489,7 @@ class PositionManager:
             if not all_files:
                 continue
 
+            n_archived_files += len(all_files)
             archived_dict = {}
             for position_file in all_files:
                 try:
@@ -1484,9 +1503,15 @@ class PositionManager:
                 self.hotkey_to_archived_positions[hotkey] = archived_dict
                 logger.debug(f"Loaded {len(archived_dict)} archived positions for {hotkey}")
 
+        archived_s = time.perf_counter() - archived_start
         total_archived = sum(len(d) for d in self.hotkey_to_archived_positions.values())
         logger.info(
-            f"Loaded {total_archived} archived positions for {len(self.hotkey_to_archived_positions)} hotkeys from disk"
+            f"Loaded {total_archived} archived positions ({n_archived_files} files) for "
+            f"{len(self.hotkey_to_archived_positions)} hotkeys from disk in {archived_s:.2f}s"
+        )
+        logger.info(
+            f"Position disk load took {time.perf_counter() - load_start:.2f}s total "
+            f"(active {active_s:.2f}s, open index {index_s:.2f}s, archived {archived_s:.2f}s)"
         )
 
 
