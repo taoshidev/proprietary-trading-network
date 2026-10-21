@@ -18,7 +18,7 @@ from tests.vali_tests.test_challengeperiod_pro import (  # noqa: F401 - manager 
     _run_refresh,
     manager,
 )
-from vali_objects.challenge_period.challengeperiod_manager import DrawdownStats, MinerBucketState
+from vali_objects.challenge_period.challengeperiod_manager import ChallengePeriodManager, DrawdownStats, MinerBucketState
 from vali_objects.enums.drawdown_criteria_enum import DrawdownCriteria
 from vali_objects.enums.elimination_reason_enum import EliminationReason
 from vali_objects.enums.miner_asset_class_enum import MinerAssetClass
@@ -141,17 +141,41 @@ def test_a_failed_entity_lookup_keeps_the_current_reference(manager, on_balance)
     assert (stats.daily_open_balance is not None) == on_balance
 
 
+def _midnight_ledger(open_equity: float) -> PerfLedger:
+    """A ledger whose checkpoint closing at today's midnight holds open_equity, with the overnight
+    position's unrealized PnL on top of OPEN_BALANCE."""
+    return PerfLedger(cps=[PerfCheckpoint(last_update_ms=MIDNIGHT_MS, prev_portfolio_ret=1.0, equity_ret=open_equity,
+                                          unrealized_pnl=(open_equity - OPEN_BALANCE) * ACCOUNT_SIZE)])
+
+
 @pytest.mark.parametrize("snapshot_ms", [None, MIDNIGHT_MS - DAILY_MS])
-def test_without_todays_snapshot_the_day_runs_on_the_day_open_equity(manager, snapshot_ms):
-    """No recorded day-open balance: the ledger supplies the day-open equity and the balance stays unset."""
-    ledger = PerfLedger(cps=[PerfCheckpoint(last_update_ms=MIDNIGHT_MS, prev_portfolio_ret=1.0, equity_ret=OPEN_EQUITY_LOSS,
-                                            unrealized_pnl=(OPEN_EQUITY_LOSS - OPEN_BALANCE) * ACCOUNT_SIZE)])
+def test_without_todays_snapshot_the_midnight_checkpoint_supplies_the_balance(manager, snapshot_ms):
+    """No snapshot of today's open (the snapshot daemon missed 00:00 UTC): the midnight checkpoint
+    supplies the day-open balance, its equity less the unrealized PnL held at midnight."""
     _seed(manager, MinerBucket.SUBACCOUNT_FUNDED)
     manager.miner_states[HOTKEY].drawdown.daily_open_balance = 1.20  # yesterday's
-    stats = _refresh_cache(manager, _account(1.0395, OPEN_EQUITY_LOSS, snapshot_ms=snapshot_ms), ledger)
+    stats = _refresh_cache(manager, _account(1.0395, OPEN_EQUITY_LOSS, snapshot_ms=snapshot_ms),
+                           _midnight_ledger(OPEN_EQUITY_LOSS))
+    assert stats.last_eod_checked_ms == MIDNIGHT_MS
     assert stats.daily_open_equity == pytest.approx(OPEN_EQUITY_LOSS)
+    assert stats.daily_open_balance == pytest.approx(OPEN_BALANCE)
+    assert stats.intraday_drawdown_pct == pytest.approx(5.5)
+
+
+@pytest.mark.parametrize("bucket", EQUITY_BUCKETS)
+def test_without_todays_snapshot_the_equity_buckets_keep_the_day_open_equity(manager, bucket):
+    _seed(manager, bucket)
+    stats = _refresh_cache(manager, _account(1.0395, OPEN_EQUITY_LOSS, snapshot_ms=None),
+                           _midnight_ledger(OPEN_EQUITY_LOSS))
     assert stats.daily_open_balance is None
     assert stats.intraday_drawdown_pct == pytest.approx((1 - 1.0395 / OPEN_EQUITY_LOSS) * 100)
+
+
+def test_the_midnight_balance_needs_todays_checkpoint_and_an_account_size():
+    ledger = _midnight_ledger(OPEN_EQUITY_LOSS)
+    assert ChallengePeriodManager._parse_eod_checkpoints(ledger, NOW, ACCOUNT_SIZE)[4] == pytest.approx(OPEN_BALANCE)
+    assert ChallengePeriodManager._parse_eod_checkpoints(ledger, NOW)[4] is None
+    assert ChallengePeriodManager._parse_eod_checkpoints(ledger, NOW + DAILY_MS, ACCOUNT_SIZE)[4] is None
 
 
 def test_a_day_open_locked_before_the_balance_was_tracked_waits_for_the_next_day_open(manager):
@@ -203,6 +227,19 @@ def test_an_overnight_gain_loosens_the_day(manager, bucket, criteria):
     _refresh_cache(manager, _account(OPEN_BALANCE * (1 - 0.04), OPEN_EQUITY_GAIN))
     _run_refresh(manager, HOTKEY, now_ms=NOW)
     assert manager.get_miner_bucket(HOTKEY) == bucket
+
+
+@pytest.mark.parametrize("open_equity,eliminated", [(OPEN_EQUITY_GAIN, False), (OPEN_EQUITY_LOSS, True)])
+def test_without_todays_snapshot_the_day_is_still_measured_from_the_balance(manager, open_equity, eliminated):
+    """The ledger fallback keeps the balance rule: an overnight gain does not tighten the day to the
+    day-open equity, and an overnight loss does not loosen it."""
+    _seed(manager, MinerBucket.SUBACCOUNT_FUNDED)
+    drop = 0.04 if open_equity == OPEN_EQUITY_GAIN else 0.055
+    _refresh_cache(manager, _account(OPEN_BALANCE * (1 - drop), open_equity, snapshot_ms=None),
+                   _midnight_ledger(open_equity))
+    _run_refresh(manager, HOTKEY, now_ms=NOW)
+    expected = MinerBucket.ELIMINATED if eliminated else MinerBucket.SUBACCOUNT_FUNDED
+    assert manager.get_miner_bucket(HOTKEY) == expected
 
 
 def test_hl_linked_survives_the_same_overnight_loss(manager):

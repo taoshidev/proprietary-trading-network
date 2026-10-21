@@ -1147,10 +1147,11 @@ class ChallengePeriodManager(CacheController):
     # ==================== Drawdown/Rank Refresh methods ====================
 
     @staticmethod
-    def _parse_eod_checkpoints(ledger: PerfLedger, now_ms: int) -> tuple[float, float | None, float, int | None]:
+    def _parse_eod_checkpoints(ledger: PerfLedger, now_ms: int, account_size: float | None = None
+                               ) -> tuple[float, float | None, float, int | None, float | None]:
         """
         Parse midnight checkpoints from a ledger.
-        Returns (last_eod, daily_open_equity, eod_hwm, last_eod_checked_ms).
+        Returns (last_eod, daily_open_equity, eod_hwm, last_eod_checked_ms, daily_open_balance).
         """
         midnight_cps = [cp for cp in ledger.cps if cp.last_update_ms % 86400000 == 0 and cp.equity_ret > 0]
         last_eod = midnight_cps[-1].equity_ret if midnight_cps else 1.0
@@ -1159,7 +1160,9 @@ class ChallengePeriodManager(CacheController):
         today_open_cp = next((cp for cp in midnight_cps if cp.last_update_ms == today_midnight_ms), None)
         daily_open_equity = today_open_cp.equity_ret if today_open_cp else (None if last_eod else 1.0)
         eod_hwm = max(max(cp.equity_ret for cp in midnight_cps), 1.0) if midnight_cps else 1.0
-        return last_eod, daily_open_equity, eod_hwm, last_eod_checked_ms
+        daily_open_balance = (today_open_cp.equity_ret - today_open_cp.unrealized_pnl / account_size
+                              if today_open_cp and account_size else None)
+        return last_eod, daily_open_equity, eod_hwm, last_eod_checked_ms, daily_open_balance
 
     @staticmethod
     def _daily_open_balance(account: MinerAccount, now_ms: int) -> float | None:
@@ -1231,12 +1234,14 @@ class ChallengePeriodManager(CacheController):
                     last_eod_equity = daily_open_equity = snapshot.equity_return
                     eod_hwm = max(existing.eod_hwm, daily_open_equity)
                     last_eod_checked_ms = current_day_open_ms
+                    daily_open_balance = self._daily_open_balance(account, now_ms)
                 else:
                     ledger = ledgers.get(hotkey)
                     if ledger is None:
                         logger.warning(f"[CHALLENGE] {hotkey} missing ledger, skipping drawdown cache")
                         continue
-                    last_eod_equity, daily_open_equity, eod_hwm, last_eod_checked_ms = self._parse_eod_checkpoints(ledger, now_ms)
+                    last_eod_equity, daily_open_equity, eod_hwm, last_eod_checked_ms, daily_open_balance = (
+                        self._parse_eod_checkpoints(ledger, now_ms, account.account_size))
 
                 if last_eod_checked_ms == current_day_open_ms:
                     existing.current_equity = current_equity
@@ -1244,7 +1249,10 @@ class ChallengePeriodManager(CacheController):
                     existing.last_eod_equity = last_eod_equity
                     existing.daily_open_equity = daily_open_equity
                     if from_balance:
-                        existing.daily_open_balance = self._daily_open_balance(account, now_ms)
+                        existing.daily_open_balance = daily_open_balance
+                        if daily_open_balance is None:
+                            logger.warning(f"[CHALLENGE] {hotkey} has no day-open balance, today's daily loss "
+                                           f"limit is measured from the day-open equity: {self.miner_states[hotkey]}")
                     existing.eod_hwm = max(existing.eod_hwm, last_eod_equity, eod_hwm)
                     existing.last_eod_checked_ms = last_eod_checked_ms
 

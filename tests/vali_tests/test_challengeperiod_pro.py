@@ -479,7 +479,7 @@ def test_only_midnight_checkpoints_set_the_high_water_mark():
     for cp in midday_cps:
         cp.equity_ret = 1.40  # a spike that never survives to a midnight latch
 
-    _, _, eod_hwm, _ = ChallengePeriodManager._parse_eod_checkpoints(
+    _, _, eod_hwm, _, _ = ChallengePeriodManager._parse_eod_checkpoints(
         ledger, LEDGER_START_MS + 3 * DAILY_MS)
 
     assert eod_hwm == pytest.approx(1.0)
