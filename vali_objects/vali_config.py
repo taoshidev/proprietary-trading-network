@@ -559,11 +559,11 @@ class ValiConfig:
     # Intraday drawdown thresholds (daily loss limit) a subaccount may choose from at creation
     SUBACCOUNT_INTRADAY_DRAWDOWN_VALUES = [0.03, 0.05]
     # EOD high-water-mark drawdown thresholds an Instant Funded subaccount (created into SUBACCOUNT_FUNDED or
-    # PRO_CHALLENGE_FROM_STANDARD) may choose from
+    # PRO_CHALLENGE_FUNDED) may choose from
     SUBACCOUNT_EOD_DRAWDOWN_VALUES = [0.05, 0.08]
     # Buckets a subaccount may be created directly into (MinerBucket values)
     SUBACCOUNT_CREATION_BUCKETS = ["SUBACCOUNT_CHALLENGE", "SUBACCOUNT_FUNDED",
-                                   "PRO_CHALLENGE_FROM_STANDARD", "PRO_CHALLENGE_DIRECT"]
+                                   "PRO_CHALLENGE_FUNDED", "PRO_CHALLENGE_DIRECT"]
     # Hyperliquid subaccounts have no pro track
     HL_SUBACCOUNT_CREATION_BUCKETS = ["SUBACCOUNT_CHALLENGE", "SUBACCOUNT_FUNDED"]
     # The only intraday drawdown threshold for an Instant Funded subaccount
@@ -600,11 +600,11 @@ class ValiConfig:
     PRO_SOFT_BREACH_LATCH_RETENTION_DAYS = 60
 
     # Payout basis for a trader running the pro challenge after passing the standard challenge
-    # (PRO_CHALLENGE_FROM_STANDARD). PnL earned on the pro account is paid as though it had been
+    # (PRO_CHALLENGE_FUNDED, out of transition). PnL earned on the pro account is paid as though it had been
     # earned on this multiple of their standard account size: at 2.0, $5K of eligible PnL on a
     # $500K pro account pays a $100K standard account (5K / 500K) * 2 * 100K = $2K.
     PRO_TRANSITION_PAYOUT_MULTIPLIER = 2.0
-    # Multiplier used instead when a subaccount is created directly into PRO_CHALLENGE_FROM_STANDARD
+    # Multiplier used instead when a subaccount is created directly into PRO_CHALLENGE_FUNDED
     # (Instant Funded). Not caller-selectable: the fee does not price a larger multiplier.
     GROW_DIRECT_CREATION_PAYOUT_MULTIPLIER = 1.0
 
@@ -879,7 +879,7 @@ class ValiConfig:
     #   required_theta = sum(margin_theta(min(position_value, max_slash_usd - cumulative_slashed_usd)))
     #   for each funded subaccount with open positions (or placing this order)
     # max_slash_usd = account_size * the bucket's intraday drawdown threshold. A subaccount in
-    # PRO_CHALLENGE_FROM_STANDARD trades the pro account but is charged against its standard
+    # PRO_CHALLENGE_FUNDED (out of transition) trades the pro account but is charged against its standard
     # account size, so the pro account's margin only lands when it reaches PRO_FUNDED. Realized losses
     # are slashed through margin_theta as well.
 

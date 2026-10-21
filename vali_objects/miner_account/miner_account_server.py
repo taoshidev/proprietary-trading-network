@@ -23,7 +23,7 @@ from typing import Optional, Dict, List, Any
 import template.protocol
 from vali_objects.vali_config import TradePairCategory, ValiConfig, RPCConnectionMode
 from vali_objects.enums.miner_asset_class_enum import MinerAssetClass
-from vali_objects.enums.miner_bucket_enum import MinerBucket
+from vali_objects.enums.miner_bucket_enum import BucketPhase, MinerBucket
 from shared_objects.rpc.rpc_server_base import RPCServerBase
 from vali_objects.miner_account.miner_account_manager import MinerAccountManager, MinerAccount
 from shared_objects.log import logger
@@ -160,9 +160,9 @@ class MinerAccountServer(RPCServerBase):
         """Delete the account size for a miner. Returns True if successful."""
         return self._manager.delete_miner_account_size(hotkey)
 
-    def reset_account(self, hotkey: str, miner_bucket: MinerBucket | None = None) -> bool:
+    def reset_account(self, hotkey: str, miner_bucket: MinerBucket | None = None, in_transition: bool = False) -> bool:
         """Reset account fields (PnL, capital used, borrowed amount, interest) for a miner."""
-        return self._manager.reset_account(hotkey, miner_bucket)
+        return self._manager.reset_account(hotkey, miner_bucket, in_transition)
 
     def get_miner_account_size(
         self,
@@ -274,11 +274,15 @@ class MinerAccountServer(RPCServerBase):
         self._manager.update_unrealized_pnl(hotkey_to_unrealized_pnl)
 
     def set_miner_bucket(self, hotkey: str, bucket_value: Optional[str]) -> None:
-        """Set the miner bucket on an account. Converts string to MinerBucket enum."""
-        bucket = MinerBucket(bucket_value) if bucket_value else None
-        self._manager.set_miner_bucket(hotkey, bucket)
+        """Set the miner bucket on an account. Takes a BucketPhase status string, so the
+        PRO_CHALLENGE_FUNDED transition flag rides along."""
+        if not bucket_value:
+            self._manager.set_miner_bucket(hotkey, None)
+            return
+        phase = BucketPhase.from_status(bucket_value)
+        self._manager.set_miner_bucket(hotkey, phase.bucket, phase.in_transition)
 
-    def set_miner_buckets(self, hotkey_to_bucket: Dict[str, MinerBucket]) -> None:
+    def set_miner_buckets(self, hotkey_to_bucket: Dict[str, MinerBucket | BucketPhase]) -> None:
         """Bulk set miner buckets across multiple accounts."""
         self._manager.set_miner_buckets(hotkey_to_bucket)
 

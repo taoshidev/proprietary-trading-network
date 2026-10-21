@@ -22,7 +22,7 @@ Usage:
 """
 from typing import Tuple
 from shared_objects.rpc.rpc_client_base import RPCClientBase
-from vali_objects.enums.miner_bucket_enum import MinerBucket
+from vali_objects.enums.miner_bucket_enum import BucketPhase, MinerBucket
 from vali_objects.enums.drawdown_criteria_enum import DrawdownCriteria
 from vali_objects.vali_config import ValiConfig, RPCConnectionMode
 
@@ -78,6 +78,15 @@ class ChallengePeriodClient(RPCClientBase):
         """Get buckets for multiple miners in one call."""
         return self._server.get_miner_buckets_rpc(hotkeys, timestamp_ms)
 
+    def get_miner_phase(self, hotkey: str, timestamp_ms: int | None = None) -> BucketPhase | None:
+        """Get the bucket and PRO_CHALLENGE_FUNDED transition flag of a miner, optionally at a
+        specific timestamp."""
+        return self._server.get_miner_phase_rpc(hotkey, timestamp_ms)
+
+    def get_miner_phases(self, hotkeys: list[str], timestamp_ms: int | None = None) -> dict[str, BucketPhase | None]:
+        """Get bucket phases for multiple miners in one call."""
+        return self._server.get_miner_phases_rpc(hotkeys, timestamp_ms)
+
     def get_miner_start_time(self, hotkey: str) -> int | None:
         """Get the start time of a miner's current bucket."""
         return self._server.get_miner_start_time_rpc(hotkey)
@@ -109,13 +118,15 @@ class ChallengePeriodClient(RPCClientBase):
         return self._server.set_miner_bucket_rpc(hotkey, bucket, start_time_ms, drawdown_criteria, intraday_drawdown_threshold,
                                                  eod_hwm_threshold)
 
-    def can_admin_set_bucket(self, hotkey: str, bucket: MinerBucket) -> Tuple[bool, str]:
+    def can_admin_set_bucket(self, hotkey: str, bucket: MinerBucket, in_transition: bool = False) -> Tuple[bool, str]:
         """Report whether admin_set_bucket would reject this move, without changing anything."""
-        return self._server.can_admin_set_bucket_rpc(hotkey, bucket)
+        return self._server.can_admin_set_bucket_rpc(hotkey, bucket, in_transition)
 
-    def admin_set_bucket(self, hotkey: str, bucket: MinerBucket, current_time_ms: int) -> Tuple[bool, str]:
-        """Move a miner into an arbitrary bucket, running the account switch when required."""
-        return self._server.admin_set_bucket_rpc(hotkey, bucket, current_time_ms)
+    def admin_set_bucket(self, hotkey: str, bucket: MinerBucket, current_time_ms: int,
+                         in_transition: bool = False) -> Tuple[bool, str]:
+        """Move a miner into an arbitrary bucket, running the account switch when required.
+        in_transition selects the PRO_CHALLENGE_FUNDED transition week."""
+        return self._server.admin_set_bucket_rpc(hotkey, bucket, current_time_ms, in_transition)
 
     def promote_subaccount(
         self, hotkey: str, current_time_ms: int, pro_account_size: float | None = None
@@ -145,14 +156,12 @@ class ChallengePeriodClient(RPCClientBase):
         return self._server.set_miner_drawdown_stats_rpc(hotkey, updates, force)
 
     def get_testing_miners(self) -> dict[str, int]:
-        """Get all CHALLENGE bucket miners as dict {hotkey: start_time}."""
-        return self._server.get_miners_rpc([b for b in MinerBucket
-                                            if b == MinerBucket.CHALLENGE or b.is_subaccount_challenge])
+        """Get all CHALLENGE (and subaccount challenge) miners as dict {hotkey: start_time}."""
+        return self._server.get_testing_miners_rpc()
 
     def get_success_miners(self) -> dict[str, int]:
-        """Get all MAINCOMP bucket miners as dict {hotkey: start_time}."""
-        return self._server.get_miners_rpc([b for b in MinerBucket
-                                            if b == MinerBucket.MAINCOMP or b.is_subaccount_funded])
+        """Get all MAINCOMP (and subaccount funded) miners as dict {hotkey: start_time}."""
+        return self._server.get_success_miners_rpc()
 
     def get_probation_miners(self) -> dict[str, int]:
         """Get all PROBATION bucket miners as dict {hotkey: start_time}."""

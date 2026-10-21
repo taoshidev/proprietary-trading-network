@@ -23,7 +23,7 @@ from vali_objects.vali_dataclasses.ledger.ledger_utils import LedgerUtils
 from vali_objects.position_management.position_utils import PositionPenalties
 from vali_objects.contract.validator_contract_manager import ValidatorContractManager
 from vali_objects.position_management.position_utils.position_filter import PositionFilter
-from vali_objects.enums.miner_bucket_enum import MinerBucket
+from vali_objects.enums.miner_bucket_enum import BucketEntry, BucketPhase, MinerBucket
 from vali_objects.vali_config import ValiConfig
 from time_util.time_util import TimeUtil
 from entity_management.entity_utils import is_synthetic_hotkey
@@ -731,11 +731,9 @@ class PenaltyLedgerManager:
 
     @staticmethod
     def _bucket_from_status(challenge_period_status: str) -> MinerBucket:
-        """Convert a stored status string to a MinerBucket, tolerating unknown/legacy values."""
-        try:
-            return MinerBucket(challenge_period_status)
-        except ValueError:
-            return MinerBucket.UNKNOWN
+        """Convert a stored status string to a MinerBucket, tolerating unknown/legacy values and
+        the PRO_CHALLENGE_FUNDED transition suffix."""
+        return BucketPhase.from_status(challenge_period_status).bucket
 
     @staticmethod
     def _week_is_closed(checkpoint_ms: int, now_ms: int) -> bool:
@@ -789,7 +787,8 @@ class PenaltyLedgerManager:
                 continue
             start_time_ms = entry.get("start_time_ms") or entry.get("bucket_start_time")
             if start_time_ms is not None and checkpoint_ms >= start_time_ms:
-                return self._bucket_from_status(entry.get("bucket", MinerBucket.UNKNOWN.value)).value
+                # The phase status keeps the PRO_CHALLENGE_FUNDED transition apart, which is paid unscaled
+                return BucketEntry.from_dict(entry).phase.status
 
         return MinerBucket.UNKNOWN.value
 
