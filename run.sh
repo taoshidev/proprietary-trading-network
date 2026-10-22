@@ -442,6 +442,16 @@ check_and_restart_pm2() {
         kill_timeout: $kill_timeout_ms,"
     fi
 
+    # gRPC trusts its own bundled roots.pem (not certifi, not the OS store) unless this is set.
+    # Point it at the OS store so a distrusted root (e.g. emSign ECC Root CA - G3, Oct 2026) is
+    # dropped by apt updates instead of waiting on a grpcio release. An operator's value wins.
+    local grpc_roots_file="${GRPC_DEFAULT_SSL_ROOTS_FILE_PATH:-/etc/ssl/certs/ca-certificates.crt}"
+    local grpc_env_line=""
+    if [ -f "$grpc_roots_file" ]; then
+        grpc_env_line="
+        env: { GRPC_DEFAULT_SSL_ROOTS_FILE_PATH: '$grpc_roots_file' },"
+    fi
+
     echo "module.exports = {
       apps : [{
         name   : '$proc_name',
@@ -449,7 +459,7 @@ check_and_restart_pm2() {
         interpreter: 'python3',
         min_uptime: '5m',
         max_restarts: '20',
-        exp_backoff_restart_delay: 1000,$kill_timeout_line
+        exp_backoff_restart_delay: 1000,$kill_timeout_line$grpc_env_line
         args: [$joined_args]
       }]
     }" > $proc_name.app.config.js
