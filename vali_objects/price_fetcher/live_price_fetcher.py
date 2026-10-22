@@ -48,7 +48,7 @@ class LivePriceFetcher:
         if "databento_apikey" in secrets:
             self.databento_data_service = DatabentoDataService(
                 api_key=secrets["databento_apikey"],
-                disable_ws=disable_ws,
+                disable_ws=True,
                 running_unit_tests=running_unit_tests
             )
 
