@@ -84,7 +84,7 @@ from shared_objects.log import logger
 
 # current_equity and current_balance are recomputed from the account on every refresh, so they are
 # not settable. The manager enforces the rules between the settable fields.
-SETTABLE_DRAWDOWN_FIELDS = ('daily_open_equity', 'eod_hwm', 'last_eod_equity', 'last_eod_checked_ms')
+SETTABLE_DRAWDOWN_FIELDS = ('daily_open_equity', 'daily_open_balance', 'eod_hwm', 'last_eod_equity', 'last_eod_checked_ms')
 
 
 class ValidatorRestServer(BaseRestServer, RPCServerBase):
@@ -2051,12 +2051,13 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
         in the body are changed; the rest are left as they are.
         Requires tier 500 access.
 
-        Settable fields: daily_open_equity, eod_hwm, last_eod_equity, last_eod_checked_ms.
+        Settable fields: daily_open_equity, daily_open_balance, eod_hwm, last_eod_equity, last_eod_checked_ms.
         - last_eod_checked_ms must be a UTC day boundary no later than today
-        - daily_open_equity and last_eod_equity require last_eod_checked_ms to be today's open
+        - daily_open_equity, daily_open_balance and last_eod_equity require last_eod_checked_ms to be today's open
+        - daily_open_balance only on accounts whose daily loss limit is measured from it
         - eod_hwm cannot go below 1.0, last_eod_equity or daily_open_equity
         - "force": true is required when a change pushes a drawdown past its threshold or deepens
-          a pro account's max_drawdown
+          the max_drawdown of a pro account or of an auto-promotion candidate
 
         Example:
         curl -X POST http://localhost:48888/admin/drawdown-stats/<hotkey> \\
@@ -3102,7 +3103,10 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
 
         Instant Funded subaccounts (created into SUBACCOUNT_FUNDED or PRO_CHALLENGE_FROM_STANDARD)
         cannot take the SUBACCOUNT_FUNDED -> PRO_CHALLENGE_TRANSITION hop. One created into
-        PRO_CHALLENGE_FROM_STANDARD still reaches PRO_FUNDED by passing its challenge.
+        PRO_CHALLENGE_FROM_STANDARD still reaches PRO_FUNDED by passing its challenge. A subaccount the
+        network promoted automatically may take the PRO_CHALLENGE_TRANSITION -> PRO_CHALLENGE_FROM_STANDARD
+        hop early, on the pro size the network granted and free of the promotion fee: a request that
+        sends a pro_account_size for it is rejected.
 
         Requires a tier 200 API key.
         Ownership is proven via entity coldkey
@@ -3539,7 +3543,7 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
 
             if is_synthetic_hotkey(hotkey):
                 entity_hotkey, subaccount_id = parse_synthetic_hotkey(hotkey)
-                if not entity_hotkey or not subaccount_id:
+                if not entity_hotkey or subaccount_id is None:
                     return jsonify({'error': f'Invalid synthetic hotkey: {hotkey}'}), 400
                 success, message = self._entity_client.eliminate_subaccount(
                     entity_hotkey=entity_hotkey,

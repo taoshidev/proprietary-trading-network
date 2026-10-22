@@ -1455,7 +1455,10 @@ class EntityMinerRestServer(MinerRestServer):
           SUBACCOUNT_FUNDED        -> PRO_CHALLENGE_TRANSITION
           PRO_CHALLENGE_TRANSITION -> PRO_CHALLENGE_FROM_STANDARD
         Instant Funded subaccounts (created into SUBACCOUNT_FUNDED or PRO_CHALLENGE_FROM_STANDARD)
-        are refused the SUBACCOUNT_FUNDED -> PRO_CHALLENGE_TRANSITION hop.
+        are refused the SUBACCOUNT_FUNDED -> PRO_CHALLENGE_TRANSITION hop. A subaccount the network
+        promoted automatically may take the PRO_CHALLENGE_TRANSITION -> PRO_CHALLENGE_FROM_STANDARD
+        hop early, on the pro size the network granted and free of the promotion fee: a request that
+        sends a pro_account_size for it is refused.
 
         pro_account_size is the pro size the entity is buying: any amount up to $1,000,000 that is at
         least twice the subaccount's own standard account size. Send one the first time a subaccount

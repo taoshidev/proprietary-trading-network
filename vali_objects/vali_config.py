@@ -599,6 +599,22 @@ class ValiConfig:
     # challenge period checkpoint cannot grow without limit.
     PRO_SOFT_BREACH_LATCH_RETENTION_DAYS = 60
 
+    # Auto-promotion moves a standard funded subaccount (created through the standard challenge, not
+    # HL-linked) into PRO_CHALLENGE_TRANSITION at a multiple of its account size, on whichever path it
+    # qualifies for first; on the same check, the larger multiple. Returns are over the account size the
+    # account was reset to when it became funded.
+    # Fast track: equity, unrealized PnL included, at least this return, at any time, held for
+    # ChallengePeriodManager.AUTO_PROMOTION_FAST_TRACK_HOLD_MS
+    AUTO_PROMOTION_FAST_TRACK_EQUITY_RETURN = 0.10
+    AUTO_PROMOTION_FAST_TRACK_MULTIPLIER = 3
+    # Steady track: every condition below, sized by the highest calmar tier reached. The return is on the
+    # lower of balance and equity, so open losses count and open gains do not
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_DAYS = 60
+    AUTO_PROMOTION_STEADY_TRACK_MINIMUM_RETURN = 0.03
+    AUTO_PROMOTION_STEADY_TRACK_MAX_DAILY_CONSISTENCY = 0.5
+    AUTO_PROMOTION_STEADY_TRACK_CALMAR_MULTIPLIERS = ((2.0, 10), (1.5, 5))  # (minimum calmar, multiple)
+    AUTO_PROMOTION_TRANSITION_DAYS = 7  # longest time in PRO_CHALLENGE_TRANSITION after an auto-promotion; ends early once flat
+
     # Payout basis for a trader running the pro challenge after passing the standard challenge
     # (PRO_CHALLENGE_FROM_STANDARD). PnL earned on the pro account is paid as though it had been
     # earned on this multiple of their standard account size: at 2.0, $5K of eligible PnL on a
@@ -796,7 +812,7 @@ class ValiConfig:
     MAX_COLLATERAL_BALANCE_THETA = 1000  # Approx $500k capital account size
     MIN_COLLATERAL_BALANCE_TESTNET = 100
     MAX_COLLATERAL_BALANCE_TESTNET = 10000.0
-    SLASH_BURN_PROPORTION = 0.7  # Share of slashed theta that is burned
+    SLASH_BURN_PROPORTION = 1.0  # Share of slashed theta that is burned
 
     # Entity Miner Collateral
     ENTITY_REGISTRATION_FEE = 1000  # Theta required to register an entity

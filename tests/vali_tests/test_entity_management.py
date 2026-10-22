@@ -1802,5 +1802,66 @@ class TestSubaccountCreationRollback(unittest.TestCase):
         self.assertEqual(broadcast_info.account_size, 500_000)
         self.assertEqual(broadcast_info.asset_class, "all_markets")
 
+
+class TestAdminEliminateSubaccount(unittest.TestCase):
+    """POST /admin/eliminate/<hotkey> on the validator, with mocked RPC clients."""
+
+    def test_an_entitys_first_subaccount_can_be_eliminated(self):
+        """Subaccount ids start at 0: id 0 is a valid subaccount, not a malformed hotkey."""
+        from unittest.mock import MagicMock
+        from flask import Flask
+        from vanta_api.validator_rest_server import ValidatorRestServer
+
+        server = object.__new__(ValidatorRestServer)
+        server._get_api_key_safe = MagicMock(return_value="key")
+        server.is_valid_api_key = MagicMock(return_value=True)
+        server.can_access_tier = MagicMock(return_value=True)
+        for client in ("_entity_client", "_elimination_client", "_challenge_period_client", "_miner_account_client"):
+            setattr(server, client, MagicMock())
+        server._entity_client.eliminate_subaccount.return_value = (True, "eliminated")
+        app = Flask(__name__)
+        app.route("/admin/eliminate/<hotkey>", methods=["POST"])(server.eliminate_hotkey)
+
+        response = app.test_client().post("/admin/eliminate/entity_alpha_0", json={})
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        server._entity_client.eliminate_subaccount.assert_called_once_with(
+            entity_hotkey="entity_alpha", subaccount_id=0, reason="DEREGISTERED")
+        server._elimination_client.append_elimination_row.assert_called_once()
+
+
+class TestSubaccountPayout(unittest.TestCase):
+    """The payout calculation on a bare EntityManager, with mocked RPC clients."""
+
+    def test_an_entitys_first_subaccount_is_paid_like_any_other(self):
+        """Subaccount ids start at 0: the payout calculation reads the same trades the same way on 0 and 1."""
+        from unittest.mock import MagicMock, patch
+        from tests.vali_tests.test_challengeperiod_pro import MONDAY_MS
+        from tests.vali_tests.test_pro_account_size import _add_standard, _bare_manager
+
+        entity_manager = _bare_manager()
+        entity_manager._debt_ledger_client.get_settled_segments.return_value = []
+        entity_manager._debt_ledger_client.get_sealed_weeks.return_value = {}
+        entity_manager._perf_ledger_client = MagicMock()
+        order = SimpleNamespace(processed_ms=MONDAY_MS - 2 * MS_IN_WEEK + 3_600_000, realized_pnl=12_000.0,
+                                to_python_dict=lambda: {})
+        entity_manager._position_client.get_positions_for_one_hotkey.return_value = [
+            SimpleNamespace(orders=[order], fee_history=[], unrealized_pnl=0.0)]
+        checkpoint = SimpleNamespace(unrealized_pnl=0.0)
+
+        payouts = {}
+        for subaccount_id in (0, 1):
+            hotkey = _add_standard(entity_manager, subaccount_id=subaccount_id)
+            entity_manager._perf_ledger_client.get_perf_ledger_for_hotkey.return_value = {
+                hotkey: SimpleNamespace(get_checkpoint_at_time=lambda *_: checkpoint)}
+            with patch("entity_management.entity_manager.read_all_snapshots", return_value=[]):
+                result = entity_manager._calculate_payout_for_hotkey(
+                    hotkey, 0, MONDAY_MS, bucket_override=MinerBucket.SUBACCOUNT_FUNDED)
+            payouts[subaccount_id] = [(row['start_ms'], row['payout']) for row in result['weekly_settlements']]
+
+        self.assertEqual(payouts[0], payouts[1])
+        self.assertEqual(sum(payout for _, payout in payouts[0]), 12_000.0)
+
+
 if __name__ == '__main__':
     unittest.main()

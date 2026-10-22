@@ -90,6 +90,10 @@ class Position(BaseModel):
             updated_orders.append(order)
         values['orders'] = updated_orders
         values['trade_pair'] = trade_pair
+
+        unfilled_orders = values.get('unfilled_orders')
+        if unfilled_orders:
+            values['unfilled_orders'] = [o if isinstance(o, Order) else Order.from_dict(o) for o in unfilled_orders]
         return values
 
     def refresh_position_fee_usd(self, current_time_ms: int, hl_funding_rates: Optional[dict] = None) -> float:
