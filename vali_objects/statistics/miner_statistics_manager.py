@@ -25,9 +25,7 @@ Usage:
     stats_data = manager.generate_miner_statistics_data(time_now=...)
 """
 
-import json
-import gzip
-import copy
+from pathlib import Path
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -35,7 +33,7 @@ from enum import Enum
 
 from time_util.time_util import TimeUtil
 from vali_objects.vali_config import ValiConfig, RPCConnectionMode
-from vali_objects.utils.vali_bkp_utils import ValiBkpUtils, CustomEncoder
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.position_management.position_utils import PositionUtils
 from vali_objects.position_management.position_utils.position_penalties import PositionPenalties
 from vali_objects.vali_dataclasses.ledger.ledger_utils import LedgerUtils
@@ -230,6 +228,9 @@ class MinerStatisticsManager:
 
         # Statistics cache (regular dict - no IPC needed)
         self.miner_statistics = {}
+
+        # Serve the last generated statistics until the daemon regenerates them
+        self._load_statistics_from_disk()
 
     # ==================== Properties (for accessing RPC clients) ====================
 
@@ -1003,104 +1004,115 @@ class MinerStatisticsManager:
         )
 
         if custom_output_path:
-            output_file_path = custom_output_path
-        else:
-            output_file_path = ValiBkpUtils.get_miner_stats_dir()
-        ValiBkpUtils.write_file(output_file_path, final_dict)
+            ValiBkpUtils.write_file(custom_output_path, final_dict)
 
         # Create version without checkpoints for API optimization
         final_dict_no_checkpoints = self._create_statistics_without_checkpoints(final_dict)
 
-        # Store compressed JSON payloads for immediate API response (memory efficient)
-        json_with_checkpoints = json.dumps(final_dict, cls=CustomEncoder)
-        json_without_checkpoints = json.dumps(final_dict_no_checkpoints, cls=CustomEncoder)
+        ValiBkpUtils.write_compressed_json(
+            ValiBkpUtils.get_miner_stats_compressed_path(self.running_unit_tests),
+            final_dict)
 
-        # Compress both versions for efficient storage and transfer
-        compressed_with_checkpoints = gzip.compress(json_with_checkpoints.encode('utf-8'))
-        compressed_without_checkpoints = gzip.compress(json_without_checkpoints.encode('utf-8'))
+        ValiBkpUtils.write_compressed_json(
+            ValiBkpUtils.get_miner_stats_no_checkpoints_compressed_path(self.running_unit_tests),
+            final_dict_no_checkpoints)
 
-        # Store compressed payloads for API responses (efficient transfer)
-        self.miner_statistics['stats_compressed_with_checkpoints'] = compressed_with_checkpoints
-        self.miner_statistics['stats_compressed_without_checkpoints'] = compressed_without_checkpoints
+        # Remove old uncompressed miner statistics
+        old_miner_stats_path = Path(ValiBkpUtils.get_miner_stats_path(self.running_unit_tests))
+        old_miner_stats_path.unlink(missing_ok=True)
 
+        self._update_statistics_cache(final_dict)
+
+    def _load_statistics_from_disk(self) -> None:
+        """Populate the statistics cache from the last generated statistics file, if it exists."""
+        stats_path = ValiBkpUtils.get_miner_stats_compressed_path(self.running_unit_tests)
+        if not Path(stats_path).exists():
+            return
+
+        try:
+            self._update_statistics_cache(ValiBkpUtils.read_compressed_json(stats_path))
+        except Exception as e:
+            logger.error(f"Could not load miner statistics from {stats_path}: {e}")
+
+    def _update_statistics_cache(self, stats_dict: Dict[str, Any]) -> None:
+        """Replace the statistics cache with the given statistics (including checkpoints)."""
         # Store uncompressed dict for fast RPC lookups by hotkey
         # Build hotkey -> miner_data mapping for O(1) lookups
         self.miner_statistics['stats_dict'] = {
             miner['hotkey']: miner
-            for miner in final_dict_no_checkpoints.get('data', [])
+            for miner in stats_dict.get('data', [])
         }
 
         # Store metadata separately for context
         self.miner_statistics['stats_metadata'] = {
-            'version': final_dict_no_checkpoints.get('version'),
-            'created_timestamp_ms': final_dict_no_checkpoints.get('created_timestamp_ms'),
-            'created_date': final_dict_no_checkpoints.get('created_date'),
-            'constants': final_dict_no_checkpoints.get('constants'),
-            'network_data': final_dict_no_checkpoints.get('network_data')
+            'version': stats_dict.get('version'),
+            'created_timestamp_ms': stats_dict.get('created_timestamp_ms'),
+            'created_date': stats_dict.get('created_date'),
+            'constants': stats_dict.get('constants'),
+            'network_data': stats_dict.get('network_data')
         }
 
     def _create_statistics_without_checkpoints(self, stats_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a copy of statistics with checkpoints removed from all miner data."""
-        stats_no_checkpoints = copy.deepcopy(stats_dict)
+        """
+        Create a copy of statistics with checkpoints removed from all miner data.
 
-        # Remove checkpoints from each miner's data
-        for element in stats_no_checkpoints.get("data", []):
-            element.pop("checkpoints", None)
+        Only the top-level dict, the "data" list and each miner dict are copied; all other
+        values are shared with stats_dict, which is left unmodified.
+        """
+        stats_no_checkpoints = dict(stats_dict)
+
+        if "data" in stats_dict:
+            stats_no_checkpoints["data"] = [
+                {key: value for key, value in element.items() if key != "checkpoints"}
+                for element in stats_dict["data"]
+            ]
 
         return stats_no_checkpoints
 
     # ==================== Cache Access ====================
 
-    def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes | None:
-        """
-        Get pre-compressed statistics payload.
-
-        Args:
-            include_checkpoints: If True, returns stats with checkpoints; otherwise without
-
-        Returns:
-            Cached compressed gzip bytes of statistics JSON (None if cache not built yet)
-        """
-        if include_checkpoints:
-            return self.miner_statistics.get('stats_compressed_with_checkpoints', None)
-        else:
-            return self.miner_statistics.get('stats_compressed_without_checkpoints', None)
-
-    def get_miner_statistics_for_hotkeys(self, hotkeys: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_miner_statistics_for_hotkeys(self, hotkeys: List[str], checkpoints: bool = False) -> Dict[str, Dict[str, Any]]:
         """
         Get statistics for a batch of hotkeys from in-memory cache (fast O(1) lookup per hotkey).
 
-        This is much faster than get_compressed_statistics() + decompression + filtering
+        This is much faster than reading the statistics file + decompression + filtering
         for querying a small number of miners.
 
         Args:
             hotkeys: List of miner hotkeys to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Dict mapping hotkey -> miner statistics dict
             Returns empty dict if cache not built yet
         """
-        stats_dict = self.miner_statistics.get('stats_dict', {})
+        results = {}
+        for hotkey in hotkeys:
+            stats = self.get_miner_statistics_for_hotkey(hotkey, checkpoints)
+            if stats:
+                results[hotkey] = stats
 
-        # Fast O(1) lookup per hotkey
-        return {
-            hotkey: stats_dict[hotkey]
-            for hotkey in hotkeys
-            if hotkey in stats_dict
-        }
+        return results
 
-    def get_miner_statistics_for_hotkey(self, hotkey: str) -> Optional[Dict[str, Any]]:
+    def get_miner_statistics_for_hotkey(self, hotkey: str, checkpoints: bool = False) -> Optional[Dict[str, Any]]:
         """
         Get statistics for a single hotkey from in-memory cache (fast O(1) lookup).
 
         Args:
             hotkey: Miner hotkey to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Miner statistics dict or None if not found/cache not built
         """
         stats_dict = self.miner_statistics.get('stats_dict', {})
-        return stats_dict.get(hotkey)
+        stats = stats_dict.get(hotkey)
+
+        if stats and (not checkpoints):
+            stats = dict(stats)
+            stats.pop("checkpoints", None)
+
+        return stats
 
     def get_dashboard(self, hotkey: str, daily_returns_time_ms) -> dict | None:
         snapshot_time_ms = daily_returns_time_ms
