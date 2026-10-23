@@ -582,10 +582,6 @@ validator started on netuid 8 (mainnet) with any of these names in its environme
 
 - Python 3.10+
 - [Bittensor](https://github.com/opentensor/bittensor#install)
-- Vanta CLI installed:
-  ```bash
-  pip install git+https://github.com/taoshidev/vanta-cli.git
-  ```
 
 ### 1. Install Vanta
 

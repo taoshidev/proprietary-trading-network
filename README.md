@@ -1,5 +1,3 @@
-> Proprietary Trading Network is now Vanta Network!
-
 <p align="center">
   <a href="https://www.vantanetwork.io">
     <img width="385" alt="Vanta Network logo" src="https://www.taoshi.io/white-black.png">
@@ -165,6 +163,10 @@ Please see our [Validator Installation](https://github.com/taoshidev/vanta-netwo
 ### Miner Installation
 
 Please see our [Miner Installation](https://github.com/taoshidev/vanta-network/blob/main/docs/miner.md) guide.
+
+### Vanta CLI
+
+The `vanta` command (asset class selection, collateral and entity management) is installed with Vanta. Please see the [Vanta CLI](https://github.com/taoshidev/vanta-network/blob/main/docs/vanta_cli.md) guide, including how to upgrade from the old standalone vanta-cli package.
 
 # Building a strategy
 

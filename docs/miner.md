@@ -733,11 +733,21 @@ Miners are required to select an asset class before submitting orders. Miners ar
 
 ### Installing the Vanta CLI
 
-The [Vanta CLI](https://github.com/taoshidev/vanta-cli) is included when installing Vanta. More information can be found [here](https://docs.taoshi.io/vanta/vanta-cli/). It may also be installed separately by running the following:
+The [Vanta CLI](vanta_cli.md) is now installed with Vanta. Check it with:
 
 ```bash
-pip install git+https://github.com/taoshidev/vanta-cli.git
+vanta --version
 ```
+
+If you installed an earlier release, the old standalone `vanta-cli` package may still be installed and will break the `vanta` command. Remove it and reinstall:
+
+```bash
+pip uninstall -y vanta-cli
+pip install -r requirements.txt
+python3 -m pip install -e .
+```
+
+See [Upgrading from the standalone vanta-cli](vanta_cli.md#upgrading-from-the-standalone-vanta-cli) for details.
 
 ### Selecting an asset class with the Vanta CLI
 
