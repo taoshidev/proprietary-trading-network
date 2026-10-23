@@ -801,63 +801,45 @@ class ValidatorRestServer(BaseRestServer, RPCServerBase):
         show_checkpoints = request.args.get("checkpoints", "true").lower()
         include_checkpoints = show_checkpoints == "true"
 
-        # PRIMARY: Try to use pre-compressed payload from memory cache (fastest)
-        if self._statistics_client:
-            compressed_data = self._statistics_client.get_compressed_statistics(include_checkpoints)
-            if compressed_data:
-                # Return pre-compressed JSON directly
-                return Response(compressed_data, content_type='application/json', headers={
-                    'Content-Encoding': 'gzip'
-                })
+        if include_checkpoints:
+            stats_filename = ValiBkpUtils.get_miner_stats_compressed_path(self.running_unit_tests)
+        else:
+            stats_filename = ValiBkpUtils.get_miner_stats_no_checkpoints_compressed_path(self.running_unit_tests)
 
-        # FALLBACK 1: If no modification needed, serve compressed file directly
-        if show_checkpoints == "true":
-            f_gz = ValiBkpUtils.get_miner_stats_dir() + ".gz"
-            if os.path.exists(f_gz):
-                compressed_data = self._get_file(f_gz, binary=True)
-                return Response(compressed_data, content_type='application/json', headers={
-                    'Content-Encoding': 'gzip'
-                })
+        if os.path.exists(stats_filename):
+            response = make_response(send_file(stats_filename, mimetype="application/json"))
+            response.headers["Content-Encoding"] = "gzip"
+            return response
 
-        # FALLBACK 2: Decompress and modify if needed (checkpoints=false or no .gz file)
-        f = ValiBkpUtils.get_miner_stats_dir()
-        data = self._get_file(f)
-        if not data:
-            return jsonify({'error': 'Statistics data not found'}), 404
+        # FALLBACK to the old uncompressed file until the first statistics are generated
+        # This can be removed after the upgrade
+        stats_filename = ValiBkpUtils.get_miner_stats_path(self.running_unit_tests)
+        data = self._get_file(stats_filename)
+        if data:
+            # If no checkpoints, remove the "checkpoints" key from each element in data
+            if not include_checkpoints:
+                for element in data.get("data", []):
+                    element.pop("checkpoints", None)
 
-        # If checkpoints=false, remove the "checkpoints" key from each element in data
-        if show_checkpoints == "false":
-            for element in data.get("data", []):
-                element.pop("checkpoints", None)
+            return self._jsonify_with_custom_encoder(data)
 
-        return self._jsonify_with_custom_encoder(data)
+        return jsonify({'error': 'Statistics data not found'}), 404
 
     def get_validator_checkpoint_statistics_unique(self, minerid):
         api_key = self._get_api_key_safe()
         if not self.is_valid_api_key(api_key):
             return jsonify({'error': 'Unauthorized access'}), 401
 
-        # Get statistics data from disk
-        f = ValiBkpUtils.get_miner_stats_dir()
-        data = self._get_file(f)
-        if not data:
-            return jsonify({'error': 'Statistics data not found'}), 404
-
-        data_summary = data.get("data", [])
-        if not data_summary:
-            return jsonify({'error': 'No data found'}), 404
-
         # Grab the optional "checkpoints" query param; default it to "true"
         show_checkpoints = request.args.get("checkpoints", "true").lower()
+        include_checkpoints = show_checkpoints == "true"
 
-        for element in data_summary:
-            if element.get("hotkey", None) == minerid:
-                # If the user set checkpoints=false, remove them from this element
-                if show_checkpoints == "false":
-                    element.pop("checkpoints", None)
-                return jsonify(element)
+        data = self._statistics_client.get_miner_statistics_for_hotkey(minerid, include_checkpoints)
 
-        return jsonify({'error': f'Miner ID {minerid} not found'}), 404
+        if not data:
+            return jsonify({'error': f'Miner ID {minerid} not found'}), 404
+
+        return self._jsonify_with_custom_encoder(data)
 
     def get_challenge_period(self, minerid):
         """

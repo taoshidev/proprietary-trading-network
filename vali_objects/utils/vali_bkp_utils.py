@@ -337,8 +337,19 @@ class ValiBkpUtils:
         return ValiConfig.BASE_DIR + "/runnable/"
 
     @staticmethod
-    def get_miner_stats_dir(running_unit_tests=False) -> str:
-        return ValiBkpUtils.get_vali_outputs_dir() + "minerstatistics.json"
+    def get_miner_stats_path(running_unit_tests=False) -> str:
+        suffix = ValiBkpUtils.get_test_dir_suffix(running_unit_tests)
+        return ValiConfig.BASE_DIR + f"{suffix}/runnable/minerstatistics.json"
+
+    @staticmethod
+    def get_miner_stats_compressed_path(running_unit_tests=False) -> str:
+        suffix = ValiBkpUtils.get_test_dir_suffix(running_unit_tests)
+        return ValiConfig.BASE_DIR + f"{suffix}/runnable/minerstatistics.json.gz"
+
+    @staticmethod
+    def get_miner_stats_no_checkpoints_compressed_path(running_unit_tests=False) -> str:
+        suffix = ValiBkpUtils.get_test_dir_suffix(running_unit_tests)
+        return ValiConfig.BASE_DIR + f"{suffix}/runnable/minerstatistics_no_checkpoints.json.gz"
 
     @staticmethod
     def get_restore_file_path() -> str:

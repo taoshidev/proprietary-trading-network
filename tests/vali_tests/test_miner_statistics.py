@@ -9,7 +9,9 @@ This test ensures that MinerStatisticsServer can:
 - Properly handle various parameter combinations
 """
 import logging
+import os
 import unittest
+from pathlib import Path
 
 from shared_objects.rpc.server_orchestrator import ServerOrchestrator, ServerMode
 from tests.vali_tests.base_objects.test_base import TestBase
@@ -17,7 +19,9 @@ from time_util.time_util import TimeUtil
 from vali_objects.enums.order_type_enum import OrderType
 from vali_objects.vali_dataclasses.position import Position
 from vali_objects.enums.miner_bucket_enum import MinerBucket
+from vali_objects.statistics.miner_statistics_manager import MinerStatisticsManager
 from vali_objects.utils.vali_utils import ValiUtils
+from vali_objects.utils.vali_bkp_utils import ValiBkpUtils
 from vali_objects.vali_config import TradePair, ValiConfig
 from vali_objects.vali_dataclasses.order import Order
 from shared_objects.log import logger
@@ -301,26 +305,49 @@ class TestMinerStatistics(TestBase):
             self.assertIn(test_hotkey, hotkeys_in_data,
                          f"Test hotkey {test_hotkey} should be in statistics data")
 
-    def test_get_compressed_statistics(self):
-        """Test retrieving compressed statistics from memory cache."""
+    def test_statistics_files_written(self):
+        """Test that statistics generation writes both compressed files to the test directory."""
+        stats_paths = [
+            ValiBkpUtils.get_miner_stats_compressed_path(running_unit_tests=True),
+            ValiBkpUtils.get_miner_stats_no_checkpoints_compressed_path(running_unit_tests=True)
+        ]
+        for path in stats_paths:
+            # Never delete the production API files
+            self.assertIn("/tests/runnable/", path)
+            Path(path).unlink(missing_ok=True)
+
         current_time_ms = TimeUtil.now_in_millis()
 
-        # First generate statistics to populate the cache
         self.miner_statistics_client.generate_request_minerstatistics(
             time_now=current_time_ms,
             checkpoints=False,  # Faster without checkpoints
             bypass_confidence=True
         )
 
-        # Now retrieve compressed statistics (without checkpoints)
-        compressed_without = self.miner_statistics_client.get_compressed_statistics(include_checkpoints=False)
+        for path in stats_paths:
+            self.assertTrue(os.path.exists(path), f"{path} should exist after generation")
+            stats_data = ValiBkpUtils.read_compressed_json(path)
+            self.assertIn('data', stats_data)
 
-        # Should be populated after generation
-        self.assertIsInstance(compressed_without, (bytes, type(None)))
+    def test_statistics_cache_loaded_from_disk_at_startup(self):
+        """Test that a new manager serves the last generated statistics before the daemon regenerates them."""
+        self.miner_statistics_client.generate_request_minerstatistics(
+            time_now=TimeUtil.now_in_millis(),
+            checkpoints=True,
+            bypass_confidence=True
+        )
 
-        # If it's bytes, verify it has content
-        if isinstance(compressed_without, bytes):
-            self.assertGreater(len(compressed_without), 0)
+        # A fresh manager stands in for the statistics server after a restart
+        manager = MinerStatisticsManager(running_unit_tests=True)
+
+        stats = manager.get_miner_statistics_for_hotkeys(self.test_hotkeys, checkpoints=True)
+        for hotkey in self.test_hotkeys:
+            self.assertIn(hotkey, stats)
+            self.assertIn('checkpoints', stats[hotkey])
+
+        stats = manager.get_miner_statistics_for_hotkeys(self.test_hotkeys)
+        for hotkey in self.test_hotkeys:
+            self.assertNotIn('checkpoints', stats[hotkey])
 
     def test_manager_property_access(self):
         """Test that manager properties are accessible through server."""
@@ -352,13 +379,11 @@ class TestMinerStatistics(TestBase):
         except Exception as e:
             self.fail(f"Production pipeline failed: {e}")
 
-        # Verify we can retrieve compressed data
-        compressed = self.miner_statistics_client.get_compressed_statistics(include_checkpoints=False)
-
-        # Should be populated after generation
-        if compressed is not None:
-            self.assertIsInstance(compressed, bytes)
-            self.assertGreater(len(compressed), 0)
+        # Verify the in-memory cache serves the generated miners
+        stats = self.miner_statistics_client.get_miner_statistics_for_hotkeys(self.test_hotkeys)
+        for hotkey in self.test_hotkeys:
+            self.assertIn(hotkey, stats)
+            self.assertNotIn('checkpoints', stats[hotkey])
 
     def test_miner_data_structure_validation(self):
         """Test that each miner's data structure is valid."""

@@ -25,7 +25,7 @@ Usage:
 
     # In consumers - create client
     client = MinerStatisticsClient()
-    compressed = client.get_compressed_statistics(include_checkpoints=True)
+    stats = client.get_miner_statistics_for_hotkey(hotkey, checkpoints=True)
     client.generate_request_minerstatistics(time_now=...)
 """
 import traceback
@@ -171,11 +171,7 @@ class MinerStatisticsServer(RPCServerBase):
 
     def get_health_check_details(self) -> dict:
         """Add service-specific health check details."""
-        cache_with_checkpoints = self._manager.get_compressed_statistics(include_checkpoints=True)
-        cache_without_checkpoints = self._manager.get_compressed_statistics(include_checkpoints=False)
-
-        cache_status = 'both_cached' if (cache_with_checkpoints and cache_without_checkpoints) else \
-                      'partial' if (cache_with_checkpoints or cache_without_checkpoints) else 'empty'
+        cache_status = 'active' if 'stats_dict' in self._manager.miner_statistics else 'empty'
 
         return {
             "cache_status": cache_status
@@ -202,14 +198,6 @@ class MinerStatisticsServer(RPCServerBase):
             custom_output_path=custom_output_path
         )
 
-    def get_compressed_statistics_rpc(self, include_checkpoints: bool = True) -> bytes | None:
-        """
-        Retrieve compressed miner statistics data directly from memory cache via RPC.
-
-        Delegates to manager for cache retrieval.
-        """
-        return self._manager.get_compressed_statistics(include_checkpoints)
-
     def generate_miner_statistics_data_rpc(
         self,
         time_now: int = None,
@@ -233,7 +221,7 @@ class MinerStatisticsServer(RPCServerBase):
             bypass_confidence=bypass_confidence
         )
 
-    def get_miner_statistics_for_hotkeys_rpc(self, hotkeys: list) -> dict:
+    def get_miner_statistics_for_hotkeys_rpc(self, hotkeys: list, checkpoints: bool = False) -> dict:
         """
         Get statistics for a batch of hotkeys from in-memory cache via RPC.
 
@@ -241,13 +229,14 @@ class MinerStatisticsServer(RPCServerBase):
 
         Args:
             hotkeys: List of miner hotkeys to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Dict mapping hotkey -> miner statistics dict
         """
-        return self._manager.get_miner_statistics_for_hotkeys(hotkeys)
+        return self._manager.get_miner_statistics_for_hotkeys(hotkeys, checkpoints)
 
-    def get_miner_statistics_for_hotkey_rpc(self, hotkey: str) -> dict | None:
+    def get_miner_statistics_for_hotkey_rpc(self, hotkey: str, checkpoints: bool = False) -> dict | None:
         """
         Get statistics for a single hotkey from in-memory cache via RPC.
 
@@ -255,11 +244,12 @@ class MinerStatisticsServer(RPCServerBase):
 
         Args:
             hotkey: Miner hotkey to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Miner statistics dict or None if not found
         """
-        return self._manager.get_miner_statistics_for_hotkey(hotkey)
+        return self._manager.get_miner_statistics_for_hotkey(hotkey, checkpoints)
 
     def get_dashboard_rpc(self, hotkey: str, daily_returns_time_ms) -> dict | None:
         return self._manager.get_dashboard(hotkey, daily_returns_time_ms)
@@ -287,10 +277,6 @@ class MinerStatisticsServer(RPCServerBase):
             bypass_confidence=bypass_confidence,
             custom_output_path=custom_output_path
         )
-
-    def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes | None:
-        """Get compressed statistics from memory - delegates to manager."""
-        return self._manager.get_compressed_statistics(include_checkpoints)
 
     def generate_miner_statistics_data(
         self,

@@ -365,7 +365,6 @@ class DebtLedgerManager():
 
         This method returns pre-compressed data that was cached during the last
         ledger build, providing instant RPC access without compression overhead.
-        Similar to MinerStatisticsManager.get_compressed_statistics().
 
         Returns:
             Cached compressed gzip bytes of debt ledger summaries JSON (empty bytes if cache not built yet)

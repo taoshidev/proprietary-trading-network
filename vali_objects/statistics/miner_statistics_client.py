@@ -13,7 +13,7 @@ class MinerStatisticsClient(RPCClientBase):
 
     Example:
         client = MinerStatisticsClient()
-        compressed = client.get_compressed_statistics(include_checkpoints=True)
+        stats = client.get_miner_statistics_for_hotkey(hotkey, checkpoints=True)
         client.generate_request_minerstatistics(time_now=...)
     """
 
@@ -72,18 +72,6 @@ class MinerStatisticsClient(RPCClientBase):
             custom_output_path=custom_output_path
         )
 
-    def get_compressed_statistics(self, include_checkpoints: bool = True) -> bytes | None:
-        """
-        Get pre-compressed statistics payload for immediate API response.
-
-        Args:
-            include_checkpoints: If True, returns stats with checkpoints; otherwise without
-
-        Returns:
-            Cached compressed gzip bytes of statistics JSON (None if cache not built yet)
-        """
-        return self._server.get_compressed_statistics_rpc(include_checkpoints)
-
     def generate_miner_statistics_data(
         self,
         time_now: int = None,
@@ -116,23 +104,24 @@ class MinerStatisticsClient(RPCClientBase):
             bypass_confidence=bypass_confidence
         )
 
-    def get_miner_statistics_for_hotkeys(self, hotkeys: list) -> dict:
+    def get_miner_statistics_for_hotkeys(self, hotkeys: list, checkpoints: bool = False) -> dict:
         """
         Get statistics for a batch of hotkeys from in-memory cache (fast lookup).
 
-        This is much faster than get_compressed_statistics() + decompression + filtering
+        This is much faster than reading the statistics file + decompression + filtering
         for querying a small number of miners. Statistics are refreshed every 5 minutes
         by the daemon.
 
         Args:
             hotkeys: List of miner hotkeys to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Dict mapping hotkey -> miner statistics dict
         """
-        return self._server.get_miner_statistics_for_hotkeys_rpc(hotkeys)
+        return self._server.get_miner_statistics_for_hotkeys_rpc(hotkeys, checkpoints)
 
-    def get_miner_statistics_for_hotkey(self, hotkey: str) -> dict | None:
+    def get_miner_statistics_for_hotkey(self, hotkey: str, checkpoints: bool = False) -> dict | None:
         """
         Get statistics for a single hotkey from in-memory cache (fast O(1) lookup).
 
@@ -140,11 +129,12 @@ class MinerStatisticsClient(RPCClientBase):
 
         Args:
             hotkey: Miner hotkey to fetch statistics for
+            checkpoints: Whether to include checkpoints in the output
 
         Returns:
             Miner statistics dict or None if not found/cache not built yet
         """
-        return self._server.get_miner_statistics_for_hotkey_rpc(hotkey)
+        return self._server.get_miner_statistics_for_hotkey_rpc(hotkey, checkpoints)
 
     def get_dashboard(self, hotkey: str, daily_returns_time_ms) -> dict | None:
         return self._server.get_dashboard_rpc(hotkey, daily_returns_time_ms)

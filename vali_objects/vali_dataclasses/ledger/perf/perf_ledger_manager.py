@@ -324,18 +324,18 @@ class PerfLedgerManager(CacheController):
         if hotkeys is None:
             hotkeys = self._metagraph_client.get_hotkeys()
 
-        # Build filtered ledger for all miners with positions
+        perf_ledgers = self.get_perf_ledgers()
         filtered_ledger = {}
 
-        for hotkey, perf_ledger in self.get_perf_ledgers().items():
-            if hotkey not in hotkeys:
+        # Build filtered ledger for all miners with positions
+        for hotkey in hotkeys:
+            perf_ledger = perf_ledgers.get(hotkey)
+
+            if perf_ledger is None or len(perf_ledger.cps) == 0:
                 continue
 
             if hotkey in self.perf_ledger_hks_to_invalidate:
                 logger.warning(f"Skipping hotkey {hotkey} in filtered_ledger_for_scoring due to invalidation.")
-                continue
-
-            if perf_ledger is None or len(perf_ledger.cps) == 0:
                 continue
 
             filtered_ledger[hotkey] = perf_ledger
