@@ -255,7 +255,6 @@ client.set_direct_server(server_instance)
 - **Cloud Services**: Google Cloud Storage 2.17.0, Secret Manager 2.21.1
 - **Taoshi SDKs**:
   - collateral_sdk@1.0.10 - Collateral management
-  - vanta-cli@3.0.3 - Vanta network CLI tools
 
 ## Production Deployment
 
