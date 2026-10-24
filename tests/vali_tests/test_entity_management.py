@@ -26,7 +26,7 @@ from vali_objects.enums.miner_bucket_enum import BucketPhase, MinerBucket
 
 
 # PRO_CHALLENGE_FUNDED in its transition week, and the ledger status its checkpoints carry
-TRANSITION = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True)
+TRANSITION = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True)
 TRANSITION_STATUS = TRANSITION.status
 
 
@@ -1385,7 +1385,7 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         self.assertAlmostEqual(result['payout'], 140.0)
 
     def test_pro_challenge_from_standard_is_paid_on_the_standard_account_size(self):
-        """PRO_CHALLENGE_FUNDED (out of transition) trades the pro account but is paid on the standard one.
+        """PRO_CHALLENGE_FUNDED trades the pro account but is paid on the standard one.
 
         With a 100k standard account inside a 500k pro account the scale is 0.2, so week 0's
         140 USD of gross PnL pays 28. On promotion the scale goes to 1.0 and the gross high water
@@ -1402,23 +1402,24 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         self.assertAlmostEqual(result['payout'], 168.0)
 
     def test_the_transition_week_is_paid_unscaled_before_the_pro_phase_is_scaled(self):
-        """Both weeks are PRO_CHALLENGE_FUNDED. The transition week still trades the standard account,
-        so it is paid in full; the week after the flip is on the pro account and paid at the scale.
-        The flip is a segment boundary even though the bucket name does not change."""
+        """The transition week (SUBACCOUNT_FUNDED in transition) still trades the standard account,
+        so it is paid in full; the week after, in PRO_CHALLENGE_FUNDED, is on the pro account and
+        paid at the scale."""
         result = self._payout_result(
             week_buckets={0: TRANSITION, 1: MinerBucket.PRO_CHALLENGE_FUNDED},
             current_bucket=MinerBucket.PRO_CHALLENGE_FUNDED,
             payout_scale=0.2,
         )
         rows = result['weekly_settlements']
-        self.assertEqual([r['bucket'] for r in rows], [MinerBucket.PRO_CHALLENGE_FUNDED.value] * 2)
+        self.assertEqual([r['bucket'] for r in rows],
+                         [MinerBucket.SUBACCOUNT_FUNDED.value, MinerBucket.PRO_CHALLENGE_FUNDED.value])
         self.assertEqual([r['in_transition'] for r in rows], [True, False])
         self.assertEqual([r['payout_scale'] for r in rows], [1.0, 0.2])
         self.assertEqual([r['payout'] for r in rows], [140.0, 28.0])
 
     def test_the_chosen_payout_scale_prices_the_subaccount_payout(self):
         """A payout_scale set at creation replaces PRO_TRANSITION_PAYOUT_MULTIPLIER in the USDC payout,
-        and only while the account is in PRO_CHALLENGE_FUNDED out of transition."""
+        and only while the account is in PRO_CHALLENGE_FUNDED."""
         subaccount = SimpleNamespace(standard_account_size=100_000.0, pro_account_size=500_000.0, payout_scale=1.0)
         result = self._payout_result(
             week_buckets={0: MinerBucket.PRO_CHALLENGE_FUNDED, 1: MinerBucket.PRO_FUNDED},
@@ -1576,7 +1577,7 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
         rows = result['weekly_settlements']
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]['settled_segment'])
-        self.assertEqual(rows[0]['bucket'], MinerBucket.PRO_CHALLENGE_FUNDED.value)
+        self.assertEqual(rows[0]['bucket'], MinerBucket.SUBACCOUNT_FUNDED.value)
         self.assertIs(rows[0]['in_transition'], True)
 
     def test_a_settled_segment_pays_when_the_promotion_left_no_perf_ledger(self):
@@ -1606,7 +1607,7 @@ class TestSubaccountPayoutWeeklyPenalty(TestBase):
 
     def test_no_debt_ledger_prices_weeks_at_the_current_bucket(self):
         """Without a debt ledger every segment takes the current bucket, so the payout scale applies
-        only in PRO_CHALLENGE_FUNDED out of transition. The live scale is below 1.0 in every pro bucket, so
+        only in PRO_CHALLENGE_FUNDED. The live scale is below 1.0 in every pro bucket, so
         applying it regardless of bucket would underpay the transition and PRO_FUNDED."""
         unscaled = self._payout_result(has_debt_ledger=False, current_bucket=MinerBucket.PRO_FUNDED,
                                        payout_scale=1.0)['payout']

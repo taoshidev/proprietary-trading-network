@@ -238,7 +238,7 @@ class EntityClient(RPCClientBase):
         in_transition: bool = False,
     ) -> Tuple[bool, str]:
         """Point a subaccount at the account size its target bucket trades. in_transition selects
-        the PRO_CHALLENGE_FUNDED transition, which keeps the standard size."""
+        the SUBACCOUNT_FUNDED transition, which keeps the standard size."""
         return self._server.apply_bucket_account_size_rpc(synthetic_hotkey, target_bucket, pro_account_size,
                                                           in_transition)
 

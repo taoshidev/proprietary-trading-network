@@ -38,8 +38,8 @@ from shared_objects.log import logger
 logger.setLevel(logging.INFO)
 
 
-# Ledger status of a checkpoint stamped during the PRO_CHALLENGE_FUNDED transition week
-TRANSITION_STATUS = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True).status
+# Ledger status of a checkpoint stamped during the SUBACCOUNT_FUNDED transition week
+TRANSITION_STATUS = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True).status
 
 
 def _clear_seal_ledger():

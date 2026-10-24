@@ -87,7 +87,7 @@ class SubaccountInfo(BaseModel):
     drawdown_criteria: str = Field(default="trailing", description="Drawdown rules: 'trailing' or 'static' (immutable once set)")
     intraday_drawdown_threshold: Optional[float] = Field(default=None, description="Chosen intraday drawdown threshold (daily loss limit) as a fraction, applied in every bucket (immutable once set). None keeps each bucket's default")
     eod_hwm_threshold: Optional[float] = Field(default=None, description="Chosen EOD high-water-mark drawdown threshold as a fraction (Instant Funded creation only, immutable once set). None keeps each bucket's default")
-    payout_scale: Optional[float] = Field(default=None, description="Payout multiplier for PRO_CHALLENGE_FUNDED out of transition, set to ValiConfig.GROW_DIRECT_CREATION_PAYOUT_MULTIPLIER on Instant Funded creation (immutable once set). None uses ValiConfig.PRO_TRANSITION_PAYOUT_MULTIPLIER")
+    payout_scale: Optional[float] = Field(default=None, description="Payout multiplier for PRO_CHALLENGE_FUNDED, set to ValiConfig.GROW_DIRECT_CREATION_PAYOUT_MULTIPLIER on Instant Funded creation (immutable once set). None uses ValiConfig.PRO_TRANSITION_PAYOUT_MULTIPLIER")
     initial_bucket: Optional[str] = Field(default=None, description="MinerBucket the subaccount was created into. None means SUBACCOUNT_CHALLENGE")
     account_type: str = Field(default="standard", description="Account tier: 'standard' or 'pro'. Set to 'pro' only by admin promotion")
     leverage_tier: Optional[int] = Field(default=None, description="Standard leverage tier 1 to 3 (Base, Boost I, Boost II). None for HL-linked subaccounts; a standard subaccount with None trades tier 0 (each limit is max of its legacy value and Base)")
@@ -539,7 +539,7 @@ class EntityManager(ValidatorBroadcastBase):
             bucket: MinerBucket value from ValiConfig.SUBACCOUNT_CREATION_BUCKETS. None means SUBACCOUNT_CHALLENGE.
             pro_account_size: Required for pro buckets, rejected otherwise.
             eod_hwm_threshold: One of ValiConfig.SUBACCOUNT_EOD_DRAWDOWN_VALUES, Instant Funded only. None keeps the
-                   bucket's default. A subaccount created into PRO_CHALLENGE_FUNDED (never in transition)
+                   bucket's default. A subaccount created into PRO_CHALLENGE_FUNDED
                    is paid at ValiConfig.GROW_DIRECT_CREATION_PAYOUT_MULTIPLIER.
 
         The registration fee is account_size / registration_cpt: the Instant Funded CPT for its EOD
@@ -1060,7 +1060,7 @@ class EntityManager(ValidatorBroadcastBase):
         Point a subaccount at the account size its target bucket trades.
 
         Entering the pro track snapshots the standard size and records the granted pro size.
-        The PRO_CHALLENGE_FUNDED transition (in_transition) keeps trading the standard account, so
+        The SUBACCOUNT_FUNDED transition (in_transition) keeps trading the standard account, so
         only the sizes are recorded; every other pro bucket switches the live account size to the pro size and, when that
         changes the account size, charges the promotion fee (ValiConfig.promotion_fee_theta at the
         subaccount's daily loss limit). Re-applying the size an account already trades charges nothing.
@@ -1079,7 +1079,7 @@ class EntityManager(ValidatorBroadcastBase):
             explicit size. A size recorded on an earlier pro journey, which a move back to a standard
             bucket keeps, is never reused: a re-offer needs a size again.
           * A move within the pro track uses the explicit size when one is sent (the entity re-setting
-            it, e.g. leaving the PRO_CHALLENGE_FUNDED transition early), else the size recorded when the
+            it, e.g. leaving the SUBACCOUNT_FUNDED transition early), else the size recorded when the
             subaccount entered the track (the organic promotions send none). With neither, it is rejected.
           * A standard bucket never records a pro size; an explicit one is ignored.
 
@@ -1111,7 +1111,7 @@ class EntityManager(ValidatorBroadcastBase):
         promotion_fee_theta = 0.0
         # Where the pro size came from ("explicit" or "recorded"), for the log; None for standard buckets
         pro_size_source = None
-        if target_bucket.is_pro_track:
+        if target.is_pro_track:
             if pro_account_size is not None:
                 pro_size_source = "explicit"
             elif subaccount.account_type == AccountType.PRO.value and subaccount.pro_account_size is not None:
@@ -1333,7 +1333,7 @@ class EntityManager(ValidatorBroadcastBase):
         marked "pro" with a pro size on record, and the size-less branch of the next offer is gated on
         exactly that marking — so a re-offer with the size field blank would silently reuse the stale
         size instead of demanding one. Worse, an entry that trades the pro size (PRO_CHALLENGE_DIRECT,
-        PRO_CHALLENGE_FUNDED out of transition) would leave the account live at that size in a bucket
+        PRO_CHALLENGE_FUNDED) would leave the account live at that size in a bucket
         that never moved.
 
         `snapshot` is what snapshot_bucket_account_size returned before the apply. The live account size
@@ -2203,7 +2203,7 @@ class EntityManager(ValidatorBroadcastBase):
         Args:
             synthetic_hotkey: The subaccount being wound down
             from_bucket: BucketPhase status of the bucket it is leaving (the bucket value, suffixed
-                while in the PRO_CHALLENGE_FUNDED transition)
+                while in the SUBACCOUNT_FUNDED transition)
             promotion_ms: The moment of the switch; identifies the record with the hotkey
 
         Returns:

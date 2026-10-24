@@ -43,7 +43,7 @@ PAYOUT_MULTIPLIER = ValiConfig.PRO_TRANSITION_PAYOUT_MULTIPLIER
 REQUIRED = "pro_account_size is required to enter the pro track"
 
 # PRO_CHALLENGE_FUNDED in its transition week (still on the standard account), and out of it
-TRANSITION = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True)
+TRANSITION = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True)
 FROM_STANDARD = MinerBucket.PRO_CHALLENGE_FUNDED
 
 PRO_BUCKETS = (TRANSITION, FROM_STANDARD, MinerBucket.PRO_CHALLENGE_DIRECT, MinerBucket.PRO_FUNDED)

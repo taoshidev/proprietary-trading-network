@@ -338,7 +338,7 @@ class DebtLedger:
     @staticmethod
     def _bucket_from_status(challenge_period_status: str) -> BucketPhase:
         """Convert a stored status string to a BucketPhase, tolerating unknown/legacy values. The
-        phase keeps the PRO_CHALLENGE_FUNDED transition apart: it is paid unscaled."""
+        phase keeps the SUBACCOUNT_FUNDED transition apart: it is paid unscaled."""
         return BucketPhase.from_status(challenge_period_status)
 
     def checkpoint_bucket(self, cp: DebtCheckpoint) -> BucketPhase:

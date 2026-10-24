@@ -600,7 +600,7 @@ class ValiConfig:
     PRO_SOFT_BREACH_LATCH_RETENTION_DAYS = 60
 
     # Payout basis for a trader running the pro challenge after passing the standard challenge
-    # (PRO_CHALLENGE_FUNDED, out of transition). PnL earned on the pro account is paid as though it had been
+    # (PRO_CHALLENGE_FUNDED). PnL earned on the pro account is paid as though it had been
     # earned on this multiple of their standard account size: at 2.0, $5K of eligible PnL on a
     # $500K pro account pays a $100K standard account (5K / 500K) * 2 * 100K = $2K.
     PRO_TRANSITION_PAYOUT_MULTIPLIER = 2.0
@@ -879,7 +879,7 @@ class ValiConfig:
     #   required_theta = sum(margin_theta(min(position_value, max_slash_usd - cumulative_slashed_usd)))
     #   for each funded subaccount with open positions (or placing this order)
     # max_slash_usd = account_size * the bucket's intraday drawdown threshold. A subaccount in
-    # PRO_CHALLENGE_FUNDED (out of transition) trades the pro account but is charged against its standard
+    # PRO_CHALLENGE_FUNDED trades the pro account but is charged against its standard
     # account size, so the pro account's margin only lands when it reaches PRO_FUNDED. Realized losses
     # are slashed through margin_theta as well.
 

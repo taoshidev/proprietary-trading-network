@@ -80,7 +80,7 @@ class MinerAccount:
     asset_class: Optional[MinerAssetClass] = None  # CRYPTO, FOREX, EQUITIES, COMMODITIES, HL_ALL
     collateral_records: List[CollateralRecord] = None  # Historical CollateralRecords (List[CollateralRecord])
     miner_bucket: Optional[MinerBucket] = None  # Pushed by ChallengePeriodManager
-    in_transition: bool = False  # Pushed with miner_bucket: the PRO_CHALLENGE_FUNDED transition week
+    in_transition: bool = False  # Pushed with miner_bucket: the SUBACCOUNT_FUNDED transition week
     hl_address: Optional[str] = None            # Set for HS subaccounts; None for VT
     leverage_tier: Optional[int] = None         # Standard subaccount tier 1 to 3; None = tier 0 (pre-tier floor) for standard subaccounts, unused by HL and pro
     max_return: float = 1.0  # High water mark for portfolio return
@@ -106,7 +106,7 @@ class MinerAccount:
 
     @property
     def is_pro_bucket(self) -> bool:
-        """True when the account trades the pro account. The PRO_CHALLENGE_FUNDED transition is
+        """True when the account trades the pro account. The SUBACCOUNT_FUNDED transition is
         still on the standard account."""
         phase = self.bucket_phase
         return bool(phase and phase.is_pro)
@@ -1035,6 +1035,7 @@ class MinerAccountManager(ValidatorBroadcastBase):
         timestamp_ms: Optional[int] = None,
         reset_snapshot: bool = False,
         update_daily_open: bool = False,
+        drawdown_by_hotkey: Optional[Dict[str, dict]] = None,
     ) -> int:
         """Snapshot account state at the current (or given) UTC day open.
 
@@ -1047,6 +1048,9 @@ class MinerAccountManager(ValidatorBroadcastBase):
             update_daily_open: If True, update daily_open_snapshot when a new day is detected.
                                Should only be passed True when firing at the top of the UTC day
                                (hour == 0) to avoid recording a mid-day value as the day open.
+            drawdown_by_hotkey: Optional {hotkey: {intraday_drawdown_pct, eod_drawdown_pct, eod_hwm}}
+                                (ChallengePeriodClient.get_drawdown_snapshot_fields) stamped onto the
+                                snapshot. Hotkeys missing from it keep those fields None.
 
         Returns the number of snapshots recorded.
         """
@@ -1066,11 +1070,15 @@ class MinerAccountManager(ValidatorBroadcastBase):
             else:
                 targets = [a for a in self.accounts.values() if a.miner_bucket != MinerBucket.ELIMINATED]
             for account in targets:
+                drawdown = (drawdown_by_hotkey or {}).get(account.miner_hotkey) or {}
                 snapshot = AccountSnapshot(
                     snapshot_ms=timestamp_ms,
                     account_size=account.get_account_size(),
                     balance=account.balance,
                     equity=account.equity,
+                    intraday_drawdown_pct=drawdown.get('intraday_drawdown_pct'),
+                    eod_drawdown_pct=drawdown.get('eod_drawdown_pct'),
+                    eod_hwm=drawdown.get('eod_hwm'),
                 )
                 stored = account.daily_open_snapshot
                 stored_day_open_ms = TimeUtil.get_start_of_day_ms(stored.snapshot_ms) if stored else None

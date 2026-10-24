@@ -626,12 +626,12 @@ class TestEntityCollateral(TestBase):
         )
 
     def test_the_transition_bucket_is_not_charged(self):
-        """The PRO_CHALLENGE_FUNDED transition still trades the standard account, so nothing is billed yet."""
+        """The SUBACCOUNT_FUNDED transition still trades the standard account, so nothing is billed yet."""
         entity_hotkey, synthetic_hotkey, _ = self._register_entity_with_subaccount(account_size=100_000)
         self._set_collateral_cache(entity_hotkey, 1_000.0)
 
         success, message = self.entity_client.apply_bucket_account_size(
-            synthetic_hotkey, MinerBucket.PRO_CHALLENGE_FUNDED, 1_000_000, in_transition=True
+            synthetic_hotkey, MinerBucket.SUBACCOUNT_FUNDED, 1_000_000, in_transition=True
         )
 
         self.assertTrue(success, message)
@@ -1123,7 +1123,7 @@ class TestEntityCollateralBucketThresholds(unittest.TestCase):
 
 class TestMarginCpt(unittest.TestCase):
     """Theta held per USD of margin: PRO_MARGIN_CPT in PRO_FUNDED, MARGIN_CPT elsewhere, and twice the margin for
-    a standard account growing into pro (PRO_CHALLENGE_FUNDED out of transition, paid at the 2x payout multiplier)."""
+    a standard account growing into pro (PRO_CHALLENGE_FUNDED, paid at the 2x payout multiplier)."""
 
     ENTITY = "entity"
     HOTKEY = "entity_0"
@@ -1165,7 +1165,7 @@ class TestMarginCpt(unittest.TestCase):
              ValiConfig.GROW_DIRECT_CREATION_PAYOUT_MULTIPLIER, 5_000 / 35),
             ("pro challenge", MinerBucket.PRO_CHALLENGE_DIRECT, self.PRO_SIZE, None, 0.0),
             # Still on the standard account, margined like the funded account it is winding down
-            ("transition", BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True),
+            ("transition", BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True),
              self.STANDARD_SIZE, None, 5_000 / 35),
         )
         for name, bucket, account_size, payout_scale, expected_theta in cases:

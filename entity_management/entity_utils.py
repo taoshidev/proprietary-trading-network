@@ -146,9 +146,8 @@ def pro_payout_scale(standard_account_size, pro_account_size, payout_scale=None)
 
 def is_instant_funded(initial_bucket: Optional[str]) -> bool:
     """True for a subaccount created straight into a funded bucket (SUBACCOUNT_FUNDED or
-    PRO_CHALLENGE_FUNDED) rather than earning it through SUBACCOUNT_CHALLENGE. A subaccount is only
-    ever created into PRO_CHALLENGE_FUNDED out of transition; PRO_CHALLENGE_FROM_STANDARD is the
-    name stored before the merge."""
+    PRO_CHALLENGE_FUNDED) rather than earning it through SUBACCOUNT_CHALLENGE.
+    PRO_CHALLENGE_FROM_STANDARD is the name stored before the merge."""
     return initial_bucket in ("SUBACCOUNT_FUNDED", "PRO_CHALLENGE_FUNDED", "PRO_CHALLENGE_FROM_STANDARD")
 
 

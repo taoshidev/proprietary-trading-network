@@ -28,7 +28,7 @@ from vali_objects.enums.miner_bucket_enum import BucketEntry, BucketPhase, Miner
 from vali_objects.vali_config import ValiConfig
 
 # PRO_CHALLENGE_FUNDED in its transition week, still trading the standard account
-TRANSITION = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True)
+TRANSITION = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True)
 SUBACCOUNT_BUCKETS = (
     MinerBucket.SUBACCOUNT_CHALLENGE,
     MinerBucket.SUBACCOUNT_FUNDED,

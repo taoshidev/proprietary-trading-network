@@ -732,7 +732,7 @@ class PenaltyLedgerManager:
     @staticmethod
     def _bucket_from_status(challenge_period_status: str) -> MinerBucket:
         """Convert a stored status string to a MinerBucket, tolerating unknown/legacy values and
-        the PRO_CHALLENGE_FUNDED transition suffix."""
+        the SUBACCOUNT_FUNDED transition suffix."""
         return BucketPhase.from_status(challenge_period_status).bucket
 
     @staticmethod
@@ -787,7 +787,7 @@ class PenaltyLedgerManager:
                 continue
             start_time_ms = entry.get("start_time_ms") or entry.get("bucket_start_time")
             if start_time_ms is not None and checkpoint_ms >= start_time_ms:
-                # The phase status keeps the PRO_CHALLENGE_FUNDED transition apart, which is paid unscaled
+                # The phase status keeps the SUBACCOUNT_FUNDED transition apart, which is paid unscaled
                 return BucketEntry.from_dict(entry).phase.status
 
         return MinerBucket.UNKNOWN.value

@@ -20,7 +20,7 @@ def get_legacy_leverage_tier(miner_bucket, account_size: float) -> int:
     """Return legacy leverage tier (1-4) for HL-linked subaccounts and regular miners.
 
     miner_bucket is a MinerBucket or a BucketPhase; pass the phase where the account has one, so
-    the PRO_CHALLENGE_FUNDED transition (still on the funded account) is tiered by size.
+    the SUBACCOUNT_FUNDED transition (still on the funded account) is tiered by size.
 
     Pro accounts do not use this: their table is flat (see get_pro_positional_leverage).
 
@@ -162,7 +162,7 @@ def get_pro_class_leverage(trade_pair_category: TradePairCategory) -> float:
 def is_pro_leveraged(account: MinerAccount) -> bool:
     """True when the account's limits come from the flat pro tables.
 
-    The PRO_CHALLENGE_FUNDED transition is excluded (it is not is_pro): it still trades the
+    The SUBACCOUNT_FUNDED transition is excluded (it is not is_pro): it still trades the
     standard account, so it keeps the standard curve.
     """
     return account.is_pro_bucket

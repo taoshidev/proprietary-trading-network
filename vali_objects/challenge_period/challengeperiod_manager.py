@@ -42,6 +42,8 @@ from vali_objects.miner_account.miner_account_manager import MinerAccount
 from shared_objects.rpc.common_data_client import CommonDataClient
 from entity_management.entity_utils import is_synthetic_hotkey
 from entity_management.entity_client import EntityClient
+from vali_objects.challenge_period.bucket_history import BucketHistoryStore, BucketSegment
+from vali_objects.miner_account.account_snapshot import read_all_snapshots
 
 
 @dataclass
@@ -150,8 +152,8 @@ class MinerBucketState:
 
     def add_bucket_entry(self, bucket: MinerBucket, time_ms: int, *, replace_top: bool = False,
                          in_transition: bool = False) -> bool:
-        """Append a bucket entry. A PRO_CHALLENGE_FUNDED entry whose in_transition differs from the
-        current one is a new entry: leaving the transition is recorded as its own span."""
+        """Append a bucket entry. A SUBACCOUNT_FUNDED entry whose in_transition differs from the
+        current one is a new entry: entering the transition week is recorded as its own span."""
         entry = BucketEntry(bucket, time_ms, in_transition=in_transition)
         if self.current_phase == entry.phase:
             if replace_top:
@@ -242,7 +244,7 @@ class MinerBucketState:
 
     @property
     def in_transition(self) -> bool:
-        """True while a PRO_CHALLENGE_FUNDED subaccount is in its transition week."""
+        """True while a SUBACCOUNT_FUNDED subaccount is in its transition week."""
         return self.entries[-1].in_transition
 
     @property
@@ -402,6 +404,10 @@ class ChallengePeriodManager(CacheController):
 
         self._buckets_lock = threading.Lock()
         self.miner_states: dict[str, MinerBucketState] = self._read_states_from_disk()
+        # Per-bucket record of every stint, kept after the live state is wound down. Off while
+        # backtesting, which never persists anything (see _save_to_disk)
+        self._bucket_history = BucketHistoryStore(
+            running_unit_tests=running_unit_tests, enabled=not is_backtesting or running_unit_tests)
 
         # Cached scores for MinerStatisticsManager
         self._cached_asset_softmaxed_scores: dict[MinerAssetClass, dict[str, float]] = {}
@@ -436,6 +442,9 @@ class ChallengePeriodManager(CacheController):
         state_changed |= self.sync_plagiarism_miners(hotkeys_plagiarism_sync, current_time_ms)
         state_changed |= self.sync_elimination_miners(hotkeys_elimination_sync, current_time_ms)
         state_changed |= self._prune_hotkeys_no_positions()
+        # Bucket moves made outside this manager's own promote/demote/eliminate paths (plagiarism,
+        # elimination sync, new miners, entity registration) open and close their segments here
+        self._reconcile_bucket_history(list(self.miner_states), current_time_ms)
         timer.lap("sync")
 
         self._current_iteration_epoch = iteration_epoch
@@ -454,6 +463,8 @@ class ChallengePeriodManager(CacheController):
         # Latch before any bucket move below: soft_breach reads the bucket the miner traded today
         self._latch_soft_breaches(evaluation_hotkeys, current_time_ms)
         timer.lap("latch_soft_breaches")
+        self._record_bucket_stats(evaluation_hotkeys, current_time_ms)
+        timer.lap("bucket_stats")
         self._refresh_rank_cache(rank_hotkeys, ledgers, rank_positions, accounts, asset_selections, current_time_ms)
         timer.lap("rank_cache")
 
@@ -631,7 +642,7 @@ class ChallengePeriodManager(CacheController):
 
     @staticmethod
     def _check_transition_expiry(state: MinerBucketState, current_time_ms: int) -> bool:
-        """True once the PRO_CHALLENGE_FUNDED transition has run past the first Monday 00:00 UTC
+        """True once the SUBACCOUNT_FUNDED transition has run past the first Monday 00:00 UTC
         after the miner entered it"""
         if not state.in_transition:
             return False
@@ -750,12 +761,13 @@ class ChallengePeriodManager(CacheController):
                     continue
                 state_changed |= self.miner_states[hotkey].add_bucket_entry(MinerBucket.ELIMINATED, current_time_ms)
 
+        self._reconcile_bucket_history([hk for hk in eliminations if hk not in failed_hotkeys], current_time_ms)
         return state_changed
 
     def _switch_account(self, hotkey: str, target: BucketPhase | MinerBucket, current_time_ms: int) -> bool:
         """Wind down the account a miner is leaving. Run whenever a bucket change also changes
         the account size, so the new account's performance is tracked from scratch. A bare
-        MinerBucket target means its pro phase (never the transition).
+        MinerBucket target means the bucket out of transition.
 
         Returns False when the account size could not be pointed at the target bucket. Nothing is
         wound down in that case: the caller must leave the miner in their current bucket rather
@@ -780,6 +792,9 @@ class ChallengePeriodManager(CacheController):
             close_time_ms=current_time_ms,
             order_source=OrderSource.SUBACCOUNT_PROMOTION
         )
+        # Keep the closed positions and final stats of the account in its bucket segment before
+        # anything below archives or resets them
+        self._record_wound_down_account(hotkey, current_time_ms)
         # Track payout information already gathered before promotion since account will be wound down
         from_phase = self.miner_states[hotkey].current_phase
         if is_synthetic_hotkey(hotkey) and from_phase.is_subaccount_earning:
@@ -817,6 +832,7 @@ class ChallengePeriodManager(CacheController):
 
             with self._buckets_lock:
                 state_changed |= self.miner_states[hotkey].add_bucket_entry(target_bucket, current_time_ms)
+            self._reconcile_bucket_history([hotkey], current_time_ms)
         return state_changed
 
     def promote_hotkeys(self, hotkeys: list[str], current_time_ms: int) -> bool:
@@ -841,6 +857,7 @@ class ChallengePeriodManager(CacheController):
             with self._buckets_lock:
                 state_changed |= self.miner_states[hotkey].add_bucket_entry(
                     target.bucket, current_time_ms, in_transition=target.in_transition)
+            self._reconcile_bucket_history([hotkey], current_time_ms)
 
         return state_changed
 
@@ -856,8 +873,8 @@ class ChallengePeriodManager(CacheController):
         subaccount that has neither).
 
         Only a target with switches_account wipes trading state, which is the two hops landing on a
-        pro account (PRO_CHALLENGE_DIRECT, and PRO_CHALLENGE_FUNDED leaving its transition):
-        positions closed, limit orders cancelled, ledgers restarted. The PRO_CHALLENGE_FUNDED
+        pro account (PRO_CHALLENGE_DIRECT, and PRO_CHALLENGE_FUNDED):
+        positions closed, limit orders cancelled, ledgers restarted. The SUBACCOUNT_FUNDED
         transition is a wind-down week on the standard account, so the hop into it keeps the
         positions, limit orders and ledgers as they are and only sweeps the entry orders (see
         admin_set_bucket).
@@ -938,8 +955,7 @@ class ChallengePeriodManager(CacheController):
                          in_transition: bool = False) -> tuple[bool, str]:
         """Move a miner into an arbitrary bucket. Runs the same account switch as an organic
         promotion when the target changes the account size. in_transition only applies to
-        PRO_CHALLENGE_FUNDED: set, it enters the transition week; clear, it enters (or leaves the
-        transition for) the pro account."""
+        SUBACCOUNT_FUNDED: set, it enters the transition week on the standard account."""
         can_set, reason = self.can_admin_set_bucket(hotkey, bucket, in_transition)
         if not can_set:
             return False, reason
@@ -965,6 +981,7 @@ class ChallengePeriodManager(CacheController):
 
         with self._buckets_lock:
             state.add_bucket_entry(bucket, current_time_ms, in_transition=target.in_transition)
+        self._reconcile_bucket_history([hotkey], current_time_ms)
 
         self._sync_buckets_to_accounts(hotkeys=[hotkey])
 
@@ -1016,6 +1033,7 @@ class ChallengePeriodManager(CacheController):
                 f"[CHALLENGE] reverted elimination, restored to {miner_state.current_bucket.value}: {miner_state}"
             )
 
+        self._reconcile_bucket_history([hotkey], now_ms)
         self._reset_drawdown_stats_cache(hotkey, preserve_eod=restores_pro_account)
         self._sync_buckets_to_accounts(hotkeys=[hotkey])
         self._save_to_disk()
@@ -1100,7 +1118,7 @@ class ChallengePeriodManager(CacheController):
                            accounts: dict[str, MinerAccount]) -> None:
         for hotkey in hotkeys:
             state = self.miner_states[hotkey]
-            if not state.current_bucket.is_pro_track:
+            if not state.current_phase.is_pro_track:
                 continue
 
             # Worst live equity against the end-of-day high-water mark, in mdd ratio form.
@@ -1217,6 +1235,195 @@ class ChallengePeriodManager(CacheController):
             last_eod_checked_ms=previous.last_eod_checked_ms,
         )
 
+    # ==================== Bucket History ====================
+
+    def _reconcile_bucket_history(self, hotkeys: list[str], current_time_ms: int | None = None) -> None:
+        """Open and close bucket segments to match each hotkey's bucket entries. Never raises: the
+        history is a record of the bucket moves, and must not be able to block one."""
+        if not self._bucket_history.enabled or not hotkeys:
+            return
+        now_ms = current_time_ms if current_time_ms is not None else TimeUtil.now_in_millis()
+        changed = []
+        for hotkey in hotkeys:
+            state = self.miner_states.get(hotkey)
+            if state is None:
+                continue
+            try:
+                if self._bucket_history.reconcile(hotkey, list(state.entries), now_ms,
+                                                  on_open=self._on_segment_open,
+                                                  on_close=self._on_segment_close, save=False):
+                    changed.append(hotkey)
+            except Exception as e:
+                logger.error(f"[BUCKET_HISTORY] reconcile failed for {hotkey}: {e}", exc_info=True)
+        if changed:
+            try:
+                self._bucket_history.save_to_disk(changed)
+            except Exception as e:
+                logger.error(f"[BUCKET_HISTORY] save failed for {len(changed)} hotkeys: {e}", exc_info=True)
+
+    def _get_account(self, hotkey: str) -> MinerAccount | None:
+        try:
+            return self._miner_account_client.get_accounts([hotkey]).get(hotkey)
+        except Exception as e:
+            logger.warning(f"[BUCKET_HISTORY] could not read the account of {hotkey}: {e}")
+            return None
+
+    def _on_segment_open(self, segment: BucketSegment) -> None:
+        account = self._get_account(segment.hotkey)
+        if account is None:
+            return
+        try:
+            segment.account_size = account.get_account_size()
+            segment.start_balance = account.balance
+        except Exception as e:
+            logger.warning(f"[BUCKET_HISTORY] could not read the opening account of {segment.hotkey}: {e}")
+
+    def _on_segment_close(self, segment: BucketSegment) -> None:
+        """Copy what the segment traded into its directory as the stint ends.
+
+        After an account switch the positions are already copied and archived and the final stats
+        already taken (_record_wound_down_account), so only the snapshots are left to copy. On a hop
+        that keeps the account the positions are still live: every position the segment traded is
+        copied as it stands now, and the open ones carry on into the next segment.
+        """
+        hotkey = segment.hotkey
+        try:
+            positions = [
+                p for p in self._position_client.get_positions_for_one_hotkey(hotkey)
+                if p.open_ms < segment.end_ms and (p.is_open_position or p.close_ms >= segment.start_ms)
+            ]
+            self._bucket_history.write_positions(segment, positions)
+        except Exception as e:
+            logger.error(f"[BUCKET_HISTORY] could not copy the positions of {hotkey} into {segment.dir_name}: {e}")
+        try:
+            self._bucket_history.write_snapshots(segment, [
+                s.to_dict() for s in read_all_snapshots(hotkey, self.running_unit_tests)
+                if segment.contains(s.snapshot_ms)
+            ])
+        except Exception as e:
+            logger.error(f"[BUCKET_HISTORY] could not copy the snapshots of {hotkey} into {segment.dir_name}: {e}")
+        if segment.final_drawdown is None:
+            segment.update_from_final_state(**self._final_account_state(hotkey))
+
+    def _final_account_state(self, hotkey: str) -> dict:
+        """The account's closing figures, as recorded on a segment or an in-segment account switch."""
+        state = self.miner_states[hotkey]
+        account = self._get_account(hotkey)
+        return {
+            "end_balance": getattr(account, "balance", None),
+            "end_equity": getattr(account, "equity", None),
+            "drawdown": state.drawdown.to_dict(),
+            "pro_stats": state.pro_stats.to_dict(),
+        }
+
+    def _record_wound_down_account(self, hotkey: str, current_time_ms: int) -> None:
+        """Called from _switch_account once the positions are closed, before they are archived and
+        the account is reset: copies the closed positions into the segment being left and records
+        the account's final stats on it. The bucket entry added after the switch closes it."""
+        if not self._bucket_history.enabled:
+            return
+        try:
+            segment = self._bucket_history.get_live_segment(hotkey)
+            if segment is None:
+                self._reconcile_bucket_history([hotkey], current_time_ms)
+                segment = self._bucket_history.get_live_segment(hotkey)
+            if segment is None:
+                return
+            self._bucket_history.write_positions(segment, self._position_client.get_positions_for_one_hotkey(hotkey))
+            segment.update_from_final_state(**self._final_account_state(hotkey))
+            self._bucket_history.save_segment(segment)
+        except Exception as e:
+            logger.error(f"[BUCKET_HISTORY] could not record the wound-down account of {hotkey}: {e}", exc_info=True)
+
+    def _record_bucket_stats(self, hotkeys: list[str], current_time_ms: int) -> None:
+        """Append the day's drawdown and ProStats row to each hotkey's live segment, once per UTC day."""
+        if not self._bucket_history.enabled:
+            return
+        day_ms = TimeUtil.get_start_of_day_ms(current_time_ms)
+        for hotkey in hotkeys:
+            state = self.miner_states.get(hotkey)
+            segment = self._bucket_history.get_live_segment(hotkey)
+            if state is None or segment is None:
+                continue
+            pro_stats = state.pro_stats
+            try:
+                self._bucket_history.append_stats_row(segment, {
+                    "time_ms": current_time_ms,
+                    "bucket": state.current_phase.status,
+                    **state.drawdown.to_dict(),
+                    "calmar": pro_stats.calmar,
+                    "max_drawdown": pro_stats.max_drawdown,
+                    "daily_consistency": pro_stats.daily_consistency,
+                    "trading_days": pro_stats.trading_days,
+                    "soft_breach": state.is_soft_breach_latched(day_ms),
+                }, day_ms)
+            except Exception as e:
+                logger.error(f"[BUCKET_HISTORY] could not write the stats row of {hotkey}: {e}")
+
+    def get_bucket_statistics(self, hotkey: str, bucket: str | None = None, start_ms: int | None = None,
+                              include: list[str] | None = None, limit: int | None = None) -> dict | None:
+        """A miner's bucket segments, oldest first, with the sections asked for.
+
+        bucket filters by bucket (any status BucketPhase.from_status reads, legacy names included),
+        start_ms picks one segment. A live segment's positions and snapshots are read from the live
+        state (the positions of its account, so a PRO_FUNDED segment includes those carried over);
+        a closed one's from its segment directory. limit keeps the last snapshot and
+        stats rows. Returns None when the miner has no segments.
+        """
+        include = set(include or ("summary",))
+        segments = [s for s in self._bucket_history.get_segments(hotkey) if s.reverted_ms is None]
+        if not segments:
+            return None
+        if bucket:
+            bucket_value = BucketPhase.from_status(bucket).bucket.value
+            segments = [s for s in segments if s.bucket == bucket_value]
+        if start_ms is not None:
+            segments = [s for s in segments if s.start_ms == start_ms]
+
+        out = []
+        for segment in segments:
+            row = segment.to_dict()
+            row["live"] = segment.is_live
+            if "positions" in include:
+                if segment.is_live:
+                    # Live positions only ever hold the current account: earlier accounts are archived
+                    row["positions"] = [
+                        p.to_dict() for p in self._position_client.get_positions_for_one_hotkey(hotkey, sort_positions=True)
+                    ]
+                else:
+                    row["positions"] = self._bucket_history.read_positions(segment)
+            if "snapshots" in include:
+                if segment.is_live:
+                    snapshots = [s.to_dict() for s in read_all_snapshots(hotkey, self.running_unit_tests)
+                                 if segment.contains(s.snapshot_ms)]
+                    row["snapshots"] = snapshots[-limit:] if limit else snapshots
+                else:
+                    row["snapshots"] = self._bucket_history.read_snapshots(segment, limit)
+            if "stats" in include:
+                row["stats"] = self._bucket_history.read_stats(segment, limit)
+            out.append(row)
+        return {"hotkey": hotkey, "segments": out}
+
+    def get_bucket_history_checkpoint_dict(self) -> dict:
+        return self._bucket_history.to_checkpoint_dict()
+
+    def sync_bucket_history(self, checkpoint_dict: dict) -> dict:
+        return self._bucket_history.sync_from_checkpoint(checkpoint_dict)
+
+    def get_drawdown_snapshot_fields(self, hotkeys: list[str] | None = None) -> dict[str, dict]:
+        """The drawdown fields stamped onto account snapshots, per hotkey."""
+        targets = self.miner_states.keys() if hotkeys is None else hotkeys
+        out = {}
+        for hotkey in targets:
+            state = self.miner_states.get(hotkey)
+            if state is None:
+                continue
+            out[hotkey] = {
+                "intraday_drawdown_pct": state.drawdown.intraday_drawdown_pct,
+                "eod_drawdown_pct": state.drawdown.eod_drawdown_pct,
+                "eod_hwm": state.drawdown.eod_hwm,
+            }
+        return out
 
     # ==================== Sync Methods ====================
 
@@ -1230,6 +1437,8 @@ class ChallengePeriodManager(CacheController):
             self.miner_states.clear()
             self.miner_states.update(self.parse_checkpoint_dict(miner_states_data))
             self._save_to_disk()
+        # Follow the synced bucket entries with the segments they describe
+        self._reconcile_bucket_history(list(self.miner_states))
 
     def sync_plagiarism_miners(self, plagiarism_miners: list[str], current_time_ms: int) -> bool:
         """Sync plagiarism miners status from plagiarism api."""
@@ -1358,7 +1567,7 @@ class ChallengePeriodManager(CacheController):
         """
         Set or update a miner's bucket information, replace_top to override most recent entry.
         drawdown_criteria, intraday_drawdown_threshold and eod_hwm_threshold are set only on first creation
-        and ignored for existing states. in_transition marks a PRO_CHALLENGE_FUNDED entry as the
+        and ignored for existing states. in_transition marks a SUBACCOUNT_FUNDED entry as the
         transition week.
 
         Only persists to disk on first creation - both are write-once, and updates to
@@ -1378,6 +1587,7 @@ class ChallengePeriodManager(CacheController):
                 self.miner_states[hotkey].add_bucket_entry(bucket, start_time_ms, replace_top=replace_top,
                                                            in_transition=in_transition)
                 is_new = False
+        self._reconcile_bucket_history([hotkey])
         return is_new
 
     def update_drawdown_criteria(self, hotkey: str, criteria: DrawdownCriteria) -> Tuple[bool, str]:
@@ -1428,7 +1638,7 @@ class ChallengePeriodManager(CacheController):
                     if after > threshold and after > before:
                         return False, (f"{rule} drawdown would go from {before:.2f}% to {after:.2f}%, past the "
                                        f"{threshold:.2f}% threshold; pass force to apply"), None
-                if state.current_bucket.is_pro_track and new.current_equity / new.eod_hwm < state.pro_stats.max_drawdown:
+                if state.current_phase.is_pro_track and new.current_equity / new.eod_hwm < state.pro_stats.max_drawdown:
                     return False, ("eod_hwm would permanently deepen pro max_drawdown "
                                    f"({state.pro_stats.max_drawdown:.4f} -> {new.current_equity / new.eod_hwm:.4f}); pass force to apply"), None
 
@@ -1474,7 +1684,7 @@ class ChallengePeriodManager(CacheController):
         return {hotkey: self.get_miner_bucket(hotkey, timestamp_ms) for hotkey in hotkeys}
 
     def get_miner_phase(self, hotkey, timestamp_ms: int | None = None) -> BucketPhase | None:
-        """Get the bucket and PRO_CHALLENGE_FUNDED transition flag of a miner, optionally at a
+        """Get the bucket and SUBACCOUNT_FUNDED transition flag of a miner, optionally at a
         specific timestamp."""
         if hotkey not in self.miner_states:
             return None
@@ -1504,13 +1714,12 @@ class ChallengePeriodManager(CacheController):
         return {hotkey: state.current_bucket_start_ms for hotkey, state in self.miner_states.items() if state.current_bucket in bucket_set}
 
     def get_testing_miners(self) -> dict[str, int]:
-        """CHALLENGE and subaccount challenge miners as {hotkey: start_time}. Read per phase: the
-        PRO_CHALLENGE_FUNDED transition still counts as funded."""
+        """CHALLENGE and subaccount challenge miners as {hotkey: start_time}."""
         return {hotkey: state.current_bucket_start_ms for hotkey, state in self.miner_states.items()
                 if state.current_bucket == MinerBucket.CHALLENGE or state.current_phase.is_subaccount_challenge}
 
     def get_success_miners(self) -> dict[str, int]:
-        """MAINCOMP and subaccount funded miners (including the PRO_CHALLENGE_FUNDED transition)
+        """MAINCOMP and subaccount funded miners (including the SUBACCOUNT_FUNDED transition)
         as {hotkey: start_time}."""
         return {hotkey: state.current_bucket_start_ms for hotkey, state in self.miner_states.items()
                 if state.current_bucket == MinerBucket.MAINCOMP or state.current_phase.is_subaccount_funded}
@@ -1582,7 +1791,7 @@ class ChallengePeriodManager(CacheController):
         Returns None if the hotkey is not a pro account or has not been evaluated yet.
         """
         state = self.miner_states.get(synthetic_hotkey)
-        if not state or not state.current_bucket.is_pro_track:
+        if not state or not state.current_phase.is_pro_track:
             return None
 
         phase = state.current_phase

@@ -79,7 +79,7 @@ def _no_section_clients():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # PRO_CHALLENGE_FUNDED in its transition week, still trading the standard account
-TRANSITION = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True)
+TRANSITION = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True)
 
 
 def _phase(bucket):
@@ -150,7 +150,7 @@ class TestValidatorPromoteEndpoint(unittest.TestCase):
     def test_valid_request_forwards_the_requested_size(self):
         status, data = self._post(self._body(signed={"pro_account_size": GRANTED_SIZE}))
         self.assertEqual(status, 200, data)
-        self.assertEqual(data['bucket'], MinerBucket.PRO_CHALLENGE_FUNDED.value)
+        self.assertEqual(data['bucket'], MinerBucket.SUBACCOUNT_FUNDED.value)
         self.assertIs(data['in_transition'], True)
         self.assertEqual(data['pro_account_size'], GRANTED_SIZE)
         self._promote().assert_called_once()

@@ -257,10 +257,10 @@ class EntityCollateralManager(CacheController):
 
         where max_slash_usd = exposed account size * the bucket's intraday drawdown threshold (5% in
         every earning bucket). The exposed size is the traded account except in
-        PRO_CHALLENGE_FUNDED out of transition, which stays at the standard account size until it reaches
+        PRO_CHALLENGE_FUNDED, which stays at the standard account size until it reaches
         PRO_FUNDED. CPT is ValiConfig.PRO_MARGIN_CPT in PRO_FUNDED and ValiConfig.MARGIN_CPT
-        otherwise. multiplier is the payout multiplier the margin backs: in PRO_CHALLENGE_FUNDED (out of
-        transition) the subaccount's payout_scale (2 growing from standard funded, 1 Instant Funded), else 1.
+        otherwise. multiplier is the payout multiplier the margin backs: in PRO_CHALLENGE_FUNDED the
+        subaccount's payout_scale (2 growing from standard funded, 1 Instant Funded), else 1.
 
         Args:
             entity_hotkey: The entity's hotkey.
@@ -385,7 +385,7 @@ class EntityCollateralManager(CacheController):
         current_position_value = sum(abs(p.net_value) for p in open_positions)
         projected_position_value = current_position_value + abs(additional_position_value)
 
-        # PRO_CHALLENGE_FUNDED (out of transition) reads its record twice (the standard size it is exposed at and the
+        # PRO_CHALLENGE_FUNDED reads its record twice (the standard size it is exposed at and the
         # payout multiplier its margin backs), so look it up once. Unreadable, it is {}: the exposure is
         # withheld (see _exposed_account_size), so no margin is required.
         subaccount_info = None
@@ -610,7 +610,7 @@ class EntityCollateralManager(CacheController):
                 pending_loss_usd: Dict[str, float] = {}  # synthetic hotkey -> USD
                 # Losses are slashed at the rate the subaccount's margin is held at (see
                 # compute_entity_required_collateral): PRO_MARGIN_CPT in PRO_FUNDED, MARGIN_CPT otherwise,
-                # times the payout multiplier in PRO_CHALLENGE_FUNDED out of transition.
+                # times the payout multiplier in PRO_CHALLENGE_FUNDED.
                 pending_loss_theta: Dict[str, float] = {}  # synthetic hotkey -> theta
                 records = {s.get("synthetic_hotkey"): s for s in subaccounts.values() if isinstance(s, dict)}
                 eligible_hotkeys = {hk for hk in synthetic_hotkeys if hk and hk not in exempt_hotkeys}
@@ -800,7 +800,7 @@ class EntityCollateralManager(CacheController):
                 When omitted it is resolved here, so every caller gets the threshold and the
                 account size that actually apply (a pro account's are not the standard one's).
             subaccount_info: The subaccount's record, when the caller already has it; None looks it
-                up when needed (only PRO_CHALLENGE_FUNDED out of transition reads it).
+                up when needed (only PRO_CHALLENGE_FUNDED reads it).
 
         Returns:
             Maximum slash amount in USD.
@@ -826,7 +826,7 @@ class EntityCollateralManager(CacheController):
         Account size the entity's collateral is exposed to, normally the account the
         subaccount trades.
 
-        PRO_CHALLENGE_FUNDED out of transition is the exception: it trades the pro account but is paid
+        PRO_CHALLENGE_FUNDED is the exception: it trades the pro account but is paid
         as though it were still on the standard one (`payout_scale_applies`), so the entity
         stays exposed to the standard account it already collateralized. The pro account's
         larger margin requirement is charged at PRO_FUNDED, where the larger payouts begin.

@@ -79,7 +79,7 @@ class ChallengePeriodClient(RPCClientBase):
         return self._server.get_miner_buckets_rpc(hotkeys, timestamp_ms)
 
     def get_miner_phase(self, hotkey: str, timestamp_ms: int | None = None) -> BucketPhase | None:
-        """Get the bucket and PRO_CHALLENGE_FUNDED transition flag of a miner, optionally at a
+        """Get the bucket and SUBACCOUNT_FUNDED transition flag of a miner, optionally at a
         specific timestamp."""
         return self._server.get_miner_phase_rpc(hotkey, timestamp_ms)
 
@@ -105,6 +105,23 @@ class ChallengePeriodClient(RPCClientBase):
     def get_bucket_history(self, hotkey) -> list[dict] | None:
         return self._server.get_bucket_history_rpc(hotkey)
 
+    def get_bucket_statistics(self, hotkey: str, bucket: str | None = None, start_ms: int | None = None,
+                              include: list[str] | None = None, limit: int | None = None) -> dict | None:
+        """A miner's bucket segments with the sections asked for (summary, positions, snapshots, stats)."""
+        return self._server.get_bucket_statistics_rpc(hotkey, bucket, start_ms, include, limit)
+
+    def get_bucket_history_checkpoint_dict(self) -> dict:
+        """Bucket segment summaries for the validator checkpoint."""
+        return self._server.get_bucket_history_checkpoint_dict_rpc()
+
+    def sync_bucket_history(self, checkpoint_dict: dict) -> dict:
+        """Merge bucket segment summaries from a validator checkpoint."""
+        return self._server.sync_bucket_history_rpc(checkpoint_dict)
+
+    def get_drawdown_snapshot_fields(self, hotkeys: list[str] | None = None) -> dict[str, dict]:
+        """Per-hotkey drawdown fields stamped onto account snapshots."""
+        return self._server.get_drawdown_snapshot_fields_rpc(hotkeys)
+
     def set_miner_bucket(
         self,
         hotkey: str,
@@ -125,7 +142,7 @@ class ChallengePeriodClient(RPCClientBase):
     def admin_set_bucket(self, hotkey: str, bucket: MinerBucket, current_time_ms: int,
                          in_transition: bool = False) -> Tuple[bool, str]:
         """Move a miner into an arbitrary bucket, running the account switch when required.
-        in_transition selects the PRO_CHALLENGE_FUNDED transition week."""
+        in_transition selects the SUBACCOUNT_FUNDED transition week."""
         return self._server.admin_set_bucket_rpc(hotkey, bucket, current_time_ms, in_transition)
 
     def promote_subaccount(

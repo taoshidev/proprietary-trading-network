@@ -1452,8 +1452,8 @@ class EntityMinerRestServer(MinerRestServer):
         entity hotkey on chain, and that the subaccount belongs to that hotkey. The validator picks
         the target bucket from the subaccount's current one and allows only these hops:
           SUBACCOUNT_CHALLENGE                 -> PRO_CHALLENGE_DIRECT
-          SUBACCOUNT_FUNDED                    -> PRO_CHALLENGE_FUNDED (in_transition)
-          PRO_CHALLENGE_FUNDED (in_transition) -> PRO_CHALLENGE_FUNDED (transition cleared)
+          SUBACCOUNT_FUNDED                    -> SUBACCOUNT_FUNDED (in_transition)
+          SUBACCOUNT_FUNDED (in_transition)    -> PRO_CHALLENGE_FUNDED
         Instant Funded subaccounts (created into SUBACCOUNT_FUNDED or PRO_CHALLENGE_FUNDED)
         are refused the hop into the transition.
 
@@ -1465,7 +1465,7 @@ class EntityMinerRestServer(MinerRestServer):
         limit, so a pro size of exactly twice the standard size is charged nothing.
 
         Only the two hops onto a pro account switch accounts: promoting into PRO_CHALLENGE_DIRECT or
-        out of the PRO_CHALLENGE_FUNDED transition closes every open position, cancels every pending
+        out of the SUBACCOUNT_FUNDED transition closes every open position, cancels every pending
         limit order and restarts the ledgers, so neither can be undone. Promoting into the transition keeps
         trading the standard account and wipes nothing: positions, limit orders and ledgers all carry
         on, and only the resting orders that could open or increase a position are cancelled.

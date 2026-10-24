@@ -406,7 +406,7 @@ class TestStandardTierOrderPath(unittest.TestCase):
     HL_ADDRESS = "0x" + "a" * 40
     SIZE = 100_000.0
     # PRO_CHALLENGE_FUNDED in its transition week still trades the standard account
-    TRANSITION = BucketPhase(MinerBucket.PRO_CHALLENGE_FUNDED, in_transition=True)
+    TRANSITION = BucketPhase(MinerBucket.SUBACCOUNT_FUNDED, in_transition=True)
     STANDARD_BUCKETS = (
         MinerBucket.SUBACCOUNT_CHALLENGE,
         MinerBucket.SUBACCOUNT_FUNDED,

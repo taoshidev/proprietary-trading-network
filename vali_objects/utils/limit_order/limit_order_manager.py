@@ -355,7 +355,7 @@ class LimitOrderManager(CacheController):
         return account is not None and account.in_transition
 
     def _blocked_by_pro_transition(self, miner_hotkey, order):
-        """Whether the PRO_CHALLENGE_FUNDED transition blocks this order, fetching the position only when it
+        """Whether the SUBACCOUNT_FUNDED transition blocks this order, fetching the position only when it
         could matter. Used at fill time as well as at placement: a resting order that reduced a
         position when it was placed becomes an entry order once that position closes."""
         if order.execution_type == ExecutionType.BRACKET or order.order_type == OrderType.FLAT:
