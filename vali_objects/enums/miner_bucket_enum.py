@@ -201,8 +201,8 @@ class MinerBucket(Enum):
         positions, cancelling limit orders, and restarting the ledgers.
 
         PRO_FUNDED is deliberately absent: passing the pro challenge keeps the same account, so
-        balance, equity, positions and the ledgers carry over and all-time calmar keeps the ratio
-        it passed with. Nothing earned before the promotion is paid at pro scale - the payout paths
+        balance, equity and the ledgers carry over and all-time calmar keeps the ratio it passed
+        with. Its positions are still closed (BucketPhase.closes_positions_from). Nothing earned before the promotion is paid at pro scale - the payout paths
         exclude it by reading each checkpoint's own bucket instead of wiping the history.
 
         Entering the SUBACCOUNT_FUNDED transition week keeps the standard account; this describes
@@ -330,6 +330,14 @@ class BucketPhase:
         """True when entering this phase closes positions and restarts the ledgers. Entering the
         transition keeps the standard account; the hop out of it to PRO_CHALLENGE_FUNDED switches."""
         return not self.in_transition and self.bucket.switches_account
+
+    def closes_positions_from(self, from_phase: "BucketPhase") -> bool:
+        """True when entering this phase from from_phase closes the open positions: every move into
+        or out of an earning bucket, so each earning bucket is only paid on what it trades itself.
+        Entering the transition week stays in the bucket, and an elimination forfeits instead."""
+        return ((from_phase.is_subaccount_earning or self.is_subaccount_earning)
+                and self.bucket != from_phase.bucket
+                and self.bucket != MinerBucket.ELIMINATED)
 
     @property
     def next_phase(self) -> "BucketPhase | None":

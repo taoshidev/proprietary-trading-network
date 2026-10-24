@@ -121,6 +121,7 @@ NO_PROMOTION = (
 LEDGER_START_MS = 1_735_689_600_000  # 2025-01-01 00:00:00 UTC, a midnight boundary
 NOW_MS = LEDGER_START_MS + 400 * DAILY_MS                # 2026-02-05 00:00 UTC, a Thursday
 MIDNIGHT_MS = (NOW_MS // DAILY_MS) * DAILY_MS
+WEEK_START_MS = TimeUtil.ms_at_start_of_week(NOW_MS)
 MONDAY_MS = TimeUtil.ms_at_start_of_week(NOW_MS)         # the Monday 00:00 UTC that opened this week
 NEXT_MONDAY_MS = MONDAY_MS + 7 * DAILY_MS
 
@@ -491,7 +492,9 @@ def test_pro_state_round_trips_through_the_checkpoint():
     checkpoint, so both have to survive serialization and a validator restart."""
     state = _state(MinerBucket.PRO_FUNDED)
     state.pro_stats = ProStats(calmar=1.5, daily_consistency=0.25, max_drawdown=0.94,
-                               trading_days=42, soft_breach_days=[MIDNIGHT_MS - DAILY_MS, MIDNIGHT_MS])
+                               trading_days=42,
+                               soft_breach_weeks={WEEK_START_MS: [MIDNIGHT_MS - DAILY_MS, MIDNIGHT_MS],
+                                                  WEEK_START_MS - 7 * DAILY_MS: []})
 
     restored = MinerBucketState.from_checkpoint_dict(HOTKEY, state.to_checkpoint_dict())
 
@@ -1112,7 +1115,7 @@ def test_the_latch_records_the_utc_day_a_pro_rule_broke(manager):
     for offset_ms in (0, 30_000, 60_000):
         manager._latch_soft_breaches([HOTKEY], NOW_MS + offset_ms)
 
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == [MIDNIGHT_MS]
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {WEEK_START_MS: [MIDNIGHT_MS]}
     assert manager.miner_states[HOTKEY].is_soft_breach_latched(MIDNIGHT_MS)
 
 
@@ -1127,7 +1130,7 @@ def test_a_breach_that_heals_still_leaves_the_day_latched(manager):
     manager._latch_soft_breaches([HOTKEY], NOW_MS + 60_000)
 
     assert manager.miner_states[HOTKEY].soft_breach is False
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == [MIDNIGHT_MS]
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {WEEK_START_MS: [MIDNIGHT_MS]}
 
 
 def test_refreshing_pro_stats_carries_the_latch(manager):
@@ -1141,16 +1144,17 @@ def test_refreshing_pro_stats_carries_the_latch(manager):
     stats = _refresh_pro_stats(manager, HOTKEY, _even_ledger(MIN_DAYS, realized_pnl_usd=8_000.0))
 
     assert stats.trading_days == MIN_DAYS  # metrics did recompute
-    assert stats.soft_breach_days == [MIDNIGHT_MS]
+    assert stats.soft_breach_weeks == {WEEK_START_MS: [MIDNIGHT_MS]}
 
 
-def test_a_clean_day_is_never_latched(manager):
+def test_a_clean_day_records_the_week_as_checked(manager):
+    """An empty week is the record that the week was checked and stayed clean."""
     _seed(manager, HOTKEY, MinerBucket.PRO_FUNDED, _healthy_drawdown())
     manager.miner_states[HOTKEY].pro_stats = _passing_pro_stats()
 
     manager._latch_soft_breaches([HOTKEY], NOW_MS)
 
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == []
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {WEEK_START_MS: []}
 
 
 def test_a_consistency_breach_alone_is_never_latched(manager):
@@ -1164,7 +1168,7 @@ def test_a_consistency_breach_alone_is_never_latched(manager):
     manager._latch_soft_breaches([HOTKEY], NOW_MS)
 
     assert manager.miner_states[HOTKEY].soft_breach is False
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == []
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {WEEK_START_MS: []}
 
 
 @pytest.mark.parametrize("bucket", [MinerBucket.SUBACCOUNT_FUNDED,
@@ -1177,20 +1181,47 @@ def test_buckets_without_soft_breaches_are_never_latched(manager, bucket):
 
     manager._latch_soft_breaches([HOTKEY], NOW_MS)
 
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == []
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {}
 
 
-def test_latched_days_are_pruned_to_the_retention_window(manager):
-    """Bounded so the challenge period checkpoint cannot grow without limit."""
+def test_latched_weeks_are_never_pruned(manager):
+    """The weeks decide closed payouts, so old ones must survive."""
     _seed(manager, HOTKEY, MinerBucket.PRO_FUNDED, _healthy_drawdown())
     manager.miner_states[HOTKEY].pro_stats = _breaching_pro_stats()
-    retention = ValiConfig.PRO_SOFT_BREACH_LATCH_RETENTION_DAYS
-    stale_day = MIDNIGHT_MS - (retention + 5) * DAILY_MS
-    manager.miner_states[HOTKEY].pro_stats.soft_breach_days = [stale_day]
+    old_week = WEEK_START_MS - 52 * 7 * DAILY_MS
+    manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks = {old_week: [old_week + DAILY_MS]}
 
     manager._latch_soft_breaches([HOTKEY], NOW_MS)
 
-    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_days == [MIDNIGHT_MS]
+    assert manager.miner_states[HOTKEY].pro_stats.soft_breach_weeks == {
+        old_week: [old_week + DAILY_MS], WEEK_START_MS: [MIDNIGHT_MS]}
+
+
+def test_admin_sets_a_soft_breach_week(manager):
+    _seed(manager, HOTKEY, MinerBucket.PRO_FUNDED, _healthy_drawdown())
+
+    with _quiet(manager):
+        assert manager.admin_set_soft_breach_week(HOTKEY, WEEK_START_MS, [MIDNIGHT_MS])[0]
+        assert manager.get_soft_breach_weeks(HOTKEY) == {WEEK_START_MS: [MIDNIGHT_MS]}
+        assert manager.admin_set_soft_breach_week(HOTKEY, WEEK_START_MS, [])[0]
+        assert manager.get_soft_breach_weeks(HOTKEY) == {WEEK_START_MS: []}
+        assert manager.admin_set_soft_breach_week(HOTKEY, WEEK_START_MS, None)[0]
+        assert manager.get_soft_breach_weeks(HOTKEY) == {}
+
+
+@pytest.mark.parametrize("week_start_ms, days", [
+    (WEEK_START_MS + DAILY_MS, []),                # not a Monday
+    (WEEK_START_MS, [WEEK_START_MS + 7 * DAILY_MS]),  # day outside the week
+    (WEEK_START_MS, [MIDNIGHT_MS + 1]),            # not a day start
+])
+def test_admin_rejects_a_malformed_soft_breach_week(manager, week_start_ms, days):
+    _seed(manager, HOTKEY, MinerBucket.PRO_FUNDED, _healthy_drawdown())
+
+    with _quiet(manager):
+        success, _ = manager.admin_set_soft_breach_week(HOTKEY, week_start_ms, days)
+
+    assert success is False
+    assert manager.get_soft_breach_weeks(HOTKEY) == {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1203,7 +1234,7 @@ def _eliminated_state(manager, hk: str, bucket=MinerBucket.PRO_FUNDED) -> MinerB
     state = MinerBucketState(hk, [BucketEntry(phase.bucket, NOW_MS - 10 * DAILY_MS, in_transition=phase.in_transition)])
     state.drawdown = _healthy_drawdown(1.07)
     state.pro_stats = _passing_pro_stats()
-    state.pro_stats.soft_breach_days = [MIDNIGHT_MS - DAILY_MS]
+    state.pro_stats.soft_breach_weeks = {WEEK_START_MS: [MIDNIGHT_MS - DAILY_MS]}
     manager.miner_states[hk] = state
     state.add_bucket_entry(MinerBucket.ELIMINATED, NOW_MS)
     return state
@@ -1283,7 +1314,7 @@ def test_a_pro_revert_keeps_the_stats_the_latch_and_the_trailing_loss_limit(mana
         assert manager.revert_elimination(HOTKEY)
 
     expected = _passing_pro_stats()
-    expected.soft_breach_days = [MIDNIGHT_MS - DAILY_MS]
+    expected.soft_breach_weeks = {WEEK_START_MS: [MIDNIGHT_MS - DAILY_MS]}
     assert state.pro_stats == expected
     assert state.drawdown.eod_hwm == pytest.approx(1.07)
     assert state.drawdown.last_eod_equity == pytest.approx(1.07)
@@ -1350,11 +1381,23 @@ def test_switching_account_clears_the_pro_stats_and_the_latch(manager):
     _seed(manager, HOTKEY, MinerBucket.PRO_CHALLENGE_DIRECT, _healthy_drawdown())
     manager.miner_states[HOTKEY].pro_stats = ProStats(calmar=2.0, daily_consistency=0.1,
                                                       max_drawdown=0.8, trading_days=120,
-                                                      soft_breach_days=[MIDNIGHT_MS])
+                                                      soft_breach_weeks={WEEK_START_MS: [MIDNIGHT_MS]})
 
     assert manager._switch_account(HOTKEY, MinerBucket.PRO_CHALLENGE_DIRECT, NOW_MS) is True
 
     assert manager.miner_states[HOTKEY].pro_stats == ProStats()
+
+
+@pytest.mark.parametrize("from_phase, target, closes", [
+    (_phase(MinerBucket.PRO_CHALLENGE_FUNDED), _phase(MinerBucket.PRO_FUNDED), True),
+    (_phase(MinerBucket.PRO_CHALLENGE_DIRECT), _phase(MinerBucket.PRO_FUNDED), True),
+    (_phase(MinerBucket.PRO_FUNDED), _phase(MinerBucket.SUBACCOUNT_CHALLENGE), True),
+    (_phase(MinerBucket.SUBACCOUNT_FUNDED), TRANSITION, False),
+    (_phase(MinerBucket.PRO_FUNDED), _phase(MinerBucket.ELIMINATED), False),
+    (_phase(MinerBucket.MAINCOMP), _phase(MinerBucket.PROBATION), False),
+])
+def test_closes_positions_from(from_phase, target, closes):
+    assert target.closes_positions_from(from_phase) is closes
 
 
 def test_admin_move_to_pro_funded_sizes_the_account(manager):
@@ -1369,8 +1412,8 @@ def test_admin_move_to_pro_funded_sizes_the_account(manager):
 
     assert success
     manager._entity_client.apply_bucket_account_size.assert_called_once_with(HOTKEY, MinerBucket.PRO_FUNDED)
-    # ...and it is a sizing call only: the account itself is untouched
-    manager._position_client.close_all_positions.assert_not_called()
+    # Leaving an earning bucket closes the positions, but the account and its history stay
+    manager._position_client.close_all_positions.assert_called_once()
     manager._perf_ledger_client.wipe_miners_perf_ledgers.assert_not_called()
 
 
@@ -1465,20 +1508,19 @@ def test_entering_the_transition_wipes_nothing_and_only_sweeps_entry_orders(hop_
 
 @pytest.mark.parametrize("challenge_bucket", PRO_CHALLENGE_BUCKETS)
 def test_pro_funded_keeps_the_account_it_passed_on(hop_manager, challenge_bucket):
-    """Passing the pro challenge keeps the same account.
-
-    Balance, equity, positions and the ledgers all carry over, so all-time calmar keeps the ratio
-    the miner passed with. Challenge-period gains are kept out of the payout by the payout paths
-    reading each checkpoint's own bucket, not by wiping the history.
+    """Passing the pro challenge keeps the same account: balance, equity and the ledgers carry
+    over, so all-time calmar keeps the ratio the miner passed with. The positions are closed, so
+    PRO_FUNDED is only paid on what it trades itself.
     """
     _in_bucket(hop_manager, challenge_bucket)
 
     assert hop_manager.promote_hotkeys([HOTKEY], NOW_MS)
 
     assert hop_manager.miner_states[HOTKEY].current_bucket == MinerBucket.PRO_FUNDED
-    hop_manager._position_client.close_all_positions.assert_not_called()
+    hop_manager._position_client.close_all_positions.assert_called_once_with(
+        hotkey=HOTKEY, close_time_ms=NOW_MS, order_source=OrderSource.SUBACCOUNT_PROMOTION)
+    hop_manager._limit_order_client.cancel_limit_order.assert_called_once_with(HOTKEY, None, "ALL", NOW_MS)
     hop_manager._position_client.archive_positions_for_hotkey.assert_not_called()
-    hop_manager._limit_order_client.cancel_limit_order.assert_not_called()
     hop_manager._perf_ledger_client.wipe_miners_perf_ledgers.assert_not_called()
     hop_manager._debt_ledger_client.delete_debt_ledger.assert_not_called()
     hop_manager._miner_account_client.reset_account.assert_not_called()
@@ -1995,13 +2037,25 @@ class AdminSetBucketCancelsEntryOrdersTest(unittest.TestCase):
             ORDER_HOTKEY, None, "ALL", ORDER_NOW_MS)
         self.manager._limit_order_client.cancel_entry_orders.assert_not_called()
 
-    def test_a_standard_bucket_move_touches_no_orders(self):
+    def test_leaving_an_earning_bucket_cancels_everything(self):
         success, message = self.manager.admin_set_bucket(
             ORDER_HOTKEY, MinerBucket.SUBACCOUNT_ALPHA, ORDER_NOW_MS)
 
         self.assertTrue(success, message)
         self.manager._limit_order_client.cancel_entry_orders.assert_not_called()
+        self.manager._limit_order_client.cancel_limit_order.assert_called_once_with(
+            ORDER_HOTKEY, None, "ALL", ORDER_NOW_MS)
+        self.manager._position_client.close_all_positions.assert_called_once()
+
+    def test_a_move_between_non_earning_buckets_touches_no_orders(self):
+        self.manager.set_miner_bucket(ORDER_HOTKEY, MinerBucket.MAINCOMP, ORDER_NOW_MS)
+
+        success, message = self.manager.admin_set_bucket(
+            ORDER_HOTKEY, MinerBucket.PROBATION, ORDER_NOW_MS)
+
+        self.assertTrue(success, message)
         self.manager._limit_order_client.cancel_limit_order.assert_not_called()
+        self.manager._position_client.close_all_positions.assert_not_called()
 
 
 if __name__ == "__main__":

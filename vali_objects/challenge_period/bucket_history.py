@@ -32,8 +32,8 @@ rewritten.
 
 Every account switch is a bucket change, so segments never straddle two accounts. A segment
 entered through an account switch starts a new account (account_start_ms = start_ms); one entered
-without one (e.g. -> PRO_FUNDED) keeps the account, and the positions, of the segment before it,
-so account_start_ms is inherited.
+without one (e.g. -> PRO_FUNDED) keeps the account of the segment before it, so account_start_ms
+is inherited.
 """
 import json
 import os

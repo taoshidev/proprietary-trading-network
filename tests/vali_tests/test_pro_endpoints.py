@@ -935,5 +935,53 @@ class TestDashboardEndpointsProAccountSize(unittest.TestCase):
                     self.assertEqual(info["pro_account_size"], granted)
 
 
+class TestSoftBreachEndpoint(unittest.TestCase):
+    """GET/POST /admin/soft-breach/<hotkey>, with a mocked challenge period client."""
+
+    WEEK_MS = 1700438400000  # Monday 00:00 UTC
+
+    def setUp(self):
+        self.server = object.__new__(ValidatorRestServer)
+        self.server._get_api_key_safe = MagicMock(return_value="key")
+        self.server.is_valid_api_key = MagicMock(return_value=True)
+        self.server.can_access_tier = MagicMock(return_value=True)
+        self.server._challenge_period_client = MagicMock()
+        self.server._challenge_period_client.get_soft_breach_weeks.return_value = {self.WEEK_MS: []}
+        self.server._challenge_period_client.admin_set_soft_breach_week.return_value = (True, "updated")
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.route("/admin/soft-breach/<hotkey>", methods=["GET"])(self.server.get_soft_breach_weeks)
+        app.route("/admin/soft-breach/<hotkey>", methods=["POST"])(self.server.set_soft_breach_week)
+        self.client = app.test_client()
+
+    def _set(self):
+        return self.server._challenge_period_client.admin_set_soft_breach_week
+
+    def test_get_returns_the_weeks(self):
+        resp = self.client.get("/admin/soft-breach/hk")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(json.loads(resp.data)["soft_breach_weeks"], {str(self.WEEK_MS): []})
+
+    def test_post_forwards_days_an_empty_week_and_a_removal(self):
+        day = self.WEEK_MS + ValiConfig.DAILY_MS
+        for query, days in ((f"days={day}", [day]), ("days=", []), ("remove=true", None)):
+            resp = self.client.post(f"/admin/soft-breach/hk?week_start_ms={self.WEEK_MS}&{query}")
+            self.assertEqual(resp.status_code, 200)
+            self._set().assert_called_with("hk", self.WEEK_MS, days)
+
+    def test_malformed_requests_are_400(self):
+        for query in ("days=", f"week_start_ms={self.WEEK_MS}", f"week_start_ms={self.WEEK_MS}&days=x"):
+            self.assertEqual(self.client.post(f"/admin/soft-breach/hk?{query}").status_code, 400)
+        self._set().assert_not_called()
+
+        self._set().return_value = (False, "not a Monday")
+        self.assertEqual(self.client.post(f"/admin/soft-breach/hk?week_start_ms=1&days=").status_code, 400)
+
+    def test_below_tier_500_is_403(self):
+        self.server.can_access_tier.return_value = False
+        self.assertEqual(self.client.get("/admin/soft-breach/hk").status_code, 403)
+        self.server.can_access_tier.assert_called_with("key", 500)
+
+
 if __name__ == "__main__":
     unittest.main()

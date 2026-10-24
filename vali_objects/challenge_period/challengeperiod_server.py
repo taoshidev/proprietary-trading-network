@@ -238,6 +238,13 @@ class ChallengePeriodServer(RPCServerBase):
     def revert_elimination_rpc(self, hotkey: str) -> bool:
         return self._manager.revert_elimination(hotkey)
 
+    def get_soft_breach_weeks_rpc(self, hotkey: str) -> dict | None:
+        return self._manager.get_soft_breach_weeks(hotkey)
+
+    def admin_set_soft_breach_week_rpc(self, hotkey: str, week_start_ms: int,
+                                       days: list[int] | None) -> Tuple[bool, str]:
+        return self._manager.admin_set_soft_breach_week(hotkey, week_start_ms, days)
+
     def set_miner_drawdown_stats_rpc(self, hotkey: str, updates: dict, force: bool = False) -> Tuple[bool, str, dict | None]:
         return self._manager.set_miner_drawdown_stats(hotkey, updates, force)
 
